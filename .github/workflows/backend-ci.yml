@@ -1,0 +1,45 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths: ["backend/**", ".github/workflows/backend-ci.yml"]
+  push:
+    branches: [develop, main]
+    paths: ["backend/**"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # 아직 Spring 프로젝트가 없으면 건너뜀
+    if: ${{ hashFiles('backend/gradlew') != '' }}
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: eodiisseo_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: Build & Test
+        run: ./gradlew build
+        env:
+          SPRING_PROFILES_ACTIVE: test
+          DB_URL: jdbc:postgresql://localhost:5432/eodiisseo_test
+          DB_USERNAME: test
+          DB_PASSWORD: test
+          USE_MOCK_DISASTER_API: "true"

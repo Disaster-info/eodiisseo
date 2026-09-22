@@ -1,0 +1,6 @@
+# GitHub 아이디로 바꿔 주세요. 해당 경로 PR에 자동으로 리뷰어가 지정됩니다.
+/apps/mobile/   @TODO-이경민
+/backend/       @TODO-김무겸 @TODO-신경진 @TODO-허동우
+/docs/          @TODO-신경진
+/mock-data/     @TODO-허동우
+/.github/       @TODO-이경민 @TODO-김무겸

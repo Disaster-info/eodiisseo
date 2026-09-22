@@ -1,0 +1,11 @@
+name: 📝 문서·설정
+description: 문서 작성, 환경 설정, 조사 등
+title: "[Task] "
+labels: ["docs"]
+body:
+  - type: textarea
+    id: desc
+    attributes:
+      label: 할 일
+    validations:
+      required: true
