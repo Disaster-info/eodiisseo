@@ -11,8 +11,6 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # 아직 RN 프로젝트가 없으면 건너뜀
-    if: ${{ hashFiles('apps/mobile/package.json') != '' }}
     defaults:
       run:
         working-directory: apps/mobile
