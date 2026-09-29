@@ -9,10 +9,21 @@ on:
     paths: ["backend/**"]
 
 jobs:
-  build:
+  # hashFiles() 는 job 단위 if 에서 쓸 수 없어서(step 전용) 먼저 파일 존재 여부만 확인
+  detect:
     runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: echo "exists=${{ hashFiles('backend/gradlew') != '' }}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: detect
     # 아직 Spring 프로젝트가 없으면 건너뜀
-    if: ${{ hashFiles('backend/gradlew') != '' }}
+    if: needs.detect.outputs.exists == 'true'
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
