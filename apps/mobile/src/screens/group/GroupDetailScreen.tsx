@@ -1,4 +1,5 @@
 // FS-GROUP-004 그룹원 관리, 005 탈퇴·권한 이전, 006 위치공유, 007 위치 조회, 008 재난 영향상태, 009 그룹 정보 수정
+import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Switch, Text, TextInput, View } from 'react-native';
@@ -10,6 +11,7 @@ export default function GroupDetailScreen({ id }: { id: number }) {
   const { groups, setGroups, locConsent, location } = useApp();
   const [edit, setEdit] = useState<{ name: string; category: string } | null>(null); // 그룹 정보 수정 중
   const [picking, setPicking] = useState(false); // 관리자 탈퇴: 권한 넘길 사람 고르는 중
+  const [copied, setCopied] = useState(false);   // 초대 코드 복사 직후 2초간 '복사됨' 표시
   const g = groups.find(x => x.id === id);
   const me = g?.members.find(m => m.id === ME);
   if (!g || !me) return <View style={s.fill}><Header title="안심 그룹" /><Text style={s.center}>그룹을 찾을 수 없습니다.</Text></View>;
@@ -40,6 +42,11 @@ export default function GroupDetailScreen({ id }: { id: number }) {
       setGroups(gs => gs.filter(x => x.id !== id));
     });
   };
+  const copyCode = async () => {
+    await Clipboard.setStringAsync(g.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
   const saveEdit = () => {
     if (!edit?.name.trim()) return notify('그룹 이름을 입력하세요');
     setGroups(gs => gs.map(x => (x.id === id ? { ...x, name: edit.name.trim(), category: edit.category } : x)));
@@ -53,7 +60,13 @@ export default function GroupDetailScreen({ id }: { id: number }) {
         <Card>
           <View style={s.row}>
             <Icon name="key-outline" size={18} color={C.sub} />
-            <Text style={s.body}>초대 코드 <Text style={[s.bold, { color: C.primary, letterSpacing: 1 }]} selectable>{g.code}</Text></Text>
+            <Text style={[s.body, { flex: 1 }]}>초대 코드 <Text style={[s.bold, { color: C.primary, letterSpacing: 1 }]} selectable>{g.code}</Text></Text>
+            <Pressable onPress={copyCode} hitSlop={8} accessibilityRole="button" accessibilityLabel="초대 코드 복사"
+              style={({ pressed }) => [s.row, { gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999,
+                backgroundColor: copied ? C.success + '1A' : C.primarySoft }, pressed && s.pressed]}>
+              <Icon name={copied ? 'checkmark' : 'copy-outline'} size={16} color={copied ? C.success : C.primary} />
+              <Text style={{ fontSize: 13, fontWeight: '700', color: copied ? C.success : C.primary }}>{copied ? '복사됨' : '복사'}</Text>
+            </Pressable>
           </View>
           <Text style={s.muted}>{g.category} · 구성원 {g.members.length}/10</Text>
           {me.admin && !edit && (

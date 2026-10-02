@@ -80,6 +80,8 @@ export const LEVELS: Level[] = ['정보', '주의보', '경보']; // 낮음 → 
 export const LEVEL_COLOR: Record<Level, string> = { 경보: '#E5484D', 주의보: '#F59E0B', 정보: '#6B7280' };
 export const LEVEL_ICON = { 경보: 'alert-circle', 주의보: 'warning', 정보: 'information-circle' } as const;
 export const TYPE_ICON = { 지진: 'pulse', 호우: 'rainy', 산불: 'flame' } as const;
+// 기기 GPS 가 알려주는 현재 위치 (실제로는 FS-LOC-002 현재 위치 조회 결과)
+export const GPS_LOCATION = '서울 강남구';
 export const REGIONS = ['서울 강남구', '서울 마포구', '경기 수원시', '부산 해운대구', '강원 강릉시', '경북 경주시'];
 
 // FS-NOTI-002: 발송 이력. disasterId 99 = 삭제된 재난 (잘못된 화면 이동 방지 확인용)

@@ -1,6 +1,8 @@
 // FS-CHAT-001: AI 재난 대응 안내 — 공식 행동요령 검색 → 근거가 있을 때만 AI 답변, 없으면 기본 행동요령
 import { useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Badge, Btn, C, Chip, Header, Icon, s } from '../../components/ui';
 import { BASIC_GUIDE, GUIDES } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
@@ -21,6 +23,7 @@ export default function ChatScreen() {
   const [q, setQ] = useState('');
   const [pending, setPending] = useState(false);
   const scroll = useRef<ScrollView>(null);
+  const { bottom } = useSafeAreaInsets();
 
   const ask = (text: string) => {
     const t = text.trim();
@@ -34,7 +37,9 @@ export default function ChatScreen() {
   };
 
   return (
-    <View style={s.fill}>
+    // 키보드 애니메이션과 같은 프레임으로 아래 여백을 늘려 입력창을 키보드 바로 위에 붙임 (iOS·안드로이드 동일)
+    // automaticOffset: 헤더 높이 자동 보정. -bottom: 키보드가 하단 바를 덮으므로 그 여백만큼 덜 올림
+    <KeyboardAvoidingView style={s.fill} behavior="padding" automaticOffset keyboardVerticalOffset={-bottom}>
       <Header title="재난 행동요령 AI" />
       <ScrollView ref={scroll} onContentSizeChange={() => scroll.current?.scrollToEnd()} contentContainerStyle={{ padding: 16, gap: 12 }}>
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.primarySoft, padding: 12, borderRadius: 12 }}>
@@ -64,11 +69,11 @@ export default function ChatScreen() {
         ))}
         {pending && <View style={s.row}><ActivityIndicator color={C.primary} /><Text style={s.muted}>공식 자료를 찾고 있어요…</Text></View>}
       </ScrollView>
-      <View style={[s.row, { padding: 12, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border }]}>
+      <View style={[s.row, { padding: 12, paddingBottom: 12 + bottom, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border }]}>
         <TextInput style={[s.input, { flex: 1, marginVertical: 0 }]} placeholder="재난 대응 방법을 물어보세요" placeholderTextColor={C.sub}
           value={q} onChangeText={setQ} onSubmitEditing={() => ask(q)} returnKeyType="send" />
         <View style={{ width: 64 }}><Btn title="전송" onPress={() => ask(q)} /></View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

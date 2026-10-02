@@ -7,7 +7,7 @@ import { MAX_RADIUS, SHELTERS, searchShelters } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 export default function ShelterScreen() {
-  const { location, locConsent, areas, areaNames } = useApp();
+  const { location, isManual, areas, areaNames } = useApp();
   const [base, setBase] = useState(location);
   const [from, setFrom] = useState(1);
   const [sel, setSel] = useState<number | null>(null);
@@ -18,7 +18,7 @@ export default function ShelterScreen() {
   return (
     <Page>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-        <Chip text={`${locConsent ? '현재 위치' : '지정 위치'} · ${location}`} on={region === location} onPress={() => pickBase(location)} />
+        <Chip text={`${isManual ? '지정 위치' : '현재 위치'} · ${location}`} on={region === location} onPress={() => pickBase(location)} />
         {areas.filter(a => a !== location).map(a => <Chip key={a} text={areaNames[a] ?? a} on={region === a} onPress={() => pickBase(a)} />)}
       </ScrollView>
 
