@@ -17,9 +17,10 @@ const SHORTCUTS: { icon: IconName; label: string; to: Href }[] = [
 ];
 
 export default function HomeScreen() {
-  const { location, locConsent, areas, areaNames } = useApp();
+  const { location, isManual, areas, areaNames } = useApp();
   const [picked, setPicked] = useState(CURRENT);
-  const base = areas.includes(picked) ? picked : CURRENT; // 선택했던 관심지역이 삭제되면 현재 위치로
+  const others = areas.filter(a => a !== location); // 현재 위치와 같은 관심지역은 칩에서 제외 (중복)
+  const base = others.includes(picked) ? picked : CURRENT; // 선택했던 관심지역이 삭제·중복되면 현재 위치로
   const region = base === CURRENT ? location : base;
   const w = WEATHER[region]; // 없으면 조회 실패 — 임의 값을 만들지 않음
   const tip = w && WEATHER_TIP[w.cond];
@@ -29,15 +30,10 @@ export default function HomeScreen() {
 
   return (
     <Page>
-      <View style={s.row}>
-        <Icon name={locConsent ? 'navigate' : 'pin'} size={14} color={C.sub} />
-        <Text style={[s.muted, { marginTop: 0 }]}>{locConsent ? '현재 위치' : '직접 지정'} · {location}</Text>
-      </View>
-
       <Card>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-          {[CURRENT, ...areas].map(a => <Chip key={a} text={areaNames[a] ?? a} on={base === a} onPress={() => setPicked(a)} />)}
-          {areas.length === 0 && <Chip text="+ 관심지역" on={false} onPress={() => router.push('/areas')} />}
+          {[CURRENT, ...others].map(a => <Chip key={a} text={a === CURRENT ? (isManual ? '지정 위치' : '현재 위치') : areaNames[a] ?? a} on={base === a} onPress={() => setPicked(a)} />)}
+          {others.length === 0 && <Chip text="+ 관심지역" on={false} onPress={() => router.push('/areas')} />}
         </ScrollView>
         {w ? (
           <>

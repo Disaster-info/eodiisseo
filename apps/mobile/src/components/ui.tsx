@@ -3,6 +3,8 @@ import { ComponentProps, ReactNode } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { Stack } from 'expo-router';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export { Ionicons as Icon };
 export type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -13,12 +15,14 @@ const LIGHT = {
   danger: '#E5484D', dangerSoft: '#FDECEC', dangerText: '#B42318',
   warning: '#F59E0B', success: '#16A34A',
   text: '#111827', sub: '#6B7280', border: '#E5E7EB', bg: '#F4F6FA', card: '#FFFFFF',
+  bar: '#E9EDF3', barBorder: '#D3D9E2', // 하단 탭 바: 본문보다 한 톤 진하게 + 뚜렷한 윗선
 };
 const DARK: typeof LIGHT = {
   primary: '#5B8DEF', primarySoft: '#1C2A44', noticeText: '#A9C4FF',
   danger: '#F2555A', dangerSoft: '#3A1D1F', dangerText: '#FFB4AB',
   warning: '#FBBF24', success: '#22C55E',
   text: '#F3F4F6', sub: '#9CA3AF', border: '#2D3340', bg: '#0F1115', card: '#1A1D23',
+  bar: '#1F232B', barBorder: '#363C48',
 };
 
 const shadow = Platform.select({
@@ -106,9 +110,18 @@ export const MapBox = ({ children }: { children: ReactNode }) => (
 // 상세 화면 제목. 네이티브 스택 헤더(뒤로가기 버튼·스와이프 포함)에 제목만 넘김
 export const Header = ({ title }: { title: string }) => <Stack.Screen options={{ title }} />;
 
-// 스크롤 가능한 본문. keyboardShouldPersistTaps: 키보드가 열린 상태에서도 버튼이 한 번에 눌리도록
-export const Page = ({ children }: { children: ReactNode }) =>
-  <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>;
+// 스크롤 가능한 본문. 입력칸을 누르면 키보드에 가리지 않도록 자동 스크롤 (bottomOffset: 키보드와의 간격)
+// keyboardShouldPersistTaps: 키보드가 열린 상태에서도 버튼이 한 번에 눌리도록
+// 안드로이드는 화면이 하단 내비게이션 바 뒤까지 그려지므로(edge-to-edge) 그 높이만큼 아래 여백 추가
+export function Page({ children }: { children: ReactNode }) {
+  const { bottom } = useSafeAreaInsets();
+  return (
+    <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 + bottom }}>
+      {children}
+    </KeyboardAwareScrollView>
+  );
+}
 
 export const STALE_MIN = 10; // 이 시간(분)이 지나면 오래된 위치
 export const freshness = (min?: number) =>

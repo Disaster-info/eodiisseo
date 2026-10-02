@@ -63,13 +63,15 @@ export default function GroupScreen() {
       ))}
       <Card>
         <Label icon="add-circle" text={`새 그룹 만들기 (${created}/${MAX_CREATE})`} />
-        <TextInput style={s.input} placeholder="그룹 이름" value={name} onChangeText={setName} maxLength={20} />
+        <TextInput style={s.input} placeholder="그룹 이름" placeholderTextColor={C.sub} value={name} onChangeText={setName} maxLength={20} />
         <View style={[s.row, { flexWrap: 'wrap' }]}>{CATEGORIES.map(c => <Chip key={c} text={c} on={category === c} onPress={() => setCategory(c)} />)}</View>
         <Btn title="만들기" icon="add" onPress={create} />
       </Card>
       <Card>
         <Label icon="key" text="초대 코드로 참여" />
-        <TextInput style={s.input} placeholder="예: FRD-1234" value={code} onChangeText={setCode} autoCapitalize="characters" autoCorrect={false} />
+        {/* 일부 안드로이드 키보드는 autoCapitalize 를 무시하므로 입력값을 직접 대문자로 변환 */}
+        <TextInput style={[s.input, { letterSpacing: 1 }]} placeholder="예: FRD-1234" placeholderTextColor={C.sub} value={code}
+          onChangeText={t => setCode(t.toUpperCase())} autoCapitalize="characters" autoCorrect={false} maxLength={12} />
         <Btn title="참여하기" icon="enter-outline" outline onPress={join} />
       </Card>
     </Page>

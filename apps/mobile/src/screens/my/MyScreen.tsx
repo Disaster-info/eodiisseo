@@ -1,6 +1,7 @@
-// FS-AUTH-006 회원정보 조회, 003 소셜 계정 연결, 005 로그아웃, 007 회원 탈퇴 / FS-LOC-001 동의 철회 / FS-OPS 진입
+// FS-AUTH-006 회원정보 조회·프로필(이름) 수정, 003 소셜 계정 연결, 005 로그아웃, 007 회원 탈퇴 / FS-LOC-001 동의 철회 / FS-OPS 진입
 import { router } from 'expo-router';
-import { Pressable, Switch, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, Switch, Text, TextInput, View } from 'react-native';
 import { Btn, C, Card, Chip, Icon, IconName, Label, Page, confirm, notify, s } from '../../components/ui';
 import { Provider } from '../../data/mock';
 import { ThemeMode, useApp } from '../../store/AppContext';
@@ -17,16 +18,24 @@ const Row = ({ icon, title, sub, right, onPress }: { icon: IconName; title: stri
     <Icon name={icon} size={22} color={C.sub} />
     <View style={{ flex: 1 }}>
       <Text style={s.body}>{title}</Text>
-      {!!sub && <Text style={s.muted} numberOfLines={1}>{sub}</Text>}
+      {!!sub && <Text style={s.muted}>{sub}</Text>}
     </View>
     {right ?? (onPress && <Icon name="chevron-forward" size={18} color={C.sub} />)}
   </Pressable>
 );
 
 export default function MyScreen() {
-  const { member, provider, linked, setLinked, noti, locConsent, setLocConsent, location, areas, areaNames,
+  const { member, rename, provider, linked, setLinked, noti, locConsent, setLocConsent, location, areas, areaNames,
     logout, expire, withdraw, adminBlockingGroups, theme, setTheme } = useApp();
+  const [nameDraft, setNameDraft] = useState<string | null>(null); // null = 보기 모드
   if (!member) return null;
+
+  const saveName = () => {
+    const name = (nameDraft ?? '').trim();
+    if (name.length < 2) return notify('이름은 2자 이상 입력해 주세요');
+    rename(name);
+    setNameDraft(null);
+  };
 
   // FS-AUTH-003: 추가 인증을 거친 뒤에만 연결 (이메일이 같아도 자동 통합하지 않음)
   const connect = (p: Provider) => confirm('소셜 계정 연결', `${p} 계정으로 추가 인증을 진행합니다.\n이미 다른 회원에 연결된 계정은 연결할 수 없습니다.`, '인증하기',
@@ -48,7 +57,27 @@ export default function MyScreen() {
             <Text style={s.body}>{member.email}</Text>
             <Text style={s.muted}>{provider} 계정으로 로그인 · 가입일 {member.joinedAt}</Text>
           </View>
+          {nameDraft === null && (
+            <Pressable onPress={() => setNameDraft(member.name)} hitSlop={8} accessibilityRole="button" accessibilityLabel="프로필 수정"
+              style={({ pressed }) => [{ padding: 8, borderRadius: 999, backgroundColor: C.primarySoft, alignSelf: 'flex-start' }, pressed && s.pressed]}>
+              <Icon name="create-outline" size={18} color={C.primary} />
+            </Pressable>
+          )}
         </View>
+        {nameDraft !== null && (
+          <View style={{ marginTop: 12 }}>
+            <View style={s.divider} />
+            <Text style={s.bold}>이름</Text>
+            <TextInput style={s.input} value={nameDraft} onChangeText={setNameDraft} maxLength={10} autoFocus
+              placeholder="2~10자" placeholderTextColor={C.sub} returnKeyType="done" onSubmitEditing={saveName} />
+            <Text style={s.bold}>이메일</Text>
+            <Text style={[s.muted, { marginBottom: 12 }]}>{member.email} · {provider} 계정 정보라 여기서 바꿀 수 없어요.</Text>
+            <View style={s.row}>
+              <View style={{ flex: 1 }}><Btn title="취소" outline onPress={() => setNameDraft(null)} /></View>
+              <View style={{ flex: 1 }}><Btn title="저장" onPress={saveName} /></View>
+            </View>
+          </View>
+        )}
       </Card>
 
       <Card>

@@ -2,6 +2,7 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { C, applyTheme } from '../components/ui';
 import { AppProvider, useApp } from '../store/AppContext';
 
@@ -42,8 +43,11 @@ function RootStack() {
 
 export default function RootLayout() {
   return (
-    <AppProvider>
-      <RootStack />
-    </AppProvider>
+    // KeyboardProvider: 키보드 애니메이션을 프레임 단위로 받아 입력창을 키보드와 동시에 움직임 (Expo Go 포함)
+    <KeyboardProvider>
+      <AppProvider>
+        <RootStack />
+      </AppProvider>
+    </KeyboardProvider>
   );
 }
