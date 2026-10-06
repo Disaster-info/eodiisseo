@@ -1,0 +1,5 @@
+spring:
+  # The skeleton context test does not require a database.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
