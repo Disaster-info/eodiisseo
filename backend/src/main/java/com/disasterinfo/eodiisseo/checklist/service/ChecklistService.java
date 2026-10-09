@@ -1,4 +1,4 @@
-package com.disasterinfo.eodiisseo.checklist;
+package com.disasterinfo.eodiisseo.checklist.service;
 
 import org.springframework.stereotype.Service;
 

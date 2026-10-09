@@ -1,4 +1,4 @@
-package com.disasterinfo.eodiisseo.notification;
+package com.disasterinfo.eodiisseo.notification.service;
 
 import org.springframework.stereotype.Service;
 

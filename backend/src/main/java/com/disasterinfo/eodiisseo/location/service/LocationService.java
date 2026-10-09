@@ -1,4 +1,4 @@
-package com.disasterinfo.eodiisseo.location;
+package com.disasterinfo.eodiisseo.location.service;
 
 import org.springframework.stereotype.Service;
 

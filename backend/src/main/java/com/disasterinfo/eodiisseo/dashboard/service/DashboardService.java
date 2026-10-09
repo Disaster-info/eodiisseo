@@ -1,4 +1,4 @@
-package com.disasterinfo.eodiisseo.dashboard;
+package com.disasterinfo.eodiisseo.dashboard.service;
 
 import org.springframework.stereotype.Service;
 

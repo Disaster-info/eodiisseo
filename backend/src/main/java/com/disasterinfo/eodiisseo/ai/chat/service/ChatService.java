@@ -1,4 +1,4 @@
-package com.disasterinfo.eodiisseo.ai.chat;
+package com.disasterinfo.eodiisseo.ai.chat.service;
 
 import org.springframework.stereotype.Service;
 

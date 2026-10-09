@@ -1,4 +1,4 @@
-package com.disasterinfo.eodiisseo.weather;
+package com.disasterinfo.eodiisseo.weather.service;
 
 import org.springframework.stereotype.Service;
 

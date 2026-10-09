@@ -1,4 +1,4 @@
-package com.disasterinfo.eodiisseo.area;
+package com.disasterinfo.eodiisseo.area.service;
 
 import org.springframework.stereotype.Service;
 
