@@ -24,7 +24,13 @@
     "plugins": [
       "@react-native-vector-icons/ionicons",
       "expo-font",
-      "expo-router"
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "가까운 대피소와 대피 경로를 안내하기 위해 현재 위치를 사용합니다."
+        }
+      ]
     ],
     "scheme": "eodiisseo",
     "experiments": {

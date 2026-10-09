@@ -37,29 +37,16 @@ export const DISASTERS: Disaster[] = [
 ];
 export const isActive = (d: Disaster) => d.status === '발생' || d.status === '진행중';
 
-// FS-SHELTER: distance = 지역 기준점으로부터 직선거리(km). 없는 항목(capacity 등)은 비워 둠
-export type Shelter = { id: number; region: string; name: string; addr: string; distance: number; type: string; capacity?: number; updatedAt?: string };
-export const SHELTERS: Shelter[] = [
-  { id: 1, region: '서울 강남구', name: '역삼초등학교 체육관', addr: '서울 강남구 역삼로 123', distance: 0.4, capacity: 500, type: '지진옥외대피장소', updatedAt: '2026-09-01' },
-  { id: 2, region: '서울 강남구', name: '강남구민회관', addr: '서울 강남구 학동로 426', distance: 1.2, capacity: 800, type: '임시주거시설', updatedAt: '2026-09-01' },
-  { id: 3, region: '서울 강남구', name: '선릉공원', addr: '서울 강남구 선릉로 100길', distance: 1.8, type: '지진옥외대피장소' },
-  { id: 4, region: '경기 수원시', name: '수원종합운동장', addr: '경기 수원시 장안구 경수대로 893', distance: 2.6, capacity: 3000, type: '지진옥외대피장소', updatedAt: '2026-07-10' },
-  { id: 5, region: '서울 마포구', name: '망원한강공원', addr: '서울 마포구 마포나루길 467', distance: 0.9, type: '지진옥외대피장소', updatedAt: '2026-08-15' },
-];
-export const MAX_RADIUS = 5; // km, 시스템 정책값
-// from km 부터 시작해 대피소가 나오는 첫 반경에서 멈춤. 최대 반경까지 없으면 빈 목록
-export function searchShelters(all: Shelter[], region: string, from = 1) {
-  const inRegion = all.filter(x => x.region === region);
-  for (let r = from; r <= MAX_RADIUS; r++) {
-    const hit = inRegion.filter(x => x.distance <= r);
-    if (hit.length) return { radius: r, list: hit.sort((a, b) => a.distance - b.distance) };
-  }
-  return { radius: MAX_RADIUS, list: [] };
-}
-
-// 경로 API 응답 흉내. 없는 대피소 id = 경로를 찾을 수 없음. minutes 는 API 가 준 경우에만
-export const ROUTES: Record<number, { km: number; minutes?: number }> = {
-  1: { km: 0.6, minutes: 9 }, 2: { km: 1.5, minutes: 22 }, 3: { km: 2.3 }, 5: { km: 1.1, minutes: 16 },
+// 지역 대표 좌표 — GPS 를 쓸 수 없을 때(위치 미동의·직접 지정·관심지역 기준)의 기준 위치
+// 대피소 검색과 경로 출발지에 사용. REGIONS 의 모든 지역을 포함해야 함
+// (대피소 목록은 백엔드 API 로 받음: src/api/shelter.ts)
+export const REGION_CENTER: Record<string, { lat: number; lng: number }> = {
+  '서울 강남구': { lat: 37.5006, lng: 127.0364 }, // 역삼역
+  '서울 마포구': { lat: 37.5560, lng: 126.9101 }, // 망원역
+  '경기 수원시': { lat: 37.2659, lng: 127.0000 }, // 수원역
+  '부산 해운대구': { lat: 35.1631, lng: 129.1635 }, // 해운대역
+  '강원 강릉시': { lat: 37.7519, lng: 128.8761 }, // 강릉시청
+  '경북 경주시': { lat: 35.8562, lng: 129.2247 }, // 경주시청
 };
 
 type Weather = { temp: number; cond: '맑음' | '흐림' | '비' | '눈'; at: string };
