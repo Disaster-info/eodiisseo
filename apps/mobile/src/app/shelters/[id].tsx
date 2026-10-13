@@ -3,5 +3,5 @@ import ShelterDetailScreen from '../../screens/shelter/ShelterDetailScreen';
 
 export default function Route() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  return <ShelterDetailScreen id={Number(id)} />;
+  return <ShelterDetailScreen id={id} />;
 }
