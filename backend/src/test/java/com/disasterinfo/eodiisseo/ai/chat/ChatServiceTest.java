@@ -1,6 +1,7 @@
 package com.disasterinfo.eodiisseo.ai.chat;
 
 import com.disasterinfo.eodiisseo.ai.chat.dto.ChatRequest;
+import com.disasterinfo.eodiisseo.ai.chat.adapter.OllamaChatAnswerGenerator;
 import com.disasterinfo.eodiisseo.ai.chat.dto.ChatResponse;
 import com.disasterinfo.eodiisseo.ai.chat.dto.ChatResponse.AnswerType;
 import com.disasterinfo.eodiisseo.ai.chat.entity.ChatAnswer;
@@ -17,6 +18,8 @@ import com.disasterinfo.eodiisseo.ai.chat.port.ChatOfficialResourceSearchPort.Se
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatPromptPrivacyPort;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatPromptPrivacyPort.PreparedQuestion;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatRetentionPolicy;
+import com.disasterinfo.eodiisseo.ai.ollama.OllamaChatClient;
+import com.disasterinfo.eodiisseo.ai.ollama.OllamaJson;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -44,6 +47,11 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ChatServiceTest {
 
@@ -494,6 +502,66 @@ class ChatServiceTest {
     }
 
     @Test
+    void configuredOllamaAdapterStoresOnlyVerifiedQuotesAndReceivesThePrivacyApprovedQuestion() {
+        String raw = "지진 질문 private@example.com SECRET_TOKEN";
+        String safe = "지진 공식 행동요령";
+        privacy.action = ignored -> Optional.of(new PreparedQuestion(safe, true));
+        OllamaChatClient client = configuredLocalClient();
+        String selected = resource(RESOURCE_TWO).content();
+        when(client.chat(anyString(), anyString(), anyMap(), eq(START.plus(ChatService.RESPONSE_LIMIT))))
+                .thenAnswer(invocation -> {
+                    var payload = OllamaJson.readObject(invocation.getArgument(1, String.class));
+                    assertThat(payload.get("question").asString()).isEqualTo(safe);
+                    assertThat(invocation.getArgument(1, String.class)).doesNotContain("private@example.com", "SECRET_TOKEN");
+                    return new OllamaChatClient.Response(localAnswer(selected, RESOURCE_TWO), "configured-local-model", Duration.ofMillis(1));
+                });
+
+        ChatResponse response = localService(client).requestGuidance(MEMBER, SESSION, new ChatRequest(raw));
+
+        assertThat(response.answerType()).isEqualTo(AnswerType.AI);
+        assertThat(response.answer()).isEqualTo(selected);
+        assertThat(response.sources()).containsExactly(new ChatResponse.Source("공식기관", "공식 행동요령"));
+        assertThat(store.onlyAnswer().getModelName()).isEqualTo("configured-local-model");
+        assertThat(store.resources.get(store.onlyAnswer().getAnswerId())).containsExactly(RESOURCE_TWO);
+        assertThat(store.onlyAnswer().getQuestionText()).isEqualTo(raw);
+    }
+
+    @Test
+    void unverifiedOllamaOutputIsReplacedAndNeverSavedAsAnAiAnswer() {
+        OllamaChatClient client = configuredLocalClient();
+        when(client.chat(anyString(), anyString(), anyMap(), eq(START.plus(ChatService.RESPONSE_LIMIT))))
+                .thenReturn(new OllamaChatClient.Response(localAnswer("37.123456은 무조건 안전합니다. SECRET_TOKEN", RESOURCE_ONE),
+                        "configured-local-model", Duration.ofMillis(1)));
+
+        ChatResponse response = localService(client).requestGuidance(MEMBER, SESSION, new ChatRequest(QUESTION));
+
+        assertThat(response.answerType()).isEqualTo(AnswerType.FALLBACK);
+        assertThat(response.answer()).doesNotContain("37.123456", "SECRET_TOKEN", "무조건 안전");
+        assertThat(response.sources()).isEmpty();
+        assertThat(store.onlyAnswer().getStatus()).isEqualTo(Status.FAILED);
+        assertThat(store.onlyAnswer().getModelName()).isNull();
+        assertThat(store.resources.get(store.onlyAnswer().getAnswerId())).isEmpty();
+    }
+
+    @Test
+    void anOllamaAnswerAfterTheSharedDeadlineIsStoredAsTimeoutFallback() {
+        OllamaChatClient client = configuredLocalClient();
+        when(client.chat(anyString(), anyString(), anyMap(), eq(START.plus(ChatService.RESPONSE_LIMIT))))
+                .thenAnswer(invocation -> {
+                    clock.advance(ChatService.RESPONSE_LIMIT);
+                    return new OllamaChatClient.Response(localAnswer(resource(RESOURCE_ONE).content(), RESOURCE_ONE),
+                            "configured-local-model", Duration.ofMinutes(10));
+                });
+
+        ChatResponse response = localService(client).requestGuidance(MEMBER, SESSION, new ChatRequest(QUESTION));
+
+        assertThat(response.answerType()).isEqualTo(AnswerType.FALLBACK);
+        assertThat(store.onlyAnswer().getStatus()).isEqualTo(Status.TIMEOUT);
+        assertThat(store.onlyAnswer().getModelName()).isNull();
+        assertThat(store.resources.get(store.onlyAnswer().getAnswerId())).isEmpty();
+    }
+
+    @Test
     void missingPrivacyMinimizationNeverSendsRawQuestionToAnyExternalPort() {
         ChatService service = new ChatService(Optional.of(auth), Optional.of(search()), Optional.of(generator),
                 Optional.of(store), Optional.of(requestTimePolicy()), Optional.empty(), clock);
@@ -552,6 +620,26 @@ class ChatServiceTest {
     private ChatService service() {
         return new ChatService(Optional.of(auth), Optional.of(search()), Optional.of(generator), Optional.of(store), Optional.of(requestTimePolicy()), Optional.of(privacy), clock);
     }
+
+    private ChatService localService(OllamaChatClient client) {
+        return new ChatService(Optional.of(auth), Optional.of(search()),
+                Optional.of(new OllamaChatAnswerGenerator(client, clock)), Optional.of(store),
+                Optional.of(requestTimePolicy()), Optional.of(privacy), clock);
+    }
+
+    private static OllamaChatClient configuredLocalClient() {
+        OllamaChatClient client = mock(OllamaChatClient.class);
+        when(client.isConfigured()).thenReturn(true);
+        when(client.modelName()).thenReturn("configured-local-model");
+        return client;
+    }
+
+    private static String localAnswer(String text, UUID resourceId) {
+        return OllamaJson.write(Map.of("answer", text, "sufficientEvidence", true,
+                "usedResourceIds", List.of(resourceId.toString()),
+                "citations", List.of(Map.of("resourceId", resourceId.toString(), "excerpt", text))));
+    }
+
 
     /** Fake-only reference policy, explicitly not a production resolution of the document conflict. */
     private static ChatRetentionPolicy requestTimePolicy() {

@@ -7,6 +7,9 @@ import com.disasterinfo.eodiisseo.ai.summary.port.SummaryRetryPolicy;
 import com.disasterinfo.eodiisseo.ai.summary.port.SummarySourceReader;
 import com.disasterinfo.eodiisseo.ai.summary.port.SummaryStore;
 import com.disasterinfo.eodiisseo.ai.summary.port.SummaryTaskDispatcher;
+import com.disasterinfo.eodiisseo.ai.summary.adapter.OllamaSummaryGenerator;
+import com.disasterinfo.eodiisseo.ai.ollama.OllamaChatClient;
+import com.disasterinfo.eodiisseo.ai.ollama.OllamaJson;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -29,6 +32,11 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** Fake external services exist only here; none are application beans. */
 class SummaryServiceTest {
@@ -160,6 +168,39 @@ class SummaryServiceTest {
         assertThat(generator.lastInput).isEqualTo(sources.current);
         assertThat(generator.lastInput.officialSeverity()).isEqualTo("WARNING");
         assertThat(store.states.get(REVISION).attemptCount()).isZero();
+    }
+
+    @Test
+    void configuredOllamaAdapterCompletesThroughTheExistingWorkerAndResponseContracts() {
+        var client = mock(OllamaChatClient.class);
+        when(client.isConfigured()).thenReturn(true);
+        when(client.modelName()).thenReturn("audit-model");
+        when(client.chat(anyString(), anyString(), anyMap(), isNull())).thenReturn(new OllamaChatClient.Response(
+                OllamaJson.write(Map.of("excerpts", List.of(sources.current.originalText()))), "audit-model", Duration.ofMillis(5)));
+        var summary = service(new OllamaSummaryGenerator(client, Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC)));
+        assertThat(summary.onOfficialRevisionSaved(REVISION, NOW)).isEqualTo(SummaryService.Submission.QUEUED);
+        assertThat(summary.processRevision(REVISION, NOW)).isEqualTo(SummaryService.Processing.COMPLETED);
+        var response = summary.getSummary(MEMBER, SESSION, DISASTER);
+        assertThat(response.summary()).contains("공식 위험등급: WARNING", sources.current.originalText());
+        assertThat(response.generatedAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(store.states.get(REVISION).modelName()).isEqualTo("audit-model");
+        assertThat(failureCodes).isEmpty();
+    }
+
+    @Test
+    void unsupportedOllamaOutputFailsTheJobAndPreservesTheOfficialOriginal() {
+        var client = mock(OllamaChatClient.class);
+        when(client.isConfigured()).thenReturn(true);
+        when(client.modelName()).thenReturn("audit-model");
+        when(client.chat(anyString(), anyString(), anyMap(), isNull())).thenReturn(new OllamaChatClient.Response(
+                OllamaJson.write(Map.of("excerpts", List.of("A fictional region is safe at an invented time."))),
+                "audit-model", Duration.ofMillis(5)));
+        var summary = service(new OllamaSummaryGenerator(client, clock));
+        assertThat(summary.onOfficialRevisionSaved(REVISION, NOW)).isEqualTo(SummaryService.Submission.QUEUED);
+        assertThat(summary.processRevision(REVISION, NOW)).isEqualTo(SummaryService.Processing.FAILED);
+        assertThat(summary.getSummary(MEMBER, SESSION, DISASTER).summary()).isNull();
+        assertThat(sources.current.originalText()).isEqualTo("Exact official provider text.");
+        assertThat(failureCodes).containsExactly(SummaryFailureRecorder.Code.GENERATION_FAILED);
     }
 
     @Test
@@ -518,7 +559,11 @@ class SummaryServiceTest {
     }
 
     private SummaryService service() {
-        return new SummaryService(Optional.of(auth), Optional.of(sources), Optional.of(store), Optional.of(generator),
+        return service(generator);
+    }
+
+    private SummaryService service(SummaryGenerator selectedGenerator) {
+        return new SummaryService(Optional.of(auth), Optional.of(sources), Optional.of(store), Optional.of(selectedGenerator),
                 Optional.of(dispatcher), Optional.of(() -> policy),
                 Optional.of((code, disaster, revision, at) -> failureCodes.add(code)), clock);
     }
