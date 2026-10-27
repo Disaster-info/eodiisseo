@@ -9,3 +9,5 @@ spring:
     hibernate:
       ddl-auto: none
     open-in-view: false
+  flyway:
+    locations: classpath:db/migration,classpath:db/assigned
