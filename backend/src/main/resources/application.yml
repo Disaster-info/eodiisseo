@@ -1,6 +1,13 @@
 spring:
   application:
     name: eodiisseo
+  # 개발 편의: 루트 .env(키=값)가 있으면 설정값으로 읽는다. 없으면 무시하며, 같은 이름의 OS 환경변수가 우선한다.
+  # backend/에서 실행하면 ../.env, 저장소 루트에서 실행하면 .env
+  # (API 명세서 공통 계약 ".env 자동 로드는 가정하지 않는다" — 운영은 OS 환경변수로 주입하고, 이 import는 optional이라 없어도 동작)
+  config:
+    import:
+      - optional:file:../.env[.properties]
+      - optional:file:.env[.properties]
   datasource:
     url: ${DB_URL:}
     username: ${DB_USERNAME:}
@@ -9,3 +16,29 @@ spring:
     hibernate:
       ddl-auto: none
     open-in-view: false
+
+# 외부 API. 인증키는 OS 환경변수 또는 루트 .env 로 주입한다 (.env.example 참고)
+external:
+  tmap:
+    base-url: https://apis.openapi.sk.com
+    app-key: ${TMAP_APP_KEY:}
+    # API 명세서 "지도 운영 설정": TMAP_CONNECT_TIMEOUT_MS=2000, TMAP_ROUTE_RESPONSE_TIMEOUT_MS=10000
+    # (경로 요청 예산 12000ms = 연결 2s + 응답 10s, 보행 POST는 재시도 0회라 예산 안에 들어간다)
+    connect-timeout: ${TMAP_CONNECT_TIMEOUT_MS:2000}ms
+    read-timeout: ${TMAP_ROUTE_RESPONSE_TIMEOUT_MS:10000}ms
+  # 재난안전데이터 공유플랫폼 — API마다 서비스키가 다르다 (외부 API 정리본 SD-001~004)
+  safetydata:
+    base-url: https://www.safetydata.go.kr
+    earthquake-shelter-key: ${SAFETYDATA_EARTHQUAKE_SHELTER_KEY:}   # SD-001 지진옥외대피장소
+    connect-timeout: 3s
+    read-timeout: 10s
+
+app:
+  # 주변 대피소 검색 반경 (API 명세서 "지도 운영 설정": 초기 1km, 1km씩 확대, 최대 5km)
+  shelter:
+    initial-radius-km: ${SHELTER_INITIAL_RADIUS_KM:1}
+    radius-step-km: ${SHELTER_RADIUS_STEP_KM:1}
+    max-radius-km: ${SHELTER_MAX_RADIUS_KM:5}
+  cors:
+    # 개발용: 로컬·사설망의 Expo web 허용. 쉼표로 구분
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://192.168.*.*:*}
