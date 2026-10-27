@@ -101,3 +101,30 @@ DB가 준비되면 `ShelterRepository`를 JPA 구현으로 바꾸고, 공공데�
 - 나머지 기능(area, checklist, group, location, ops, weather, ai.resource)은 `XxxService` 골격만 있습니다.
 
 외부 응답 DTO를 Entity로 사용하거나 Entity를 Controller 응답으로 반환하지 않습니다.
+
+## 로컬 PostgreSQL과 전체 DDL
+
+저장소 루트에서 다음 명령을 실행합니다. Windows 사용자 경로에 PostgreSQL 17.11과 PostGIS 3.6.2를 설치하며 시스템 서비스는 등록하지 않습니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Install-LocalDatabase.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Start-LocalDatabase.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Start-LocalDatabase.ps1 -Audit
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Test-LocalDatabase.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Run-LocalBackend.ps1
+```
+
+- 개발 DB: `127.0.0.1:55432/eodiisseo_local`, 계정 `eodiisseo_app`. 비밀번호와 JWT 키는 최초 실행 시 생성해 Git에서 제외되는 루트 `.env`에 저장합니다. 기존 `.env`는 덮어쓰지 않습니다.
+- 테스트 클러스터: `127.0.0.1:55433`. 별도 데이터 경로이며 `eodiisseo_audit`는 이 클러스터의 loopback에서만 비밀번호 없이 접속합니다. 개발 DB의 사용자 데이터를 테스트에 사용하지 않습니다.
+- 설치 경로: `%LOCALAPPDATA%/eodiisseo/postgresql17`. 테스트가 만드는 `eodiisseo_verify_*` DB와 `audit_*` 스키마는 해당 테스트가 정리합니다.
+- 종료: `Stop-LocalDatabase.ps1`, 테스트 DB는 같은 명령에 `-Audit`를 추가합니다. 데이터 디렉터리는 삭제하지 않습니다. Windows 로그인 후 필요할 때 시작 스크립트를 다시 실행합니다.
+
+**새 DB의 기준은 `db/migration`의 Flyway SQL입니다.** ERD 4.2.1의 36개 테이블·공간 제약·트리거·설명과 인증 제한용 보조 테이블을 생성합니다. 최초 세 번의 migration은 전체 스키마, 요청 제한, 공식자료 기반 체크리스트·제공처 데이터입니다. PostGIS 확장은 시작 스크립트가 관리자 계정으로 미리 설치하며 앱 계정은 superuser가 아닙니다. 서버 시작 시 JPA `validate`로 실제 테이블과 엔터티도 확인합니다.
+
+`db/assigned/V2026101601`~`1605`는 기존 이력과 기존 격리 테스트를 위해 보존하지만 기본 실행 경로에서는 제외합니다. 독립 DDL과 새 마이그레이션을 같은 DB에 중복 실행하지 마세요. 기존 assigned 이력이 있는 DB를 자동 전환하거나 baseline/repair/clean하지 않습니다. 그런 DB는 별도의 현황 조사와 전환 migration이 필요합니다.
+
+`Test-LocalDatabase.ps1`는 기존 타 기능 audit 테스트가 직접 만드는 최소 스키마에서는 Flyway를 끄고, `CanonicalDatabaseIntegrationTest`에서는 완전히 새 DB에 실제 production migrations를 명시적으로 실행합니다. 따라서 최소 fixture와 실제 전체 스키마 검증이 섞이지 않습니다. Docker 전용 테스트와 실제 Ollama 호출 테스트는 각각 해당 환경이 있어야 실행됩니다.
+
+API 키는 `.env`에 `KMA_SERVICE_KEY` 또는 `DATA_GO_KR_SERVICE_KEY`, `GOOGLE_CLIENT_IDS`, `KAKAO_APP_ID` 등으로 별도 설정합니다. 키·토큰·DB 비밀번호는 커밋하지 않습니다. 실제 사용자 로그인은 앱에서 얻은 Google ID token 또는 Kakao access token으로 확인해야 합니다.
+
+체크리스트 seed는 공식 지진·호우·산불 행동요령을 앱용으로 요약하고 원문 URL·확인시각을 함께 저장합니다. 공식 행정경계·재난·수집 성공 이력·운영자 계정은 임의로 만들지 않습니다. 관리자의 수집 접수는 수집 담당 `ShelterRefreshGateway` 구현 연결 전까지 503입니다. 대피소 저장소가 아직 메모리 구현이라는 점도 DDL 작성만으로 변경되지 않습니다.
