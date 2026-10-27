@@ -118,6 +118,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Run
 - 테스트 클러스터: `127.0.0.1:55433`. 별도 데이터 경로이며 `eodiisseo_audit`는 이 클러스터의 loopback에서만 비밀번호 없이 접속합니다. 개발 DB의 사용자 데이터를 테스트에 사용하지 않습니다.
 - 설치 경로: `%LOCALAPPDATA%/eodiisseo/postgresql17`. 테스트가 만드는 `eodiisseo_verify_*` DB와 `audit_*` 스키마는 해당 테스트가 정리합니다.
 - 종료: `Stop-LocalDatabase.ps1`, 테스트 DB는 같은 명령에 `-Audit`를 추가합니다. 데이터 디렉터리는 삭제하지 않습니다. Windows 로그인 후 필요할 때 시작 스크립트를 다시 실행합니다.
+- 백엔드 종료: `powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Stop-LocalBackend.ps1`. 이 스크립트로 시작한 로컬 Java 프로세스만 확인 후 종료합니다.
 
 **새 DB의 기준은 `db/migration`의 Flyway SQL입니다.** ERD 4.2.1의 36개 테이블·공간 제약·트리거·설명과 인증 제한용 보조 테이블을 생성합니다. 최초 세 번의 migration은 전체 스키마, 요청 제한, 공식자료 기반 체크리스트·제공처 데이터입니다. PostGIS 확장은 시작 스크립트가 관리자 계정으로 미리 설치하며 앱 계정은 superuser가 아닙니다. 서버 시작 시 JPA `validate`로 실제 테이블과 엔터티도 확인합니다.
 
@@ -128,3 +129,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Run
 API 키는 `.env`에 `KMA_SERVICE_KEY` 또는 `DATA_GO_KR_SERVICE_KEY`, `GOOGLE_CLIENT_IDS`, `KAKAO_APP_ID` 등으로 별도 설정합니다. 키·토큰·DB 비밀번호는 커밋하지 않습니다. 실제 사용자 로그인은 앱에서 얻은 Google ID token 또는 Kakao access token으로 확인해야 합니다.
 
 체크리스트 seed는 공식 지진·호우·산불 행동요령을 앱용으로 요약하고 원문 URL·확인시각을 함께 저장합니다. 공식 행정경계·재난·수집 성공 이력·운영자 계정은 임의로 만들지 않습니다. 관리자의 수집 접수는 수집 담당 `ShelterRefreshGateway` 구현 연결 전까지 503입니다. 대피소 저장소가 아직 메모리 구현이라는 점도 DDL 작성만으로 변경되지 않습니다.
+
+## 담당 기능 연결과 실제 검증
+
+로컬 `.env`의 `AUTH_BRIDGES_ENABLED=true`로 기존 다른 담당 인터페이스의 구현을 켭니다. `auth/config/AuthenticationPortsConfiguration`은 대시보드·AI 요약·AI 답변·알림 인증을 제공하고 `weather/adapter/DashboardWeatherAdapter`는 같은 날씨 서비스의 캐시·오래된 자료·실패 정책을 사용합니다. 다른 기능의 HTTP 컨트롤러를 대신 구현하지는 않습니다.
+
+`SessionAccessService`는 ACTIVE 회원, 세션 소유자, 만료, 폐기 상태를 DB에서 재검사합니다. AI 저장 콜백은 같은 DataSource/TransactionManager에 참여해야 하며 회원→세션 잠금 순서를 사용합니다. 별도 커넥션이나 비동기 스레드에서 콜백 저장을 실행하면 트랜잭션 보호를 받을 수 없습니다. 실제 HTTP/JPA 통합 테스트는 일반 회원의 관리자 접근 403, 현재 OPS 권한 반영, 입력 오류 400, 갱신 거부 401, 로그아웃 후 접근 차단, 탈퇴 시 AI 삭제·OPS 회수·지연 저장 거부를 확인합니다.
+
+체크리스트는 seed와 실제 완료 상태를 확인하고, 그룹은 정원 10명·회원당 3개 동시 가입·관리자 이관·공식 경계점 포함·위치 동의 철회 시 좌표 비공개를 실제 PostGIS에서 검사합니다. 날씨 DB 테스트는 동일 격자 캐시, 제공처 실패 시 제한된 이전 자료 반환, 3시간 경과 자료 거부를 확인합니다. 실제 기상청 호출은 `.env`에 키가 있을 때 `KmaLiveIntegrationTest`가 실행하며 HTTP 디버그 URI에 인증키가 남지 않게 합니다.
+
+Google/Kakao의 실제 로그인 성공은 앱이 제공하는 유효한 사용자 토큰이 추가로 필요합니다. 수집 worker·실제 운영 행정경계 적재·타 담당 HTTP API는 해당 담당과 연결해야 하며 DB 생성이나 테스트 통과를 그 연결 완료로 취급하지 않습니다.

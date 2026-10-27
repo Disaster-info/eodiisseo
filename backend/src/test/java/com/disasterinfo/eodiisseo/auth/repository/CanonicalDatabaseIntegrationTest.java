@@ -11,6 +11,13 @@ import com.disasterinfo.eodiisseo.group.repository.GroupRepository;
 import com.disasterinfo.eodiisseo.group.service.GroupService;
 import com.disasterinfo.eodiisseo.ops.repository.OpsRepository;
 import com.disasterinfo.eodiisseo.ops.service.OpsService;
+import com.disasterinfo.eodiisseo.weather.repository.WeatherRepository;
+import com.disasterinfo.eodiisseo.weather.service.WeatherService;
+import com.disasterinfo.eodiisseo.weather.dto.WeatherObservation;
+import com.disasterinfo.eodiisseo.weather.client.WeatherProvider;
+import java.math.BigDecimal;
+import java.util.concurrent.atomic.AtomicInteger;
+import tools.jackson.databind.ObjectMapper;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -112,5 +119,27 @@ class CanonicalDatabaseIntegrationTest {
         assertNotNull(service.status("LIVE").get("apiStatuses"));assertNotNull(service.disasters(null,null,null,null,0,20,"LIVE").get("disasters"));
         assertNotNull(service.errors(null,null,null,0,20,"LIVE").get("errorLogs"));
         assertEquals(503,assertThrows(ApiProblem.class,()->service.refresh(member(),null,"LIVE")).status());
+    }
+    @Test void weatherDatabaseCacheAndFailureFallbackRemainOwnedByWeather(){
+        Instant now=Instant.now();AtomicInteger calls=new AtomicInteger();
+        WeatherProvider provider=(grid,time)->{calls.incrementAndGet();return new WeatherObservation(new BigDecimal("18.2"),"SUNNY","FORECAST",now.minusSeconds(60),now,now,Map.of("T1H","18.2"));};
+        var service=new WeatherService(new WeatherRepository(db),provider,Clock.fixed(now,ZoneOffset.UTC),new ObjectMapper(),600,7200,10800,"WEATHER_API");
+        tx.execute(s->service.currentCoordinates(37.5,127.0));tx.execute(s->service.currentCoordinates(37.5,127.0));assertEquals(1,calls.get());
+        WeatherProvider failure=(grid,time)->{throw new ApiProblem(502,"TEST_UPSTREAM_FAILURE","test-only");};
+        var fallback=new WeatherService(new WeatherRepository(db),failure,Clock.fixed(now.plusSeconds(700),ZoneOffset.UTC),new ObjectMapper(),600,7200,10800,"WEATHER_API");
+        assertEquals(true,tx.execute(s->fallback.currentCoordinates(37.5,127.0)).get("stale"));
+        var expired=new WeatherService(new WeatherRepository(db),failure,Clock.fixed(now.plusSeconds(10801),ZoneOffset.UTC),new ObjectMapper(),600,7200,10800,"WEATHER_API");
+        assertThrows(ApiProblem.class,()->tx.execute(s->expired.currentCoordinates(37.5,127.0)));
+    }
+    @Test void groupCapacityAndAdministratorTransferAreEnforced(){
+        var service=new GroupService(new GroupRepository(db),clock,300);UUID owner=member();
+        var group=tx.execute(s->service.create(owner,"capacity",null));UUID groupId=(UUID)group.get("groupId");String code=(String)group.get("inviteCode");
+        UUID next=member();tx.execute(s->service.join(next,code));
+        for(int i=0;i<8;i++){UUID person=member();tx.execute(s->service.join(person,code));}
+        UUID overflow=member();assertThrows(ApiProblem.class,()->tx.execute(s->service.join(overflow,code)));
+        assertThrows(ApiProblem.class,()->tx.execute(s->{service.leave(owner,groupId);return null;}));
+        tx.execute(s->service.transfer(owner,groupId,next));tx.execute(s->{service.leave(owner,groupId);return null;});
+        assertEquals(1,db.count("select count(*) from group_member where group_id=? and role='ADMIN'",groupId));
+        assertEquals(next,db.one("select member_id from group_member where group_id=? and role='ADMIN'",groupId).get("member_id"));
     }
 }

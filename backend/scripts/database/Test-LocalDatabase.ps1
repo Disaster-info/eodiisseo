@@ -11,8 +11,10 @@ try {
         # The other owner's audit startup test creates its own minimal schema.
         # CanonicalDatabaseIntegrationTest explicitly runs the REAL migrations on a separate DB.
         SPRING_FLYWAY_ENABLED='false'
+        AUTH_BRIDGES_ENABLED='false'
     }
-    Get-Content -LiteralPath (Join-Path $repo '.env') | ForEach-Object {if($_ -match '^(JWT_SECRET)=(.*)$'){$values[$matches[1]]=$matches[2]}}
+    Get-Content -LiteralPath (Join-Path $repo '.env') | ForEach-Object {if($_ -match '^(JWT_SECRET|KMA_SERVICE_KEY|DATA_GO_KR_SERVICE_KEY)=(.*)$'){$values[$matches[1]]=$matches[2]}}
+    $values.EODIISSEO_LIVE_WEATHER_TESTS=if($values.KMA_SERVICE_KEY -or $values.DATA_GO_KR_SERVICE_KEY){'true'}else{'false'}
     foreach($key in $values.Keys){$previous[$key]=[Environment]::GetEnvironmentVariable($key,'Process');[Environment]::SetEnvironmentVariable($key,$values[$key],'Process')}
     Push-Location $backend
     try {
