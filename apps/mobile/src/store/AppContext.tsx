@@ -37,6 +37,8 @@ function useAppState() {
   const resetToGps = () => { setLocation(GPS_LOCATION); setManualLoc(false); };
   // 동의가 없으면 현재 위치를 쓸 수 없으므로 항상 '직접 지정'
   const isManual = !locConsent || manualLoc;
+  // 동의도 없고 직접 지정도 안 함 = 기준 위치 없음. GPS 기본값을 '직접 지정'처럼 쓰지 않도록 지정 화면으로 보냄
+  const needLocation = !locConsent && !manualLoc;
 
   // FS-AUTH-001·002: 인증 성공 후 로그인 상태 생성
   const login = (p: Provider, info: MemberInfo) => {
@@ -60,7 +62,7 @@ function useAppState() {
   };
 
   return { needConsent, setNeedConsent, member, rename, provider, linked, setLinked, loginNotice, login, logout, expire,
-    noti, setNoti, areaNames, setAreaNames, locConsent, setLocConsent, location, pickLocation, resetToGps, isManual, areas, setAreas, groups, setGroups,
+    noti, setNoti, areaNames, setAreaNames, locConsent, setLocConsent, location, pickLocation, resetToGps, isManual, needLocation, areas, setAreas, groups, setGroups,
     checked, setChecked, withdraw, adminBlockingGroups, theme, setTheme };
 }
 

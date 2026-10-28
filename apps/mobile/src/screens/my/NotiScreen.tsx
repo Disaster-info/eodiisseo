@@ -1,11 +1,12 @@
 // FS-NOTI-001 재난 알림 설정, FS-NOTI-002 알림 내역 (선택 시 재난 상세로)
 import { router } from 'expo-router';
-import { Pressable, Switch, Text, View } from 'react-native';
-import { Badge, C, Card, Chip, Empty, Header, Icon, Label, Page, notify, s } from '../../components/ui';
+import { Pressable, Text, View } from 'react-native';
+import { AppSwitch, Badge, Card, Chip, Empty, Header, Icon, Label, Page, notify, useTheme } from '../../components/ui';
 import { DISASTERS, LEVELS, NOTI_HISTORY } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 export default function NotiScreen() {
+  const { C, s } = useTheme();
   const { noti, setNoti, areas, areaNames } = useApp();
   const targets = noti.areas.filter(a => areas.includes(a)); // 삭제된 관심지역은 자동 제외
   const toggleArea = (a: string) =>
@@ -23,7 +24,7 @@ export default function NotiScreen() {
           <View style={[s.row, { gap: 12 }]}>
             <Icon name="notifications" size={22} color={C.primary} />
             <Text style={[s.bold, { flex: 1 }]}>재난 알림 받기</Text>
-            <Switch value={noti.on} onValueChange={on => setNoti(n => ({ ...n, on }))} trackColor={{ true: C.primary }} />
+            <AppSwitch accessibilityLabel="재난 알림 받기" value={noti.on} onValueChange={on => setNoti(n => ({ ...n, on }))} />
           </View>
         </Card>
 
@@ -32,7 +33,7 @@ export default function NotiScreen() {
             <Card>
               <Label icon="star" text="알림 받을 관심지역" />
               {areas.length === 0 ? (
-                <Pressable onPress={() => router.push('/areas')}><Text style={[s.link, { marginLeft: 0 }]}>관심지역을 먼저 등록하세요 ›</Text></Pressable>
+                <Pressable onPress={() => router.push('/areas')} accessibilityRole="button"><View style={s.row}><Text style={[s.link, { marginLeft: 0 }]}>관심지역을 먼저 등록하세요</Text><Icon name="chevron-forward" size={16} color={C.primary} /></View></Pressable>
               ) : (
                 <View style={[s.row, { flexWrap: 'wrap' }]}>
                   {areas.map(a => <Chip key={a} text={areaNames[a] ?? a} on={targets.includes(a)} onPress={() => toggleArea(a)} />)}
@@ -51,7 +52,7 @@ export default function NotiScreen() {
                   <Text style={s.bold}>야간 알림 (22시 이후)</Text>
                   <Text style={s.muted}>끄면 22시 이후에는 알림을 보내지 않아요.</Text>
                 </View>
-                <Switch value={noti.night} onValueChange={night => setNoti(n => ({ ...n, night }))} trackColor={{ true: C.primary }} />
+                <AppSwitch accessibilityLabel="야간 알림" value={noti.night} onValueChange={night => setNoti(n => ({ ...n, night }))} />
               </View>
             </Card>
           </>

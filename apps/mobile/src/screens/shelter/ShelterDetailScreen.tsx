@@ -1,12 +1,11 @@
 // FS-SHELTER-002: 대피소 상세 — 원본 데이터에 있는 항목만 표시
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
-import { Btn, Card, Header, InfoRow, MapBox, Page, s } from '../../components/ui';
+import { Btn, Card, Header, InfoRow, MapBox, Page, useTheme } from '../../components/ui';
 import { SHELTERS } from '../../data/mock';
-import { useApp } from '../../store/AppContext';
 
 export default function ShelterDetailScreen({ id }: { id: number }) {
-  useApp(); // 테마 변경 시 다시 그려지도록 구독
+  const { s } = useTheme();
   const sh = SHELTERS.find(x => x.id === id);
   if (!sh) return <View style={s.fill}><Header title="대피소" /><Text style={s.center}>대피소 정보를 찾을 수 없습니다.</Text></View>;
   return (

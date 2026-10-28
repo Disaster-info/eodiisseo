@@ -1,0 +1,756 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T04:33:29+00:00",
+  "title": "Design System: 어디있어",
+  "extensions": {
+    "colorMeta": {
+      "sign-blue": {
+        "role": "primary",
+        "displayName": "안내판 청색 (Guide Blue)",
+        "canonical": "#0B5CAD",
+        "tonalRamp": [
+          "#00062F",
+          "#001A68",
+          "#003C8A",
+          "#0C5DAE",
+          "#3981D6",
+          "#5FA7FE",
+          "#84CEFF",
+          "#C6F2FF"
+        ]
+      },
+      "sign-green": {
+        "role": "secondary",
+        "displayName": "대피 녹색 (Evacuation Green)",
+        "canonical": "#0E7A4F",
+        "tonalRamp": [
+          "#001302",
+          "#00320D",
+          "#005029",
+          "#007046",
+          "#359468",
+          "#5EBA8B",
+          "#85E1B0",
+          "#C8FDDF"
+        ]
+      },
+      "sign-red": {
+        "role": "tertiary",
+        "displayName": "규제 적색 (Regulatory Red)",
+        "canonical": "#D7261E",
+        "tonalRamp": [
+          "#2D0000",
+          "#660000",
+          "#8C0000",
+          "#B30000",
+          "#DE3D31",
+          "#FF6757",
+          "#FF8F7C",
+          "#FFD0C0"
+        ]
+      },
+      "sign-yellow": {
+        "role": "tertiary",
+        "displayName": "주의 황색 (Caution Yellow)",
+        "canonical": "#F5C400",
+        "tonalRamp": [
+          "#1B0400",
+          "#421500",
+          "#623400",
+          "#825400",
+          "#A77800",
+          "#CE9D00",
+          "#F5C401",
+          "#FFEC9D"
+        ]
+      },
+      "on-sign": {
+        "role": "neutral",
+        "displayName": "판 위 흰 글자 (On Sign)",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242424",
+          "#404040",
+          "#5D5D5D",
+          "#808080",
+          "#A4A4A4",
+          "#CACACA",
+          "#EEEEEE"
+        ]
+      },
+      "on-yellow": {
+        "role": "neutral",
+        "displayName": "노란 판 위 글자 (On Yellow)",
+        "canonical": "#16181B",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#222427",
+          "#3E4043",
+          "#5B5E61",
+          "#7E8084",
+          "#A2A5A9",
+          "#C8CBCF",
+          "#EDEEF1"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "글자용 청색 (Ink Blue)",
+        "canonical": "#0B5CAD",
+        "tonalRamp": [
+          "#00062F",
+          "#001A68",
+          "#003C8A",
+          "#0C5DAE",
+          "#3981D6",
+          "#5FA7FE",
+          "#84CEFF",
+          "#C6F2FF"
+        ]
+      },
+      "fill": {
+        "role": "primary",
+        "displayName": "채움 청색 (Fill Blue)",
+        "canonical": "#0B5CAD",
+        "tonalRamp": [
+          "#00062F",
+          "#001A68",
+          "#003C8A",
+          "#0C5DAE",
+          "#3981D6",
+          "#5FA7FE",
+          "#84CEFF",
+          "#C6F2FF"
+        ]
+      },
+      "primary-soft": {
+        "role": "neutral",
+        "displayName": "안내 띠 바탕 (Notice Soft)",
+        "canonical": "#E3EDF8",
+        "tonalRamp": [
+          "#080C10",
+          "#1D252D",
+          "#394149",
+          "#565F68",
+          "#78818B",
+          "#9CA6B0",
+          "#C2CCD6",
+          "#E9EFF6"
+        ]
+      },
+      "notice-text": {
+        "role": "neutral",
+        "displayName": "안내 띠 글자 (Notice Ink)",
+        "canonical": "#0A4C8F",
+        "tonalRamp": [
+          "#00082A",
+          "#001E5E",
+          "#003E80",
+          "#215EA3",
+          "#4682CA",
+          "#6AA8F2",
+          "#90CEFF",
+          "#CCF2FF"
+        ]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "위험 글자 적색 (Danger Ink)",
+        "canonical": "#B3201A",
+        "tonalRamp": [
+          "#2B0000",
+          "#610000",
+          "#870000",
+          "#AD1814",
+          "#D8473B",
+          "#FF6F5F",
+          "#FF9684",
+          "#FFD3C5"
+        ]
+      },
+      "danger-soft": {
+        "role": "tertiary",
+        "displayName": "오류 띠 바탕 (Danger Soft)",
+        "canonical": "#FBE6E4",
+        "tonalRamp": [
+          "#110908",
+          "#2E201E",
+          "#4B3B3A",
+          "#6A5957",
+          "#8E7B79",
+          "#B39F9D",
+          "#D9C5C3",
+          "#F8EBEA"
+        ]
+      },
+      "danger-text": {
+        "role": "tertiary",
+        "displayName": "오류 띠 글자 (Danger Text)",
+        "canonical": "#B3201A",
+        "tonalRamp": [
+          "#2B0000",
+          "#610000",
+          "#870000",
+          "#AD1814",
+          "#D8473B",
+          "#FF6F5F",
+          "#FF9684",
+          "#FFD3C5"
+        ]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "주의 글자 황토 (Warning Ink)",
+        "canonical": "#8A5A00",
+        "tonalRamp": [
+          "#1A0500",
+          "#411500",
+          "#613300",
+          "#815200",
+          "#A7752B",
+          "#CD9A53",
+          "#F5C079",
+          "#FFE9BF"
+        ]
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "성공 녹색 (Outside Green)",
+        "canonical": "#0E7A4F",
+        "tonalRamp": [
+          "#001302",
+          "#00320D",
+          "#005029",
+          "#007046",
+          "#359468",
+          "#5EBA8B",
+          "#85E1B0",
+          "#C8FDDF"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "본문 글자 (Text)",
+        "canonical": "#16181B",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#222427",
+          "#3E4043",
+          "#5B5E61",
+          "#7E8084",
+          "#A2A5A9",
+          "#C8CBCF",
+          "#EDEEF1"
+        ]
+      },
+      "sub": {
+        "role": "neutral",
+        "displayName": "보조 글자 (Sub)",
+        "canonical": "#5C6168",
+        "tonalRamp": [
+          "#090B0E",
+          "#20242A",
+          "#3B4047",
+          "#595E65",
+          "#7B8188",
+          "#A0A5AD",
+          "#C5CBD3",
+          "#EBEFF4"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "경계선 (Border)",
+        "canonical": "#D9DCD8",
+        "tonalRamp": [
+          "#0A0C0A",
+          "#232522",
+          "#3E413D",
+          "#5C5E5B",
+          "#7E817D",
+          "#A3A5A2",
+          "#C8CBC7",
+          "#EDEFED"
+        ]
+      },
+      "concrete-ground": {
+        "role": "neutral",
+        "displayName": "콘크리트 바탕 (Concrete Ground)",
+        "canonical": "#F2F3F1",
+        "tonalRamp": [
+          "#0B0B0A",
+          "#242423",
+          "#3F403E",
+          "#5D5E5C",
+          "#80807F",
+          "#A4A5A3",
+          "#CACBC9",
+          "#EEEFED"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "카드 (Card)",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242424",
+          "#404040",
+          "#5D5D5D",
+          "#808080",
+          "#A4A4A4",
+          "#CACACA",
+          "#EEEEEE"
+        ]
+      },
+      "primary-dark": {
+        "role": "primary",
+        "displayName": "글자용 청색 (Ink Blue) · 다크",
+        "canonical": "#7DB2EC",
+        "tonalRamp": [
+          "#000A23",
+          "#002352",
+          "#094173",
+          "#2D6095",
+          "#5084BB",
+          "#74A9E2",
+          "#99CFFF",
+          "#D1F2FF"
+        ]
+      },
+      "fill-dark": {
+        "role": "primary",
+        "displayName": "채움 청색 (Fill Blue) · 다크",
+        "canonical": "#1F67B5",
+        "tonalRamp": [
+          "#00072D",
+          "#001C65",
+          "#003D87",
+          "#125DAA",
+          "#3C82D2",
+          "#61A7FB",
+          "#87CEFF",
+          "#C7F2FF"
+        ]
+      },
+      "primary-soft-dark": {
+        "role": "neutral",
+        "displayName": "안내 띠 바탕 (Notice Soft) · 다크",
+        "canonical": "#16263A",
+        "tonalRamp": [
+          "#040C16",
+          "#152539",
+          "#304157",
+          "#4D5F76",
+          "#6F829A",
+          "#93A7C0",
+          "#B8CDE7",
+          "#E3F0FF"
+        ]
+      },
+      "notice-text-dark": {
+        "role": "neutral",
+        "displayName": "안내 띠 글자 (Notice Ink) · 다크",
+        "canonical": "#A9CBF2",
+        "tonalRamp": [
+          "#010B1B",
+          "#072543",
+          "#244162",
+          "#426082",
+          "#6383A7",
+          "#87A8CD",
+          "#ACCEF5",
+          "#DCF1FF"
+        ]
+      },
+      "danger-dark": {
+        "role": "tertiary",
+        "displayName": "위험 글자 적색 (Danger Ink) · 다크",
+        "canonical": "#FF8F85",
+        "tonalRamp": [
+          "#240000",
+          "#540000",
+          "#781013",
+          "#9C3632",
+          "#C55B53",
+          "#EE8076",
+          "#FFA69B",
+          "#FFDAD2"
+        ]
+      },
+      "danger-soft-dark": {
+        "role": "tertiary",
+        "displayName": "오류 띠 바탕 (Danger Soft) · 다크",
+        "canonical": "#3A1A18",
+        "tonalRamp": [
+          "#160605",
+          "#391917",
+          "#583532",
+          "#78524F",
+          "#9D7571",
+          "#C39995",
+          "#EABEBA",
+          "#FFE7E4"
+        ]
+      },
+      "danger-text-dark": {
+        "role": "tertiary",
+        "displayName": "오류 띠 글자 (Danger Text) · 다크",
+        "canonical": "#FFB0A8",
+        "tonalRamp": [
+          "#1E0101",
+          "#470709",
+          "#692825",
+          "#8B4741",
+          "#B26963",
+          "#D98D86",
+          "#FFB3AB",
+          "#FFE1DB"
+        ]
+      },
+      "warning-dark": {
+        "role": "tertiary",
+        "displayName": "주의 글자 황토 (Warning Ink) · 다크",
+        "canonical": "#F2C230",
+        "tonalRamp": [
+          "#1A0500",
+          "#411600",
+          "#613500",
+          "#815400",
+          "#A67800",
+          "#CC9D00",
+          "#F4C433",
+          "#FFECA4"
+        ]
+      },
+      "success-dark": {
+        "role": "secondary",
+        "displayName": "성공 녹색 (Outside Green) · 다크",
+        "canonical": "#5FC89A",
+        "tonalRamp": [
+          "#001303",
+          "#003311",
+          "#00522C",
+          "#007249",
+          "#23966B",
+          "#52BC8E",
+          "#7BE3B4",
+          "#C3FEE1"
+        ]
+      },
+      "text-dark": {
+        "role": "neutral",
+        "displayName": "본문 글자 (Text) · 다크",
+        "canonical": "#EDEEEC",
+        "tonalRamp": [
+          "#0B0B0A",
+          "#242423",
+          "#3F403E",
+          "#5D5E5C",
+          "#80807F",
+          "#A4A5A3",
+          "#CACBC9",
+          "#EEEFED"
+        ]
+      },
+      "sub-dark": {
+        "role": "neutral",
+        "displayName": "보조 글자 (Sub) · 다크",
+        "canonical": "#A3A8AE",
+        "tonalRamp": [
+          "#090B0E",
+          "#212429",
+          "#3C4045",
+          "#5A5E63",
+          "#7C8186",
+          "#A0A5AB",
+          "#C6CBD1",
+          "#ECEFF3"
+        ]
+      },
+      "border-dark": {
+        "role": "neutral",
+        "displayName": "경계선 (Border) · 다크",
+        "canonical": "#30353A",
+        "tonalRamp": [
+          "#090B0E",
+          "#202529",
+          "#3B4046",
+          "#595E64",
+          "#7B8187",
+          "#9FA5AB",
+          "#C5CBD2",
+          "#EBEFF3"
+        ]
+      },
+      "concrete-ground-dark": {
+        "role": "neutral",
+        "displayName": "콘크리트 바탕 (Concrete Ground) · 다크",
+        "canonical": "#121416",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#222426",
+          "#3E4042",
+          "#5B5E60",
+          "#7E8083",
+          "#A2A5A8",
+          "#C8CBCE",
+          "#EDEFF0"
+        ]
+      },
+      "card-dark": {
+        "role": "neutral",
+        "displayName": "카드 (Card) · 다크",
+        "canonical": "#1C1F22",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#212427",
+          "#3D4043",
+          "#5A5E62",
+          "#7D8184",
+          "#A1A5A9",
+          "#C7CBCF",
+          "#ECEFF1"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "대피 안내판의 큰 거리 숫자 (tabular)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "경보 판 등급명."
+      },
+      "nav-title": {
+        "displayName": "Nav Title",
+        "purpose": "탭 헤더 제목, 홈 기준 위치. 확대 1.3배 상한."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "주의보 판 등급명, 평시 판 제목."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "본문, 목록 행."
+      },
+      "body-bold": {
+        "displayName": "Body Bold",
+        "purpose": "버튼 글자, 섹션 제목, 행 제목."
+      },
+      "secondary": {
+        "displayName": "Secondary",
+        "purpose": "메타 정보, 칩, 세그먼트, 링크."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "가장 작은 글자 (하한 13)."
+      },
+      "badge": {
+        "displayName": "Badge",
+        "purpose": "등급·상태 배지."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-ambient",
+        "value": "0 1px 3px rgba(22,24,27,0.08)",
+        "purpose": "중립 카드와 선택된 세그먼트 칸. 네이티브는 shadowOpacity 0.08 / radius 6 / y 2 / elevation 1. 표지판에는 쓰지 않음."
+      },
+      {
+        "name": "sheet-scrim",
+        "value": "rgba(0,0,0,0.4)",
+        "purpose": "ActionMenu 바닥 시트 뒤판."
+      }
+    ],
+    "motion": [
+      {
+        "name": "alert-drop-in",
+        "value": "FadeInUp 360ms, Easing.out(Easing.exp)",
+        "purpose": "홈 경보 판이 위에서 한 번 내려옴. 다른 경보로 바뀔 때만 재생."
+      },
+      {
+        "name": "alert-reduce-motion",
+        "value": "FadeIn 200ms",
+        "purpose": "동작 줄이기 설정 시 경보 판 등장."
+      },
+      {
+        "name": "pressed",
+        "value": "opacity 0.7",
+        "purpose": "모든 누름 상태."
+      },
+      {
+        "name": "sheet-slide",
+        "value": "Modal animationType slide",
+        "purpose": "Android·웹 ActionMenu 바닥 시트."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "content-max",
+        "value": "640px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "흰 글자를 얹는 꽉 찬 주 버튼. fill 바탕, 높이 52.",
+      "html": "<button class=\"ds-btn\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 512 512\" fill=\"currentColor\"><path d=\"M448 64 32 240l176 64 64 176z\"/></svg>대피소 찾기</button>",
+      "css": ".ds-btn{display:flex;gap:8px;align-items:center;justify-content:center;min-height:52px;padding:0 12px;border:0;border-radius:10px;background:#0B5CAD;color:#FFFFFF;font:700 17px system-ui;width:100%;transition:opacity .1s}.ds-btn:active{opacity:.7}.ds-btn:focus-visible{outline:3px solid #0A4C8F;outline-offset:2px}"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "보조 행동. 카드 바탕 + 1.5px 글자용 색 테두리. 파괴적 동작은 danger 색.",
+      "html": "<button class=\"ds-btn-o\">그룹 탈퇴</button>",
+      "css": ".ds-btn-o{min-height:52px;padding:0 12px;width:100%;border:1.5px solid #B3201A;border-radius:10px;background:#FFFFFF;color:#B3201A;font:700 17px system-ui}.ds-btn-o:active{opacity:.7}.ds-btn-o:focus-visible{outline:3px solid #0B5CAD;outline-offset:2px}"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "알약형 선택 칩. 선택 시 fill 바탕 + 흰 글자. 높이 44.",
+      "html": "<div class=\"ds-chips\"><button class=\"ds-chip on\">현재 위치</button><button class=\"ds-chip\">서울 마포구</button></div>",
+      "css": ".ds-chips{display:flex;gap:6px}.ds-chip{min-height:44px;padding:9px 14px;border:1px solid #D9DCD8;border-radius:999px;background:#FFFFFF;color:#16181B;font:500 15px system-ui}.ds-chip.on{background:#0B5CAD;border-color:#0B5CAD;color:#FFFFFF}.ds-chip:active{opacity:.7}.ds-chip:focus-visible{outline:3px solid #0B5CAD;outline-offset:2px}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "중립 카드. 색 없음, 옅은 그림자 하나, 12 모서리.",
+      "html": "<div class=\"ds-card\"><b>서울 마포구</b><p>발생 10:20 · 갱신 10:42</p></div>",
+      "css": ".ds-card{background:#FFFFFF;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(22,24,27,.08);font:17px/24px system-ui;color:#16181B}.ds-card p{margin:2px 0 0;font-size:15px;line-height:22px;color:#5C6168}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "콘크리트 바탕 입력칸.",
+      "html": "<input class=\"ds-input\" placeholder=\"예: FRD-1234\">",
+      "css": ".ds-input{border:1px solid #D9DCD8;border-radius:10px;padding:12px 14px;font:17px system-ui;background:#F2F3F1;color:#16181B;width:100%}.ds-input:focus-visible{outline:2px solid #0B5CAD;outline-offset:1px}"
+    },
+    {
+      "name": "Segmented",
+      "kind": "custom",
+      "refersTo": "segmented",
+      "description": "2~4개 중 하나. 선택 칸은 카드 바탕 + 옅은 그림자.",
+      "html": "<div class=\"ds-seg\"><button class=\"on\">거리순</button><button>이름순</button></div>",
+      "css": ".ds-seg{display:flex;gap:3px;padding:3px;border-radius:10px;background:#D9DCD8}.ds-seg button{flex:1;min-height:44px;border:0;border-radius:8px;background:transparent;color:#5C6168;font:500 15px system-ui}.ds-seg button.on{background:#FFFFFF;color:#16181B;font-weight:700;box-shadow:0 1px 3px rgba(22,24,27,.08)}.ds-seg button:focus-visible{outline:3px solid #0B5CAD}"
+    },
+    {
+      "name": "Navigation (Tab Bar)",
+      "kind": "nav",
+      "refersTo": "nav-tabbar",
+      "description": "하단 탭 5개. 선택 탭은 채운 아이콘 + primary.",
+      "html": "<nav class=\"ds-tabs\"><a class=\"on\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 512 512\" fill=\"currentColor\"><path d=\"M256 48 32 240h64v224h128V320h64v144h128V240h64z\"/></svg>홈</a><a><svg width=\"24\" height=\"24\" viewBox=\"0 0 512 512\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"32\"><path d=\"M256 48 80 112v128c0 112 80 192 176 224 96-32 176-112 176-224V112z\"/></svg>대피소</a></nav>",
+      "css": ".ds-tabs{display:flex;background:#FFFFFF;border-top:1px solid #D9DCD8}.ds-tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;color:#5C6168;font:500 11px system-ui;text-decoration:none}.ds-tabs a.on{color:#0B5CAD}.ds-tabs a:focus-visible{outline:3px solid #0B5CAD}"
+    },
+    {
+      "name": "Sign · 경보 (Regulatory Red)",
+      "kind": "custom",
+      "refersTo": "sign-red",
+      "description": "진행 중 경보 판. 판 색 4 여백 안 2px 흰 테두리, 한 가지 글자색, 크기로 위계.",
+      "html": "<div class=\"ds-sign red\"><div class=\"in\"><div class=\"row\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 512 512\" fill=\"currentColor\"><path d=\"M256 48a208 208 0 1 0 0 416 208 208 0 0 0 0-416zm-20 96h40l-6 160h-28zm20 248a24 24 0 1 1 0-48 24 24 0 0 1 0 48z\"/></svg><b class=\"h1\">호우경보</b><span class=\"st\">진행중</span></div><b>서울 강남구</b><small>발생 10:20 · 갱신 10:42</small></div></div>",
+      "css": ".ds-sign{border-radius:12px;overflow:hidden;font-family:system-ui;color:#FFFFFF}.ds-sign.red{background:#D7261E;padding:4px}.ds-sign .in{border:2px solid #FFFFFF;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:4px;font-size:17px;line-height:24px}.ds-sign .row{display:flex;align-items:center;gap:8px}.ds-sign .h1{flex:1;font-size:30px;line-height:36px;font-weight:900;letter-spacing:-.5px}.ds-sign .st{font:700 13px system-ui;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.1)}.ds-sign small{font-size:13px;line-height:18px}.ds-sign:active{opacity:.7}"
+    },
+    {
+      "name": "Sign · 주의보 (Caution Yellow)",
+      "kind": "custom",
+      "refersTo": "sign-yellow",
+      "description": "진행 중 주의보 판. 3px 빨간 바깥 테두리, on-yellow 글자, 한 단계 작은 등급명.",
+      "html": "<div class=\"ds-sign-y\"><div class=\"row\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 512 512\" fill=\"currentColor\"><path d=\"M256 32 16 464h480zm-20 160h40l-6 136h-28zm20 216a24 24 0 1 1 0-48 24 24 0 0 1 0 48z\"/></svg><b>산불주의보</b></div><span>강원 강릉시</span></div>",
+      "css": ".ds-sign-y{background:#F5C400;border:3px solid #D7261E;border-radius:12px;padding:12px;color:#16181B;font:17px/24px system-ui;display:flex;flex-direction:column;gap:4px}.ds-sign-y .row{display:flex;align-items:center;gap:8px}.ds-sign-y b{font-size:20px;line-height:26px;font-weight:900}.ds-sign-y:active{opacity:.7}"
+    },
+    {
+      "name": "ShelterSign (Evacuation Green)",
+      "kind": "custom",
+      "refersTo": "sign-green",
+      "description": "녹색 대피 안내판. 대피소 이름 24, 큰 tabular km, 판 안 흰 Solid 주 버튼 + 테두리 보조 버튼.",
+      "html": "<div class=\"ds-shelter\"><div class=\"in\"><b class=\"nm\">역삼초등학교</b><div class=\"row\"><small>민방위 대피소<br>서울 강남구 역삼로 1</small><span class=\"km\">0.8<b>km</b></span></div><div class=\"btns\"><button class=\"solid\">경로 안내</button><button>다른 대피소 3곳</button></div></div></div>",
+      "css": ".ds-shelter{background:#0E7A4F;padding:4px;border-radius:12px;color:#FFFFFF;font-family:system-ui}.ds-shelter .in{border:2px solid #FFFFFF;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:4px}.ds-shelter .nm{font-size:24px;line-height:30px;font-weight:800}.ds-shelter .row{display:flex;align-items:flex-end;gap:12px}.ds-shelter small{flex:1;font-size:13px;line-height:18px}.ds-shelter .km{font-size:34px;line-height:40px;font-weight:900;font-variant-numeric:tabular-nums}.ds-shelter .km b{font-size:17px}.ds-shelter .btns{display:flex;gap:8px;margin-top:8px}.ds-shelter button{flex:1;min-height:48px;border-radius:10px;border:2px solid #FFFFFF;background:transparent;color:#FFFFFF;font:800 17px system-ui}.ds-shelter button.solid{background:#FFFFFF;color:#0E7A4F}.ds-shelter button:active{opacity:.7}.ds-shelter button:focus-visible{outline:3px solid #F5C400;outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "도로표지 (The Road Sign)",
+    "overview": "앱은 길을 묻기 전에 답한다. 화면은 중립 콘크리트 회색 바탕 위에 놓인 한국 도로표지판이다. 색은 판면 안에만 산다: 청색 안내판은 평시 상태, 노란 주의판(바깥 빨간 테두리)은 주의보, 빨간 규제판(안쪽 흰 테두리)은 경보, 녹색 안내판은 대피 안내. 판 하나에 결정 하나. 바탕·카드·목록은 색을 쓰지 않고, 위험도와 행동은 표지판의 종류(모양 + 색 + 글자)로 읽힌다.\n\n밀도는 낮고 글자는 크다. 시스템 글꼴의 굵은 고딕 한 줄 안내, 자릿수 폭이 고정된 큰 거리 숫자(km), 의미 단위 타입 스케일(본문 17, 하한 13)이 고령자와 한 손 사용을 기준으로 맞춰져 있다. 표지판 색은 실제 도로표지처럼 낮·밤 모두 같은 값이고, 바탕·글자 색만 라이트/다크 테마로 바뀐다.\n\n거부하는 기본값: 흰 카드 리스트 + 파란 바로가기 그리드 + 날씨가 주인공인 홈.",
+    "keyCharacteristics": [
+      "중립 회색 바탕, 색은 표지판 판면에만",
+      "위험수준 = 표지판 종류: 경보 > 주의보 > 중립 카드 순의 크기 램프",
+      "판면 위 글자는 한 가지 색, 위계는 크기·굵기로",
+      "시스템 글꼴, 굵은 고딕, tabular 숫자",
+      "모든 글자/바탕 쌍 4.5:1 이상 (라이트·다크 모두)",
+      "터치 높이 44 이상, 목록 행 52 이상"
+    ],
+    "rules": [
+      {
+        "name": "The Color-In-The-Panel Rule",
+        "body": "표지판 네 가지 색(`sign-*`)은 판면·등급 배지·응급 버튼 안에만 칠한다. 바탕, 카드, 목록 행은 중립 색만 쓴다.",
+        "section": "colors"
+      },
+      {
+        "name": "The Primary-Is-Ink Rule",
+        "body": "`primary`는 글자와 아이콘 전용, `fill`은 흰 글자를 얹는 꽉 찬 바탕 전용이다. 다크 `primary-dark`는 절대 버튼 바탕이 되지 않는다(흰 글자가 묻힌다).",
+        "section": "colors"
+      },
+      {
+        "name": "The Red-Means-Danger Rule",
+        "body": "빨강은 위험에만 쓴다: 경보, 파괴적 동작(삭제·탈퇴·제외), 영향지역 포함. 선택 상태는 `fill`/`primary`, 진행 상태(진행중·해제)는 색이 아니라 글자로 표시한다.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Ink Rule",
+        "body": "판면 위 글자는 한 가지 색(흰색, 노란 판은 `on-yellow`)만 쓴다. 빨간 판 위 옅은 보조색은 4.14:1로 미달이었으므로, 위계는 크기와 굵기로만 만든다.",
+        "section": "colors"
+      },
+      {
+        "name": "The Contrast Floor Rule",
+        "body": "모든 글자/바탕 쌍은 라이트·다크 모두 4.5:1 이상. 브랜드 버튼도 예외가 아니다(카카오 `#191919` on `#FEE500` 13.75:1).",
+        "section": "colors"
+      },
+      {
+        "name": "The Floor-Thirteen Rule",
+        "body": "13보다 작은 글자는 없다. 위계가 더 필요하면 아래로 줄이지 말고 위로 키운다.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular-Distance Rule",
+        "body": "거리·시각·기온 숫자는 `tabular-nums`로 자릿수 폭을 고정한다.",
+        "section": "typography"
+      },
+      {
+        "name": "The Thumb-Target Rule",
+        "body": "누를 수 있는 것은 높이 44 이상(칩, 링크, 세그먼트, '…' 메뉴 버튼), 목록 행과 일반 버튼은 52 이상, 판 안 버튼은 48 이상.",
+        "section": "layout"
+      },
+      {
+        "name": "The Sign-Needs-No-Shadow Rule",
+        "body": "표지판은 그림자를 달지 않는다. 판을 바탕에서 떼어 내는 것은 테두리(흰 안쪽 테두리, 노란 판의 빨간 바깥 테두리)다.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** 위험수준을 표지판 종류(모양 + 색 + 글자)로 함께 표시한다: 경보 = 빨간 판 + 원형 아이콘, 주의보 = 노란 판 + 빨간 바깥 테두리 + 삼각 아이콘.",
+      "**Do** 판 위 글자는 한 가지 색으로 쓰고 위계는 크기·굵기로 만든다.",
+      "**Do** 흰 글자를 얹는 바탕은 `fill`, 글자·아이콘은 `primary`로 나눠 쓴다.",
+      "**Do** 10분이 지난 구성원 위치는 영향지역 포함/밖을 확정하지 않고 모든 화면에서 '판단 불가'로 다룬다.",
+      "**Do** 터치 높이 44 이상, 목록 행 52 이상, 판 안 버튼 48 이상을 지킨다.",
+      "**Do** 새 글자/바탕 쌍은 라이트·다크 모두 4.5:1 이상인지 확인한다."
+    ],
+    "donts": [
+      "**Don't** 바탕·카드·목록 행에 표지판 색을 칠하지 않는다.",
+      "**Don't** 빨강을 선택 상태나 장식에 쓰지 않는다. 진행 상태도 색이 아닌 글자로 표시한다.",
+      "**Don't** 다크 `primary-dark`를 버튼 바탕으로 쓰지 않는다.",
+      "**Don't** 판 위에 옅은 보조 글자색을 쓰지 않는다(빨간 판에서 4.14:1로 미달).",
+      "**Don't** 카드에 색 띠 옆 테두리(side-stripe border)를 달지 않는다.",
+      "**Don't** 제목 위에 작은 꼬리 라벨(eyebrow)을 붙이지 않는다.",
+      "**Don't** 텍스트 기호(+, →, ✓ 등)를 아이콘 대신 쓰지 않는다. 아이콘은 Ionicons.",
+      "**Don't** 좌표·등급·수용인원·소요시간·방위처럼 근거 없는 값을 지어내지 않는다. 없으면 '없음'이라고 적는다."
+    ]
+  }
+}
