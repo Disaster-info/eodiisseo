@@ -39,3 +39,13 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Claude Code 개인 설정
+.claude/settings.local.json
+
+# impeccable: 도구(스킬·에이전트)·로컬 설정·임시 산출물은 각자 설치 (DESIGN.md·design.json·surfaces 는 커밋)
+.claude/skills/
+.claude/agents/
+.impeccable/config.local.json
+.impeccable/review/
+.impeccable/questions/
