@@ -1,5 +1,4 @@
-// 하단 탭 5개. 로그인 직후 위치 동의가 필요하면 동의 화면으로 보냄 (FS-LOC-001)
-import { Redirect } from 'expo-router';
+// 하단 탭 5개. 위치 동의·기준 위치가 준비된 뒤에만 열림 (조건은 루트 _layout 의 Stack.Protected, FS-LOC-001)
 import { Tabs } from 'expo-router/js-tabs';
 import { getDefaultHeaderHeight } from 'expo-router/react-navigation';
 import { useSafeAreaFrame, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,11 +33,8 @@ function HomeTitle() {
 
 export default function TabLayout() {
   const { C } = useTheme();
-  const { needConsent, needLocation } = useApp();
   const frame = useSafeAreaFrame();
   const { top } = useSafeAreaInsets();
-  if (needConsent) return <Redirect href="/consent" />;
-  if (needLocation) return <Redirect href="/location" />;
   return (
     <Tabs screenOptions={{
       tabBarHideOnKeyboard: true,
