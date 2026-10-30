@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>카테고리 표준</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:390px;height:844px;overflow:hidden;background:#F2F2F7;color:#111827;font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+.status{height:47px}
+h1{font-size:34px;font-weight:800;padding:4px 16px 10px;letter-spacing:-.5px}
+.banner{margin:0 16px;background:#DC2626;color:#fff;border-radius:14px;padding:14px 16px}
+.banner b{font-size:20px;font-weight:800}
+.banner p{font-size:14px;margin-top:4px;opacity:.95}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 16px}
+.grid div{background:#fff;border-radius:14px;height:78px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:600}
+.grid i{width:26px;height:26px;border-radius:8px;background:#2563EB}
+.sec{font-size:20px;font-weight:700;padding:8px 16px}
+.card{background:#fff;margin:0 16px 10px;border-radius:14px;padding:14px 16px}
+.card .b{display:inline-block;font-size:12px;font-weight:700;padding:3px 8px;border-radius:99px;background:#FEE2E2;color:#B91C1C}
+.card b{display:block;font-size:17px;margin-top:6px}
+.card p{font-size:14px;color:#6B7280;margin-top:2px}
+.tab{position:absolute;bottom:0;left:0;right:0;height:83px;background:rgba(249,249,249,.94);border-top:1px solid #D1D5DB;display:flex;justify-content:space-around;padding-top:10px;font-size:11px;color:#8E8E93}
+.tab div{display:flex;flex-direction:column;align-items:center;gap:4px}
+.tab i{width:24px;height:24px;border-radius:6px;background:#C7C7CC}
+.tab .on{color:#2563EB}.tab .on i{background:#2563EB}
+</style></head><body>
+<div class="status"></div>
+<h1>서울 강남구</h1>
+<div class="banner"><b>호우경보 발령 중</b><p>저지대·지하공간 출입을 피하세요 ›</p></div>
+<div class="grid"><div><i></i>대피소</div><div><i></i>행동요령</div><div><i></i>안심그룹</div><div><i></i>알림</div></div>
+<div class="sec">발생 중인 재난</div>
+<div class="card"><span class="b">호우 경보</span><b>서울 강남구</b><p>시간당 50mm 이상 강한 비 · 13:40</p></div>
+<div class="card"><span class="b" style="background:#FEF3C7;color:#92400E">호우 주의보</span><b>경기 수원시</b><p>하천변 산책로 이용 자제 · 12:50</p></div>
+<div class="card"><span class="b" style="background:#FEF3C7;color:#92400E">산불 주의보</span><b>강원 강릉시</b><p>인근 주민 대피 · 13:15</p></div>
+<nav class="tab"><div class="on"><i></i>홈</div><div><i></i>대피소</div><div><i></i>안심그룹</div><div><i></i>체크리스트</div><div><i></i>내정보</div></nav>
+</body></html>

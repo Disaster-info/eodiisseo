@@ -1,11 +1,12 @@
 // FS-AUTH-001 Google 로그인, FS-AUTH-002 Kakao 로그인, FS-AUTH-004 만료 후 재인증 안내
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
-import { Btn, C, Icon, s } from '../../components/ui';
+import { Btn, Icon, useTheme } from '../../components/ui';
 import { mockAuthenticate, Provider } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 export default function LoginScreen() {
+  const { C, s } = useTheme();
   const { login, loginNotice } = useApp();
   const [pending, setPending] = useState<Provider | null>(null);
   const [error, setError] = useState('');
@@ -26,11 +27,11 @@ export default function LoginScreen() {
 
   return (
     <View style={[s.center, { gap: 12, backgroundColor: C.card }]}>
-      <View style={{ width: 88, height: 88, borderRadius: 28, backgroundColor: C.primary, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ width: 88, height: 88, borderRadius: 28, backgroundColor: C.fill, justifyContent: 'center', alignItems: 'center' }}>
         <Icon name="location" size={48} color="#fff" />
       </View>
       <Text style={[s.h1, { marginTop: 8 }]}>어디있어</Text>
-      <Text style={[s.muted, { fontSize: 15 }]}>실시간 재난 정보와 가족 안심 확인</Text>
+      <Text style={s.muted}>실시간 재난 정보와 가족 안심 확인</Text>
       <View style={{ height: 32 }} />
       {!!loginNotice && <Text style={[s.notice, { alignSelf: 'stretch' }]}>{loginNotice}</Text>}
       {!!error && <Text style={[s.notice, s.noticeError, { alignSelf: 'stretch' }]}>{error}</Text>}
@@ -42,8 +43,8 @@ export default function LoginScreen() {
         </>
       ) : (
         <>
-          <Btn title="Google로 시작하기" icon="logo-google" color={C.primary} onPress={() => start('Google')} />
-          <Btn title="카카오로 시작하기" icon="chatbubble" color="#F7C600" onPress={() => start('Kakao')} />
+          <Btn title="Google로 시작하기" icon="logo-google" onPress={() => start('Google')} />
+          <Btn title="카카오로 시작하기" icon="chatbubble" color="#FEE500" textColor="#191919" onPress={() => start('Kakao')} />
         </>
       )}
     </View>

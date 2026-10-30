@@ -1,10 +1,11 @@
 // FS-LOC-001: 위치정보 권한 및 이용 동의
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
-import { Btn, C, Card, Icon, InfoRow, Label, s } from '../../components/ui';
+import { Btn, Card, Icon, InfoRow, Label, useTheme } from '../../components/ui';
 import { useApp } from '../../store/AppContext';
 
 export default function ConsentScreen() {
+  const { C, s } = useTheme();
   const { setLocConsent, setNeedConsent } = useApp();
   return (
     <View style={[s.center, { gap: 12, alignItems: 'stretch' }]}>
