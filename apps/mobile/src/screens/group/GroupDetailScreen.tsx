@@ -3,7 +3,7 @@ import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { AppSwitch, ActionMenu, Btn, Card, Chip, Header, Icon, Label, MapBox, Page, STALE_MIN, confirm, freshness, impactColor, knownImpact, notify, useTheme } from '../../components/ui';
+import { AppSwitch, ActionMenu, Btn, Card, Chip, Header, Icon, Label, MapBox, Page, STALE_MIN, confirm, freshness, impactColor, knownImpact, notify, useTheme, IconMark } from '../../components/ui';
 import { CATEGORIES, GPS_LOCATION, IMPACT_ICON, Impact, ME, Member } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
@@ -25,7 +25,7 @@ export default function GroupDetailScreen({ id }: { id: number }) {
 
   // 공유 위치는 항상 기기 GPS 위치. 직접 지정한 기준 위치는 공유하지 않음
   const toggleShare = (on: boolean) => {
-    if (on && !locConsent) return notify('위치정보 이용 동의가 필요합니다', '내정보 › 위치 설정에서 동의해 주세요.');
+    if (on && !locConsent) return notify('위치정보 이용 동의가 필요합니다', '내정보 › 서비스 설정 › 위치정보 이용 동의를 켜 주세요.');
     update(ms => ms.map(m => m.id !== ME ? m : on
       ? { ...m, sharing: true, place: GPS_LOCATION, updatedMin: 0, impact: '판단 불가' }
       : { ...m, sharing: false, place: undefined, updatedMin: undefined, impact: '위치정보 미제공' }));
@@ -79,7 +79,7 @@ export default function GroupDetailScreen({ id }: { id: number }) {
                   </View>
                   {/* 영향상태는 이름 아래 한 줄 (오른쪽 칸으로 두면 '…' 버튼과 함께 이름 폭을 너무 줄임) */}
                   <View style={[s.row, { gap: 4, marginTop: 2 }]}>
-                    <Icon name={IMPACT_ICON[knownImpact(m)]} size={16} color={old ? C.sub : color} />
+                    <IconMark name={IMPACT_ICON[knownImpact(m)]} size={22} color={old ? C.sub : color} />
                     <Text style={[s.muted, { marginTop: 0, fontWeight: '700', color: old ? C.sub : color, flexShrink: 1 }]}>{m.impact}{old ? ' · 오래된 위치 기준, 확인 필요' : ''}</Text>
                   </View>
                   <Text style={s.muted}>{m.sharing ? `${m.place} · ${freshness(m.updatedMin)}` : '위치공유 OFF'}</Text>
@@ -101,7 +101,7 @@ export default function GroupDetailScreen({ id }: { id: number }) {
             <Icon name="key-outline" size={18} color={C.sub} />
             <Text style={[s.body, { flex: 1 }]}>초대 코드 <Text style={[s.bold, { color: C.primary, letterSpacing: 1 }]} selectable>{g.code}</Text></Text>
             <Pressable onPress={copyCode} hitSlop={8} accessibilityRole="button" accessibilityLabel="초대 코드 복사"
-              style={({ pressed }) => [s.row, { gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999,
+              style={({ pressed }) => [s.row, s.rim, { gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999,
                 backgroundColor: copied ? C.success + '1A' : C.primarySoft }, pressed && s.pressed]}>
               <Icon name={copied ? 'checkmark' : 'copy-outline'} size={16} color={copied ? C.success : C.primary} />
               <Text style={[s.small, { fontWeight: '700', color: copied ? C.success : C.primary }]}>{copied ? '복사됨' : '복사'}</Text>

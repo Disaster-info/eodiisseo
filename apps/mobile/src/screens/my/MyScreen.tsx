@@ -1,35 +1,55 @@
 // FS-AUTH-006 회원정보 조회·프로필(이름) 수정, 003 소셜 계정 연결, 005 로그아웃, 007 회원 탈퇴 / FS-LOC-001 동의 철회 / FS-OPS 진입
+// 배치: 프로필 + 상태 요약 태그 → 위치·알림 → 화면 → 계정 → 로그아웃·탈퇴 (비슷한 설정끼리 묶음, 모든 행 같은 높이)
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
-import { AppSwitch, Btn, Card, Icon, IconName, Page, confirm, notify, useTheme, Segmented } from '../../components/ui';
+import { Children, ReactNode, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppSwitch, Badge, Btn, Icon, IconName, Page, Segmented, confirm, notify, useTheme } from '../../components/ui';
 import { Provider } from '../../data/mock';
 import { ThemeMode, useApp } from '../../store/AppContext';
 
 const PROVIDERS: Provider[] = ['Google', 'Kakao'];
 const THEMES: { mode: ThemeMode; label: string }[] = [
-  { mode: 'system', label: '시스템 설정' }, { mode: 'light', label: '라이트' }, { mode: 'dark', label: '다크' },
+  { mode: 'system', label: '시스템' }, { mode: 'light', label: '라이트' }, { mode: 'dark', label: '다크' },
 ];
 const PROVIDER_ICON: Record<Provider, IconName> = { Google: 'logo-google', Kakao: 'chatbubble' };
 
-// 설정 목록의 한 줄: 아이콘 + 제목 + (부가설명) + 오른쪽 요소
-function Row({ icon, title, sub, right, onPress }: { icon: IconName; title: string; sub?: string; right?: React.ReactNode; onPress?: () => void }) {
+// 설정 목록의 한 줄: 아이콘 + 제목 + (부가설명) + 오른쪽(값·스위치 등)
+// value: 현재 값 (오른쪽 회색 글자 + 화살표). danger: 탈퇴처럼 되돌릴 수 없는 동작 (빨간 아이콘·제목)
+function Row({ icon, title, sub, value, right, onPress, danger }:
+  { icon: IconName; title: string; sub?: string; value?: string; right?: ReactNode; onPress?: () => void; danger?: boolean }) {
   const { C, s } = useTheme();
   return (
-  <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} style={({ pressed }) => [s.row, { gap: 12, paddingVertical: 10, minHeight: 52 }, pressed && s.pressed]}>
-    <Icon name={icon} size={22} color={C.sub} />
-    <View style={{ flex: 1 }}>
-      <Text style={s.body}>{title}</Text>
-      {!!sub && <Text style={s.muted}>{sub}</Text>}
+    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={value ? `${title}, ${value}` : undefined}
+      style={({ pressed }) => [s.row, { gap: 12, paddingVertical: 8, minHeight: 52 }, pressed && s.pressed]}>
+      <Icon name={icon} size={22} color={danger ? C.danger : C.sub} />
+      <View style={{ flex: 1 }}>
+        <Text style={[s.body, danger && { color: C.danger, fontWeight: '700' }]}>{title}</Text>
+        {!!sub && <Text style={[s.small, { marginTop: 1 }]}>{sub}</Text>}
+      </View>
+      {!!value && <Text style={[s.muted, { marginTop: 0, flexShrink: 1, textAlign: 'right' }]} numberOfLines={1}>{value}</Text>}
+      {right ?? (onPress && <Icon name="chevron-forward" size={18} color={C.sub} />)}
+    </Pressable>
+  );
+}
+
+// 묶음: 제목(선택) + 카드 안 행 사이에 얇은 구분선
+function Group({ title, children }: { title?: string; children: ReactNode }) {
+  const { C, s } = useTheme();
+  const rows = Children.toArray(children).filter(Boolean);
+  return (
+    <View>
+      {!!title && <Text style={[s.small, { fontWeight: '700', marginLeft: 16, marginBottom: 6 }]}>{title}</Text>}
+      <View style={[s.card, { paddingVertical: 2 }]}>
+        {rows.map((r, i) => <View key={i} style={i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }}>{r}</View>)}
+      </View>
     </View>
-    {right ?? (onPress && <Icon name="chevron-forward" size={18} color={C.sub} />)}
-  </Pressable>
   );
 }
 
 export default function MyScreen() {
   const { C, s } = useTheme();
-  const { member, rename, provider, linked, setLinked, noti, locConsent, setLocConsent, isManual, location, areas, areaNames,
+  const { member, rename, provider, linked, setLinked, noti, locConsent, setLocConsent, isManual, location, areas,
     logout, expire, withdraw, adminBlockingGroups, theme, setTheme } = useApp();
   const [nameDraft, setNameDraft] = useState<string | null>(null); // null = 보기 모드
   if (!member) return null;
@@ -55,24 +75,35 @@ export default function MyScreen() {
     confirm('회원 탈퇴', '로그인 정보, 관심지역, 체크리스트, 알림 설정, 위치정보가 삭제되고 모든 그룹에서 탈퇴됩니다.\n이 작업은 되돌릴 수 없습니다.', '탈퇴', withdraw);
   };
 
+  const notiSummary = noti.on ? `${noti.minLevel} 이상 · 야간 ${noti.night ? '허용' : '차단'}` : '꺼짐';
+
   return (
     <Page>
-      <Card>
+      {/* 프로필 + 상태 요약 */}
+      <View style={s.card}>
         <View style={[s.row, { gap: 14 }]}>
-          <Icon name="person-circle" size={56} color={C.primary} />
+          <View style={[s.rim, { width: 52, height: 52, borderRadius: 26, backgroundColor: C.fill, justifyContent: 'center', alignItems: 'center' }]}>
+            <Text style={[s.h2, { color: C.onSign, fontWeight: '800' }]} maxFontSizeMultiplier={1.3}>{member.name.slice(0, 1)}</Text>
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={s.h2}>{member.name}</Text>
-            <Text style={s.body}>{member.email}</Text>
-            <Text style={s.muted}>{provider} 계정으로 로그인 · 가입일 {member.joinedAt}</Text>
+            {/* 로그인 제공자는 아래 '계정' 묶음에 표시 (여기서 같이 쓰면 이메일이 잘림) */}
+            <Text style={[s.muted, { marginTop: 1 }]} numberOfLines={1}>{member.email}</Text>
           </View>
           {nameDraft === null && (
-            <Pressable onPress={() => setNameDraft(member.name)} hitSlop={8} accessibilityRole="button" accessibilityLabel="프로필 수정"
-              style={({ pressed }) => [{ padding: 8, borderRadius: 999, backgroundColor: C.primarySoft, alignSelf: 'flex-start' }, pressed && s.pressed]}>
-              <Icon name="create-outline" size={18} color={C.primary} />
+            <Pressable onPress={() => setNameDraft(member.name)} hitSlop={8} accessibilityRole="button" accessibilityLabel="프로필 편집"
+              style={({ pressed }) => [s.rim, { minHeight: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: C.primarySoft, justifyContent: 'center' }, pressed && s.pressed]}>
+              <Text style={[s.small, { color: C.primary, fontWeight: '700' }]}>편집</Text>
             </Pressable>
           )}
         </View>
-        {nameDraft !== null && (
+        {nameDraft === null ? (
+          <View style={[s.row, { flexWrap: 'wrap', gap: 6, marginTop: 12 }]} accessible accessibilityLabel={`위치 동의 ${locConsent ? '켜짐' : '꺼짐'}, 알림 ${notiSummary}, 관심지역 ${areas.length}곳`}>
+            <Badge text={`위치 동의 ${locConsent ? '켜짐' : '꺼짐'}`} color={locConsent ? C.success : C.sub} />
+            <Badge text={noti.on ? `알림 ${noti.minLevel} 이상` : '알림 꺼짐'} color={noti.on ? C.primary : C.sub} />
+            <Badge text={`관심지역 ${areas.length}곳`} color={C.primary} />
+          </View>
+        ) : (
           <View style={{ marginTop: 12 }}>
             <View style={s.divider} />
             <Text style={s.bold}>이름</Text>
@@ -86,42 +117,39 @@ export default function MyScreen() {
             </View>
           </View>
         )}
-      </Card>
+      </View>
 
-      <Text style={[s.small, { fontWeight: '700', marginTop: 8, marginLeft: 16, marginBottom: -4 }]}>소셜 계정 연결</Text>
-      <Card>
+      <Group title="위치 · 알림">
+        <Row icon="location-outline" title="위치정보 이용 동의" sub="끄면 동의 철회 · 그룹 위치공유 중단"
+          right={<AppSwitch accessibilityLabel="위치정보 이용 동의" value={locConsent} onValueChange={toggleConsent} />} />
+        <Row icon="pin-outline" title="기준 위치" value={location} onPress={() => router.push('/location')} />
+        <Row icon="star-outline" title="관심지역" value={`${areas.length}곳`} onPress={() => router.push('/areas')} />
+        <Row icon="notifications-outline" title="재난 알림" value={notiSummary} onPress={() => router.push('/noti')} />
+      </Group>
+
+      <Group title="화면">
+        <Row icon="contrast-outline" title="화면 테마"
+          right={<View style={{ width: 196 }}><Segmented label="화면 테마" items={THEMES.map(t => ({ value: t.mode, label: t.label }))} value={theme} onChange={setTheme} /></View>} />
+      </Group>
+
+      <Group title="계정">
         {PROVIDERS.map(p => (
           <Row key={p} icon={PROVIDER_ICON[p]} title={p}
-            right={p === provider ? <Text style={s.muted}>로그인 계정</Text>
-              : linked.includes(p) ? <Text style={[s.muted, { color: C.success }]}>연결됨</Text>
+            right={p === provider ? <Text style={[s.muted, { marginTop: 0 }]}>로그인 계정</Text>
+              : linked.includes(p) ? <Text style={[s.muted, { marginTop: 0, color: C.success }]}>연결됨</Text>
               : <Pressable onPress={() => connect(p)} accessibilityRole="button" accessibilityLabel={`${p} 계정 연결하기`}><Text style={s.link}>연결하기</Text></Pressable>} />
         ))}
-      </Card>
+        {member.operator && <Row icon="construct-outline" title="운영 관리" sub="API 수집 상태 · 재난 데이터 · 오류 로그" onPress={() => router.push('/ops')} />}
+      </Group>
 
-      <Text style={[s.small, { fontWeight: '700', marginTop: 8, marginLeft: 16, marginBottom: -4 }]}>서비스 설정</Text>
-      <Card>
-        <Row icon="location-outline" title="위치정보 이용 동의" sub="OFF 하면 모든 그룹에서 내 위치공유가 중단됩니다."
-          right={<AppSwitch accessibilityLabel="위치정보 이용 동의" value={locConsent} onValueChange={toggleConsent} />} />
-        <Row icon="notifications-outline" title="재난 알림 설정" sub={noti.on ? `${noti.minLevel} 이상 · 야간 ${noti.night ? '허용' : '차단'}` : '알림 꺼짐'}
-          onPress={() => router.push('/noti')} />
-        <Row icon="contrast-outline" title="화면 테마" />
-        <View style={{ marginLeft: 34, marginBottom: 6 }}>
-          <Segmented label="화면 테마" items={THEMES.map(t => ({ value: t.mode, label: t.label }))} value={theme} onChange={setTheme} />
-        </View>
-        <Row icon="pin-outline" title="기준 위치 직접 지정" sub={`현재: ${location}`} onPress={() => router.push('/location')} />
-        <Row icon="star-outline" title="관심지역 관리" sub={areas.length ? areas.map(a => areaNames[a] ?? a).join(', ') : '없음'} onPress={() => router.push('/areas')} />
-      </Card>
+      <Group>
+        <Row icon="log-out-outline" title="로그아웃" onPress={() => confirm('로그아웃', '로그아웃할까요?', '로그아웃', logout)} right={false} />
+        <Row icon="person-remove-outline" title="회원 탈퇴" sub="모든 데이터 삭제 · 되돌릴 수 없어요" onPress={requestWithdraw} danger />
+      </Group>
 
-      {member.operator && (
-        <Card><Row icon="construct-outline" title="운영 관리" sub="API 수집 상태 · 재난 데이터 · 오류 로그" onPress={() => router.push('/ops')} /></Card>
-      )}
-
-      <Btn title="로그아웃" icon="log-out-outline" outline onPress={() => confirm('로그아웃', '로그아웃할까요?', '로그아웃', logout)} />
-      <Pressable onPress={requestWithdraw} accessibilityRole="button" style={({ pressed }) => [{ minHeight: 48, justifyContent: 'center' }, pressed && s.pressed]}>
-        <Text style={[s.muted, { textAlign: 'center', color: C.danger }]}>회원 탈퇴</Text>
-      </Pressable>
+      <Text style={[s.small, { textAlign: 'center', marginTop: 4 }]}>가입일 {member.joinedAt}</Text>
       {/* 시연용: 인증 만료 상황 재현 (개발 모드에서만 보임) */}
-      {__DEV__ && <Pressable onPress={expire} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={[s.muted, { textAlign: 'center' }]}>[개발용] 인증 만료 시뮬레이션</Text></Pressable>}
+      {__DEV__ && <Pressable onPress={expire} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={[s.small, { textAlign: 'center' }]}>[개발용] 인증 만료 시뮬레이션</Text></Pressable>}
     </Page>
   );
 }

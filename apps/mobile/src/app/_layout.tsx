@@ -15,7 +15,7 @@ function RootStack() {
 }
 
 function Navigator({ dark }: { dark: boolean }) {
-  const { member } = useApp();
+  const { member, needConsent, needLocation } = useApp();
   const { C } = useTheme();
   const base = dark ? DarkTheme : DefaultTheme;
   const navTheme = { ...base, colors: { ...base.colors, primary: C.primary, background: C.bg, card: C.card, text: C.text, border: C.border } };
@@ -24,23 +24,32 @@ function Navigator({ dark }: { dark: boolean }) {
     <ThemeProvider value={navTheme}>
       <StatusBar style={dark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal', headerTintColor: C.text, headerTitleStyle: { fontWeight: '700' } }}>
-        {/* 비로그인: 로그인 화면만. 로그인 여부가 바뀌면 라우터가 알맞은 화면으로 자동 이동 */}
+        {/* 상태마다 열 수 있는 화면만 남김 → 상태가 바뀌면 라우터가 첫 번째로 열 수 있는 화면으로 한 번에 이동
+            비로그인 → 로그인 / 로그인 직후 동의 전 → 위치 동의 / 동의 거부·기준 위치 없음 → 위치 직접 지정 / 그 외 → 탭
+            (탭을 거쳐 다시 넘어가지 않으므로 화면이 두 번 바뀌지 않음) */}
         <Stack.Protected guard={!member}>
           <Stack.Screen name="login" options={{ headerShown: false }} />
         </Stack.Protected>
-        <Stack.Protected guard={!!member}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Protected guard={!!member && needConsent}>
           <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={!!member && !needConsent}>
+          <Stack.Protected guard={!needLocation}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          </Stack.Protected>
+          {/* 기준 위치가 없을 때의 첫 화면이자, 내정보에서 다시 여는 설정 화면 */}
           <Stack.Screen name="location" />
-          <Stack.Screen name="disasters/index" />
-          <Stack.Screen name="disasters/[id]" />
-          <Stack.Screen name="shelters/[id]" />
-          <Stack.Screen name="route/[id]" />
-          <Stack.Screen name="groups/[id]" />
-          <Stack.Screen name="areas" />
-          <Stack.Screen name="noti" />
-          <Stack.Screen name="chat" />
-          <Stack.Screen name="ops" />
+          <Stack.Protected guard={!needLocation}>
+            <Stack.Screen name="disasters/index" />
+            <Stack.Screen name="disasters/[id]" />
+            <Stack.Screen name="shelters/[id]" />
+            <Stack.Screen name="route/[id]" />
+            <Stack.Screen name="groups/[id]" />
+            <Stack.Screen name="areas" />
+            <Stack.Screen name="noti" />
+            <Stack.Screen name="chat" />
+            <Stack.Screen name="ops" />
+          </Stack.Protected>
         </Stack.Protected>
       </Stack>
     </ThemeProvider>

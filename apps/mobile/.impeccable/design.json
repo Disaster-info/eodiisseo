@@ -127,7 +127,7 @@
       "primary-soft": {
         "role": "neutral",
         "displayName": "안내 띠 바탕 (Notice Soft)",
-        "canonical": "#E3EDF8",
+        "canonical": "#DCE8F6",
         "tonalRamp": [
           "#080C10",
           "#1D252D",
@@ -247,7 +247,7 @@
       "sub": {
         "role": "neutral",
         "displayName": "보조 글자 (Sub)",
-        "canonical": "#5C6168",
+        "canonical": "#4E5B6A",
         "tonalRamp": [
           "#090B0E",
           "#20242A",
@@ -262,7 +262,7 @@
       "border": {
         "role": "neutral",
         "displayName": "경계선 (Border)",
-        "canonical": "#D9DCD8",
+        "canonical": "#D3DEEA",
         "tonalRamp": [
           "#0A0C0A",
           "#232522",
@@ -274,10 +274,10 @@
           "#EDEFED"
         ]
       },
-      "concrete-ground": {
+      "sky-ground": {
         "role": "neutral",
-        "displayName": "콘크리트 바탕 (Concrete Ground)",
-        "canonical": "#F2F3F1",
+        "displayName": "스카이 바탕 (Sky Ground)",
+        "canonical": "#E6EDF5",
         "tonalRamp": [
           "#0B0B0A",
           "#242423",
@@ -484,9 +484,9 @@
           "#EBEFF3"
         ]
       },
-      "concrete-ground-dark": {
+      "sky-ground-dark": {
         "role": "neutral",
-        "displayName": "콘크리트 바탕 (Concrete Ground) · 다크",
+        "displayName": "스카이 바탕 (Sky Ground) · 다크",
         "canonical": "#121416",
         "tonalRamp": [
           "#0A0B0C",
@@ -617,7 +617,7 @@
       "refersTo": "chip",
       "description": "알약형 선택 칩. 선택 시 fill 바탕 + 흰 글자. 높이 44.",
       "html": "<div class=\"ds-chips\"><button class=\"ds-chip on\">현재 위치</button><button class=\"ds-chip\">서울 마포구</button></div>",
-      "css": ".ds-chips{display:flex;gap:6px}.ds-chip{min-height:44px;padding:9px 14px;border:1px solid #D9DCD8;border-radius:999px;background:#FFFFFF;color:#16181B;font:500 15px system-ui}.ds-chip.on{background:#0B5CAD;border-color:#0B5CAD;color:#FFFFFF}.ds-chip:active{opacity:.7}.ds-chip:focus-visible{outline:3px solid #0B5CAD;outline-offset:2px}"
+      "css": ".ds-chips{display:flex;gap:6px}.ds-chip{min-height:44px;padding:9px 14px;border:1px solid #D3DEEA;border-radius:999px;background:#FFFFFF;color:#16181B;font:500 15px system-ui}.ds-chip.on{background:#0B5CAD;border-color:#0B5CAD;color:#FFFFFF}.ds-chip:active{opacity:.7}.ds-chip:focus-visible{outline:3px solid #0B5CAD;outline-offset:2px}"
     },
     {
       "name": "Card",
@@ -625,15 +625,15 @@
       "refersTo": "card",
       "description": "중립 카드. 색 없음, 옅은 그림자 하나, 12 모서리.",
       "html": "<div class=\"ds-card\"><b>서울 마포구</b><p>발생 10:20 · 갱신 10:42</p></div>",
-      "css": ".ds-card{background:#FFFFFF;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(22,24,27,.08);font:17px/24px system-ui;color:#16181B}.ds-card p{margin:2px 0 0;font-size:15px;line-height:22px;color:#5C6168}"
+      "css": ".ds-card{background:#FFFFFF;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(22,24,27,.08);font:17px/24px system-ui;color:#16181B}.ds-card p{margin:2px 0 0;font-size:15px;line-height:22px;color:#4E5B6A}"
     },
     {
       "name": "Input",
       "kind": "input",
       "refersTo": "input",
-      "description": "콘크리트 바탕 입력칸.",
+      "description": "스카이 바탕 입력칸.",
       "html": "<input class=\"ds-input\" placeholder=\"예: FRD-1234\">",
-      "css": ".ds-input{border:1px solid #D9DCD8;border-radius:10px;padding:12px 14px;font:17px system-ui;background:#F2F3F1;color:#16181B;width:100%}.ds-input:focus-visible{outline:2px solid #0B5CAD;outline-offset:1px}"
+      "css": ".ds-input{border:1px solid #D3DEEA;border-radius:10px;padding:12px 14px;font:17px system-ui;background:#E6EDF5;color:#16181B;width:100%}.ds-input:focus-visible{outline:2px solid #0B5CAD;outline-offset:1px}"
     },
     {
       "name": "Segmented",
@@ -641,7 +641,7 @@
       "refersTo": "segmented",
       "description": "2~4개 중 하나. 선택 칸은 카드 바탕 + 옅은 그림자.",
       "html": "<div class=\"ds-seg\"><button class=\"on\">거리순</button><button>이름순</button></div>",
-      "css": ".ds-seg{display:flex;gap:3px;padding:3px;border-radius:10px;background:#D9DCD8}.ds-seg button{flex:1;min-height:44px;border:0;border-radius:8px;background:transparent;color:#5C6168;font:500 15px system-ui}.ds-seg button.on{background:#FFFFFF;color:#16181B;font-weight:700;box-shadow:0 1px 3px rgba(22,24,27,.08)}.ds-seg button:focus-visible{outline:3px solid #0B5CAD}"
+      "css": ".ds-seg{display:flex;gap:3px;padding:3px;border-radius:10px;background:#D3DEEA}.ds-seg button{flex:1;min-height:44px;border:0;border-radius:8px;background:transparent;color:#4E5B6A;font:500 15px system-ui}.ds-seg button.on{background:#FFFFFF;color:#16181B;font-weight:700;box-shadow:0 1px 3px rgba(22,24,27,.08)}.ds-seg button:focus-visible{outline:3px solid #0B5CAD}"
     },
     {
       "name": "Navigation (Tab Bar)",
@@ -649,7 +649,7 @@
       "refersTo": "nav-tabbar",
       "description": "하단 탭 5개. 선택 탭은 채운 아이콘 + primary.",
       "html": "<nav class=\"ds-tabs\"><a class=\"on\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 512 512\" fill=\"currentColor\"><path d=\"M256 48 32 240h64v224h128V320h64v144h128V240h64z\"/></svg>홈</a><a><svg width=\"24\" height=\"24\" viewBox=\"0 0 512 512\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"32\"><path d=\"M256 48 80 112v128c0 112 80 192 176 224 96-32 176-112 176-224V112z\"/></svg>대피소</a></nav>",
-      "css": ".ds-tabs{display:flex;background:#FFFFFF;border-top:1px solid #D9DCD8}.ds-tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;color:#5C6168;font:500 11px system-ui;text-decoration:none}.ds-tabs a.on{color:#0B5CAD}.ds-tabs a:focus-visible{outline:3px solid #0B5CAD}"
+      "css": ".ds-tabs{display:flex;background:#FFFFFF;border-top:1px solid #D3DEEA}.ds-tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;color:#4E5B6A;font:500 11px system-ui;text-decoration:none}.ds-tabs a.on{color:#0B5CAD}.ds-tabs a:focus-visible{outline:3px solid #0B5CAD}"
     },
     {
       "name": "Sign · 경보 (Regulatory Red)",

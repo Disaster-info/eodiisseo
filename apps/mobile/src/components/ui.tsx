@@ -14,11 +14,12 @@ export type IconName = ComponentProps<typeof Ionicons>['name'];
 // 표지판 색(sign)은 낮·밤 모두 같은 색 (실제 표지판처럼). 글자용 색(primary·danger 등)은 바탕 대비 4.5:1 이상
 const SIGN = { blue: '#0B5CAD', green: '#0E7A4F', red: '#D7261E', yellow: '#F5C400' };
 const LIGHT = {
-  primary: '#0B5CAD', fill: '#0B5CAD', primarySoft: '#E3EDF8', noticeText: '#0A4C8F', // primary: 글자·아이콘, fill: 흰 글자를 얹는 버튼 바탕
+  primary: '#0B5CAD', fill: '#0B5CAD', primarySoft: '#DCE8F6', noticeText: '#0A4C8F', // primary: 글자·아이콘, fill: 흰 글자를 얹는 버튼 바탕
   danger: '#B3201A', dangerSoft: '#FBE6E4', dangerText: '#B3201A',
   warning: '#8A5A00', success: '#0E7A4F',
-  text: '#16181B', sub: '#5C6168', border: '#D9DCD8', bg: '#F2F3F1', card: '#FFFFFF',
-  bar: '#FFFFFF', barBorder: '#D9DCD8',
+  text: '#16181B', sub: '#4E5B6A', border: '#D3DEEA', bg: '#E6EDF5', card: '#FFFFFF', // bg: 스카이 (옅은 하늘색)
+  bar: '#FFFFFF', barBorder: '#D3DEEA',
+  rim: '#000000', // 아이콘·배지 테두리: 색이 바탕과 비슷해도 경계가 보이게 (바탕 대비 17.8:1)
   sign: SIGN, onSign: '#FFFFFF', onYellow: '#16181B',
 };
 const DARK: typeof LIGHT = {
@@ -27,6 +28,7 @@ const DARK: typeof LIGHT = {
   warning: '#F2C230', success: '#5FC89A',
   text: '#EDEEEC', sub: '#A3A8AE', border: '#30353A', bg: '#121416', card: '#1C1F22',
   bar: '#1C1F22', barBorder: '#30353A',
+  rim: '#C9CED6', // 어두운 하얀색 (바탕 대비 11.7:1)
   sign: SIGN, onSign: '#FFFFFF', onYellow: '#16181B',
 };
 export type Colors = typeof LIGHT;
@@ -149,11 +151,12 @@ export function Btn({ title, onPress, color, textColor, outline, icon }:
 }
 
 // solid: 표지판처럼 색을 꽉 채운 배지 (fg 는 그 위 글자색). 아니면 옅은 바탕 + 색 글자 (color 는 글자용 색이어야 함)
-export function Badge({ text, color, icon, solid, fg }: { text: string; color: string; icon?: IconName; solid?: boolean; fg?: string }) {
+// rim: 테두리 색. 기본은 테마 테두리(라이트 검정·다크 밝은 회색), 표지판 위에서는 판 글자색을 넘김
+export function Badge({ text, color, icon, solid, fg, rim }: { text: string; color: string; icon?: IconName; solid?: boolean; fg?: string; rim?: string }) {
   const { C, s } = useTheme();
   const ink = solid ? fg ?? C.onSign : color;
   return (
-    <View style={[s.badge, { backgroundColor: solid ? color : color + '1A' }]}>
+    <View style={[s.badge, s.rim, rim && { borderColor: rim }, { backgroundColor: solid ? color : color + '1A' }]}>
       {icon && <Ionicons name={icon} size={13} color={ink} />}
       <Text style={[s.badgeText, { color: ink }]}>{text}</Text>
     </View>
@@ -196,6 +199,17 @@ export function SignBtn({ tone, title, icon, onPress, solid }: { tone: SignTone;
       {icon && <Ionicons name={icon} size={20} color={fg} />}
       <Text style={[s.btnText, { color: fg, fontWeight: '800' }]}>{title}</Text>
     </Pressable>
+  );
+}
+
+// 상태 아이콘을 테두리 있는 원 안에 (옅은 색 바탕 + 같은 색 아이콘). 아이콘 색이 바탕과 비슷해도 경계가 보임
+export function IconMark({ name, color, size = 28, label }: { name: IconName; color: string; size?: number; label?: string }) {
+  const { s } = useTheme();
+  return (
+    <View accessible={!!label} accessibilityLabel={label}
+      style={[s.rim, { width: size, height: size, borderRadius: size / 2, backgroundColor: color + '1A', justifyContent: 'center', alignItems: 'center' }]}>
+      <Ionicons name={name} size={Math.round(size * 0.55)} color={color} />
+    </View>
   );
 }
 
@@ -293,6 +307,7 @@ function makeStyles(C: Colors) { return StyleSheet.create({
   btnText: { fontWeight: '700', fontSize: 17, flexShrink: 1, textAlign: 'center' }, // 큰 글자에서 줄바꿈
   badge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   badgeText: { fontSize: 13, fontWeight: '700' },
+  rim: { borderWidth: 1.25, borderColor: C.rim }, // 아이콘·배지 테두리
   chip: { borderWidth: 1, borderColor: C.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, minHeight: 44, justifyContent: 'center', backgroundColor: C.card, marginBottom: 6 },
   chipOn: { backgroundColor: C.fill, borderColor: C.fill },
   chipText: { fontSize: 15, color: C.text, fontWeight: '500' },
