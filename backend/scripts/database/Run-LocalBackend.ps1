@@ -12,6 +12,8 @@ try {
     $args=@('-Dfile.encoding=UTF-8','-jar',('"'+$jar.FullName+'"'),'--server.address=127.0.0.1',"--server.port=$Port",'--spring.profiles.active=local','--spring.jpa.hibernate.ddl-auto=validate','--logging.level.root=INFO')
     $process=Start-Process -FilePath $java -ArgumentList $args -WorkingDirectory $backend -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logs 'backend.out.log') -RedirectStandardError (Join-Path $logs 'backend.err.log')
     [IO.File]::WriteAllText((Join-Path $logs 'backend.pid'),[string]$process.Id)
+    $metadata=@{pid=$process.Id;jar=$jar.FullName;startedAtUtc=$process.StartTime.ToUniversalTime().ToString('O')}
+    [IO.File]::WriteAllText((Join-Path $logs 'backend.process.json'),($metadata | ConvertTo-Json))
     for($attempt=0;$attempt -lt 60;$attempt++){
         if($process.HasExited){throw "Backend exited. Inspect $logs/backend.out.log and backend.err.log"}
         if(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue){Write-Output "Backend listening at http://127.0.0.1:$Port (PID $($process.Id)).";return}

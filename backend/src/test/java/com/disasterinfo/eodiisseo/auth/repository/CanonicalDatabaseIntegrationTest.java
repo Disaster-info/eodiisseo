@@ -58,7 +58,7 @@ class CanonicalDatabaseIntegrationTest {
     static AuthService auth(){return new AuthService(new AuthRepository(db),new TokenService("test-only-key-0123456789abcdefghijk","test","test",900,clock),mock(SocialIdentityVerifier.class),clock,manager,1209600);}
     @Test void canonicalSchemaAndMigrationsAreRepeatable(){
         assertEquals(0,flyway.migrate().migrationsExecuted);
-        assertEquals(37,db.count("select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not in ('spatial_ref_sys','flyway_schema_history')"));
+        assertEquals(39,db.count("select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not in ('spatial_ref_sys','flyway_schema_history')"));
         assertEquals(3,db.count("select count(*) from checklist_template where active=true"));
         assertNotNull(db.one("select postgis_full_version() as version").get("version"));
     }
