@@ -49,17 +49,17 @@ public class DashboardDisasterQueryService {
             throw failure(DashboardException.Reason.POLICY_UNRESOLVED, "Disaster list freshness contract is not agreed.");
         }
         HashSet<UUID> ids = new HashSet<>();
+        for (var entry : snapshot.entries()) {
+            if (entry.origin() == DataOrigin.OFFICIAL && !ids.add(entry.disaster().disasterId())) {
+                throw failure(DashboardException.Reason.DEPENDENCY_UNAVAILABLE,
+                        "Disaster query returned duplicate identifiers.");
+            }
+        }
         var disasters = snapshot.entries().stream()
                 .filter(entry -> entry.origin() == DataOrigin.OFFICIAL)
                 .map(DashboardDisasterQueryReader.Entry::disaster)
                 .filter(disaster -> criteria.type() == null || criteria.type().equals(disaster.type()))
                 .filter(disaster -> criteria.status() == null || criteria.status() == disaster.status())
-                .peek(disaster -> {
-                    if (!ids.add(disaster.disasterId())) {
-                        throw failure(DashboardException.Reason.DEPENDENCY_UNAVAILABLE,
-                                "Disaster query returned duplicate identifiers.");
-                    }
-                })
                 .toList();
         return new DisasterListResponse(disasters);
     }

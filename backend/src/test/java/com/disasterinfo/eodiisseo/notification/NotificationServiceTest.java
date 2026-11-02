@@ -49,6 +49,36 @@ class NotificationServiceTest {
         assertThatThrownBy(() -> f.service().updateSettings(f.session,new SettingsRequest(true,List.of(),"AI_INVENTED_SEVERITY",false))).isInstanceOf(NotificationException.class);
         assertThat(f.owned).allMatch(InterestArea::notifyEnabled);
     }
+    @Test void mismatchedSeverityCodeCannotChangeSettingsOrAreaSelection() {
+        var f = new NotificationFixture(); var previous = f.store.findSettings(f.member);
+        SeverityReader wrongSeverity = new SeverityReader() {
+            @Override public Severity findByCode(String code) { return f.severe; }
+            @Override public Severity findById(UUID id) { return f.severityReader.findById(id); }
+        };
+        var service = new NotificationService(Optional.of(f.auth),Optional.of(f.store),Optional.of(f.interests),Optional.of(wrongSeverity),Optional.of(f.testCipher));
+
+        assertThatThrownBy(() -> service.updateSettings(f.session,new SettingsRequest(false,List.of(),"WARNING",false)))
+                .isInstanceOfSatisfying(NotificationException.class,e -> {
+                    assertThat(e.reason()).isEqualTo(NotificationException.Reason.DEPENDENCY_UNAVAILABLE);
+                    assertThat(e.status()).isEqualTo(500);
+                });
+        assertThat(f.store.findSettings(f.member)).isEqualTo(previous);
+        assertThat(f.owned).allMatch(InterestArea::notifyEnabled);
+    }
+    @Test void mismatchedSeverityIdCannotBePresentedAsTheStoredMinimum() {
+        var f = new NotificationFixture();
+        SeverityReader wrongSeverity = new SeverityReader() {
+            @Override public Severity findByCode(String code) { return f.severityReader.findByCode(code); }
+            @Override public Severity findById(UUID id) { return f.severe; }
+        };
+        var service = new NotificationService(Optional.of(f.auth),Optional.of(f.store),Optional.of(f.interests),Optional.of(wrongSeverity),Optional.of(f.testCipher));
+
+        assertThatThrownBy(() -> service.getSettings(f.session))
+                .isInstanceOfSatisfying(NotificationException.class,e -> {
+                    assertThat(e.reason()).isEqualTo(NotificationException.Reason.DEPENDENCY_UNAVAILABLE);
+                    assertThat(e.status()).isEqualTo(500);
+                });
+    }
     @Test void missingSettingDoesNotReturnFabricatedDefault() {
         var f=new NotificationFixture();f.store.settings.clear();
         assertThatThrownBy(() -> f.service().getSettings(f.session)).isInstanceOfSatisfying(NotificationException.class,e -> assertThat(e.status()).isEqualTo(500));

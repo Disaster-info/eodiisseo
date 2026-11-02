@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -78,9 +79,16 @@ public class DashboardService {
         BaseLocation baseLocation = resolveLocation(authenticatedMemberId, criteria);
 
         // Query disasters outside weather failure handling; failures must never look like no disasters.
+        HashSet<UUID> ids = new HashSet<>();
         List<MajorDisaster> majorDisasters = disasters
                 .findCandidates(authenticatedMemberId, criteria, baseLocation).stream()
                 .filter(candidate -> candidate.dataOrigin() == DataOrigin.OFFICIAL)
+                // The port requires distinct official IDs, including records later excluded by status.
+                .peek(candidate -> {
+                    if (!ids.add(candidate.disaster().disasterId())) {
+                        throw unavailable("Disaster query returned duplicate identifiers.");
+                    }
+                })
                 .filter(candidate -> switch (candidate.disaster().status()) {
                     case OCCURRED, ONGOING -> true;
                     case ENDED, LIFTED -> false;

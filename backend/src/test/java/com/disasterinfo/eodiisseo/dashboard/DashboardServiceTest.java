@@ -97,6 +97,55 @@ class DashboardServiceTest {
     }
 
     @Test
+    void duplicateActiveOfficialCandidatesFailBeforeWeatherIsQueried() {
+        FakeReaders fake = new FakeReaders();
+        Candidate disaster = candidate("duplicate-active", DataOrigin.OFFICIAL, DisasterStatus.ONGOING, Relevance.RELATED);
+        fake.candidates = List.of(disaster, disaster);
+
+        assertThatThrownBy(() -> service(fake).getDashboard(MEMBER_ID, COORDINATES))
+                .isInstanceOfSatisfying(DashboardException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(DashboardException.Reason.DEPENDENCY_UNAVAILABLE));
+        assertThat(fake.weatherCalls).isZero();
+    }
+
+    @Test
+    void conflictingActiveStatusOrRelevanceCannotChooseOneCandidateForTheSameOfficialId() {
+        FakeReaders fake = new FakeReaders();
+        Candidate occurred = candidate("conflicting-active", DataOrigin.OFFICIAL, DisasterStatus.OCCURRED, Relevance.UNKNOWN);
+        Candidate ongoing = candidate("conflicting-active", DataOrigin.OFFICIAL, DisasterStatus.ONGOING, Relevance.RELATED);
+        fake.candidates = List.of(occurred, ongoing);
+
+        assertThatThrownBy(() -> service(fake).getDashboard(MEMBER_ID, NATIONWIDE))
+                .isInstanceOfSatisfying(DashboardException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(DashboardException.Reason.DEPENDENCY_UNAVAILABLE));
+    }
+
+    @Test
+    void mockWithSameIdAndSeparateInactiveRecordDoNotConflictWithTheActiveOfficialRecord() {
+        FakeReaders fake = new FakeReaders();
+        Candidate ongoing = candidate("same-id", DataOrigin.OFFICIAL, DisasterStatus.ONGOING, Relevance.RELATED);
+        fake.candidates = List.of(
+                candidate("same-id", DataOrigin.MOCK, DisasterStatus.ONGOING, Relevance.RELATED),
+                candidate("different-ended-id", DataOrigin.OFFICIAL, DisasterStatus.ENDED, Relevance.UNKNOWN),
+                ongoing);
+
+        assertThat(service(fake).getDashboard(MEMBER_ID, NATIONWIDE).majorDisasters())
+                .containsExactly(ongoing.disaster());
+    }
+
+    @Test
+    void inactiveOfficialStateCannotHideAConflictingActiveRecordOfTheSameId() {
+        FakeReaders fake = new FakeReaders();
+        fake.candidates = List.of(
+                candidate("same-official-id", DataOrigin.OFFICIAL, DisasterStatus.ENDED, Relevance.UNKNOWN),
+                candidate("same-official-id", DataOrigin.OFFICIAL, DisasterStatus.ONGOING, Relevance.RELATED));
+
+        assertThatThrownBy(() -> service(fake).getDashboard(MEMBER_ID, NATIONWIDE))
+                .isInstanceOfSatisfying(DashboardException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(DashboardException.Reason.DEPENDENCY_UNAVAILABLE));
+    }
+
+    @Test
     void coordinatesAndAuthenticatedIdentityReachTheCorrectReaders() {
         FakeReaders fake = new FakeReaders();
         fake.weather = weather(false);

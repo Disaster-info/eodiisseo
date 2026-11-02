@@ -59,6 +59,24 @@ class NotificationDispatchTest {
         f.store.settings.put(f.member,new Settings(false,null,true,f.now));
         assertThat(f.dispatcher().process(initial(f),f.now).createdEvents()).isZero();assertThat(f.sends).isZero();
     }
+    @Test void mismatchedSeverityIdCannotLowerTheMembersThresholdAndCreateAnEvent() {
+        var f = new NotificationFixture(); f.device("device-a");
+        f.store.settings.put(f.member,new Settings(true,f.severe.id(),true,f.now));
+        SeverityReader wrongSeverity = new SeverityReader() {
+            @Override public Severity findByCode(String code) { return f.severityReader.findByCode(code); }
+            @Override public Severity findById(UUID id) { return f.warning; }
+        };
+        var worker = new NotificationDispatchService(Optional.of(f.auth),Optional.of(f.store),Optional.of(f.interests),Optional.of(wrongSeverity),
+                Optional.of(id -> f.disaster),Optional.of(f.testCipher),Optional.of(f.testFcm),Optional.empty());
+
+        var report = worker.process(initial(f),f.now);
+
+        assertThat(report.createdEvents()).isZero();
+        assertThat(report.skippedMembers()).isEqualTo(1);
+        assertThat(f.store.events).isEmpty();
+        assertThat(f.store.deliveries).isEmpty();
+        assertThat(f.sends).isZero();
+    }
     @Test void inactiveMemberIsExcludedEvenWithStoredOnSettings() {
         var f=new NotificationFixture();f.device("device-a");f.active=false;
         assertThat(f.dispatcher().process(initial(f),f.now).createdEvents()).isZero();assertThat(f.sends).isZero();
