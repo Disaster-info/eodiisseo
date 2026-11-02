@@ -1,22 +1,24 @@
 package com.disasterinfo.eodiisseo.shelter.repository;
 
+import com.disasterinfo.eodiisseo.common.util.GeoUtils;
 import com.disasterinfo.eodiisseo.shelter.entity.Shelter;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 /**
- * DB 연동 전 임시 대피소 저장소 — 주변 조회(API-SHELTER-001)에서 받은 대피소를 서버 메모리에 보관해
- * 상세 조회(API-SHELTER-002)와 경로 조회(API-ROUTE-001)가 shelterId로 찾을 수 있게 한다.
+ * DB 없는 test 프로필용 대피소 저장소 — 서버 메모리에 보관한다.
+ * 실제 실행은 JdbcShelterRepository(shelter 테이블)를 쓴다. 단위 테스트에서도 DB 대신 쓴다.
  *
- * 한계 (DB 연동 시 해소):
- * - 서버를 재시작하면 비워진다 → 주변 조회를 한 번 해야 상세·경로 조회가 가능 (그 전에는 404)
- * - 최대 MAX_SIZE건만 보관하고, 넘치면 가장 오래 쓰이지 않은 것부터 지운다 (LRU)
+ * 최대 MAX_SIZE건만 보관하고, 넘치면 가장 오래 쓰이지 않은 것부터 지운다 (LRU)
  */
 @Repository
+@Profile("test")
 public class InMemoryShelterRepository implements ShelterRepository {
 
     static final int MAX_SIZE = 20_000; // 전국 지진옥외대피장소 수(약 1만 수천 건)를 넉넉히 담는 크기
@@ -35,7 +37,19 @@ public class InMemoryShelterRepository implements ShelterRepository {
     }
 
     @Override
+    public synchronized void deactivateAll(Collection<UUID> ids) {
+        ids.forEach(store::remove); // 메모리 구현은 조회 대상만 두므로 빼기만 한다
+    }
+
+    @Override
     public synchronized Optional<Shelter> findById(UUID id) {
         return Optional.ofNullable(store.get(id));
+    }
+
+    @Override
+    public synchronized List<Shelter> findWithin(double latitude, double longitude, double radiusMeters) {
+        return store.values().stream()
+                .filter(s -> GeoUtils.distanceKm(latitude, longitude, s.latitude(), s.longitude()) * 1000 <= radiusMeters)
+                .toList();
     }
 }

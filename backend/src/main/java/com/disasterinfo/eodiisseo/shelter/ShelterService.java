@@ -19,24 +19,31 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
  * 대피소 비즈니스 로직 (Service 계층) — API-SHELTER-001 주변 조회, API-SHELTER-002 상세 조회.
  *
  * 주변 조회 흐름 (명세 처리 내용 ①~⑫):
- *   1) 기준 위치 둘레 최대 반경을 감싸는 사각형으로 공공데이터(SD-001)를 한 번 조회
- *   2) 원본 → Shelter 변환(좌표 이상·미사용 시설 제외, UUID v5 발급) 후 저장소에 보관 (상세·경로 조회용)
+ *   1) 기준 위치 둘레 최대 반경을 감싸는 사각형으로 공공데이터(SD-001)를 조회해 DB(shelter)에 저장
+ *      — 미사용(USE_SE_CD=0)으로 바뀐 시설은 조회 대상에서 뺀다
+ *   2) DB에서 최대 반경 안의 대피소를 공간 조회 (외부 조회가 실패해도 저장된 대피소로 응답)
  *   3) 초기 반경부터 증가값만큼 넓히며 처음으로 대피소가 있는 반경의 목록을 거리순으로 반환
  *
- * DB가 생기면 1)을 수집(collection) 결과 조회로 바꾸면 되고, 2)의 저장소는 JPA 구현으로 교체한다.
+ * 수집 작업(API-OPS-004 ShelterRefreshGateway)이 연결되면 1)을 빼고 2)·3)만 남긴다.
  * 다른 기능(route)이 대피소가 필요하면 저장소가 아니라 이 Service의 getShelter()를 호출한다.
  */
 @Service
 public class ShelterService {
 
+    private static final Logger log = LoggerFactory.getLogger(ShelterService.class);
+
     private static final String SOURCE_KEY_PREFIX = "SAFETYDATA:DSSP-IF-10943:"; // SD-001 원본 키 접두어
     private static final String ORGANIZATION = "행정안전부";
+    // DB 반경 조회 여유(1%). 경계에 걸친 대피소가 DB 쪽 계산 오차로 빠지지 않게 넉넉히 받고, 최종 반경 판단은 pickNearest가 한다
+    private static final double SEARCH_MARGIN = 1.01;
 
     private final SafetydataClient safetydataClient;
     private final ShelterRepository shelterRepository;
@@ -51,12 +58,24 @@ public class ShelterService {
     /** API-SHELTER-001 주변 대피소 조회 */
     public NearbyShelterResponse findNearby(NearbyShelterRequest request) {
         GeoPoint base = baseLocation(request);
-        List<Shelter> shelters = List.of();
-        // 국내 데이터만 있으므로 국외 좌표는 외부 호출 없이 빈 결과 (명세: 범위 밖은 결과 없음으로 처리)
-        if (GeoUtils.isNearKorea(base.latitude(), base.longitude())) {
-            double[] box = GeoUtils.boundingBox(base.latitude(), base.longitude(), radius.maxRadiusKm());
-            shelters = toShelters(safetydataClient.earthquakeShelters(box[0], box[1], box[2], box[3]));
-            shelterRepository.saveAll(shelters);
+        // 국내 데이터만 있으므로 국외 좌표는 외부·DB 조회 없이 빈 결과 (명세: 범위 밖은 결과 없음으로 처리)
+        if (!GeoUtils.isNearKorea(base.latitude(), base.longitude())) {
+            return pickNearest(base, List.of());
+        }
+        BusinessException refreshFailure = null;
+        try {
+            refresh(base);
+        } catch (BusinessException e) {
+            refreshFailure = e;
+        }
+        List<Shelter> shelters = shelterRepository.findWithin(base.latitude(), base.longitude(),
+                radius.maxRadiusKm() * 1000 * SEARCH_MARGIN);
+        if (refreshFailure != null) {
+            // 저장된 대피소가 없으면 "주변에 대피소 없음"으로 오인하지 않도록 원래 오류(502/504)를 그대로 돌려준다
+            if (shelters.isEmpty()) {
+                throw refreshFailure;
+            }
+            log.warn("Shelter refresh failed ({}); answering from stored shelters", refreshFailure.getErrorCode());
         }
         return pickNearest(base, shelters);
     }
@@ -72,6 +91,18 @@ public class ShelterService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.SHELTER_NOT_FOUND));
     }
 
+    // 기준 위치 둘레를 공공데이터에서 받아 DB에 반영한다. 외부 호출 실패는 BusinessException(502/504)
+    private void refresh(GeoPoint base) {
+        double[] box = GeoUtils.boundingBox(base.latitude(), base.longitude(), radius.maxRadiusKm());
+        List<EarthquakeShelterItem> raw = safetydataClient.earthquakeShelters(box[0], box[1], box[2], box[3]);
+        List<Shelter> shelters = toShelters(raw);
+        shelterRepository.saveAll(shelters);
+        List<UUID> unused = unusedIds(raw, shelters);
+        if (!unused.isEmpty()) {
+            shelterRepository.deactivateAll(unused);
+        }
+    }
+
     // 명세 예외 처리: 좌표와 관심지역이 모두 없으면 거부, 위도·경도는 한 쌍으로만 허용
     private GeoPoint baseLocation(NearbyShelterRequest r) {
         boolean hasLat = r.latitude() != null;
@@ -83,7 +114,7 @@ public class ShelterService {
             return new GeoPoint(r.latitude(), r.longitude());
         }
         if (r.interestAreaId() != null) {
-            // 관심지역(AREA) API·DB가 생기면 여기서 회원의 관심지역 좌표를 조회한다
+            // 관심지역(AREA) API가 생기면 여기서 회원의 관심지역 좌표를 조회한다
             throw new BusinessException(ErrorCode.INVALID_INPUT, "관심지역 기준 조회는 아직 지원하지 않습니다. 좌표로 조회해 주세요.");
         }
         throw new BusinessException(ErrorCode.INVALID_INPUT, "기준 위치(latitude·longitude 또는 interestAreaId)가 필요합니다.");
@@ -98,11 +129,10 @@ public class ShelterService {
         for (EarthquakeShelterItem it : raw) {
             Double lat = parse(it.lat());
             Double lng = parse(it.lng());
-            if (lat == null || lng == null || !GeoUtils.isNearKorea(lat, lng) || "0".equals(it.useCode())
-                    || isBlank(it.areaCode()) || it.serialNo() == null) {
+            if (lat == null || lng == null || !GeoUtils.isNearKorea(lat, lng) || "0".equals(it.useCode()) || !hasSourceKey(it)) {
                 continue;
             }
-            String sourceKey = SOURCE_KEY_PREFIX + it.areaCode() + ":" + it.serialNo();
+            String sourceKey = sourceKey(it);
             UUID id = UuidV5.of(sourceKey);
             String address = isBlank(it.roadAddress()) ? it.address() : it.roadAddress();
             Integer capacity = it.capacity() != null && it.capacity() >= 0 ? it.capacity() : null; // 명세: 비음수 정수 또는 null
@@ -110,6 +140,17 @@ public class ShelterService {
                     ShelterType.EARTHQUAKE_OUTDOOR, capacity, null, ORGANIZATION, null));
         }
         return List.copyOf(byId.values());
+    }
+
+    /** 미사용(USE_SE_CD=0)으로 온 시설의 id. 같은 원본이 사용 중으로도 왔으면 사용 중을 따른다 */
+    List<UUID> unusedIds(List<EarthquakeShelterItem> raw, List<Shelter> active) {
+        List<UUID> activeIds = active.stream().map(Shelter::id).toList();
+        return raw.stream()
+                .filter(it -> "0".equals(it.useCode()) && hasSourceKey(it))
+                .map(it -> UuidV5.of(sourceKey(it)))
+                .filter(id -> !activeIds.contains(id))
+                .distinct()
+                .toList();
     }
 
     /**
@@ -141,6 +182,14 @@ public class ShelterService {
         }
         steps.add(radius.maxRadiusKm());
         return steps;
+    }
+
+    private static boolean hasSourceKey(EarthquakeShelterItem it) {
+        return !isBlank(it.areaCode()) && it.serialNo() != null;
+    }
+
+    private static String sourceKey(EarthquakeShelterItem it) {
+        return SOURCE_KEY_PREFIX + it.areaCode() + ":" + it.serialNo();
     }
 
     // 좌표가 문자열로 오므로 숫자로 변환. 비었거나 숫자가 아니면 null

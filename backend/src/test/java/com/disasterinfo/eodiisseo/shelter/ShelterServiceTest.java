@@ -2,11 +2,15 @@ package com.disasterinfo.eodiisseo.shelter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.disasterinfo.eodiisseo.common.exception.BusinessException;
 import com.disasterinfo.eodiisseo.common.exception.ErrorCode;
 import com.disasterinfo.eodiisseo.common.response.GeoPoint;
 import com.disasterinfo.eodiisseo.integration.safetydata.EarthquakeShelterItem;
+import com.disasterinfo.eodiisseo.integration.safetydata.SafetydataClient;
 import com.disasterinfo.eodiisseo.shelter.dto.NearbyShelterRequest;
 import com.disasterinfo.eodiisseo.shelter.dto.NearbyShelterResponse;
 import com.disasterinfo.eodiisseo.shelter.entity.Shelter;
@@ -17,7 +21,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * ShelterService 단위 테스트 — 원본 변환, 반경 확대·정렬, 입력 검증, 상세 조회. 외부 API 없이 실행된다.
+ * ShelterService 단위 테스트 — 원본 변환, 반경 확대·정렬, 입력 검증, 상세 조회, 저장·외부 실패 시 대체 응답.
+ * 외부 API는 가짜(mock), 저장소는 메모리 구현으로 실행한다. 실제 DB 쿼리는 JdbcShelterRepositoryTest가 검증한다.
  */
 class ShelterServiceTest {
 
@@ -90,6 +95,62 @@ class ShelterServiceTest {
 
         assertThat(service.getDetail(s.id()).additionalInfo().shelterType()).isEqualTo(ShelterType.EARTHQUAKE_OUTDOOR);
         assertThatThrownBy(() -> service.getDetail(UUID.randomUUID()))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.SHELTER_NOT_FOUND);
+    }
+
+    @Test
+    void 외부_조회_결과를_저장소에_저장하고_저장소에서_반경_검색() {
+        SafetydataClient client = mock(SafetydataClient.class);
+        when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(List.of(item("1168000000", 1L, "충현공원", "37.5047", "127.0364", "1")));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+
+        NearbyShelterResponse res = live.findNearby(new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null));
+
+        assertThat(res.shelters()).extracting(NearbyShelterResponse.Item::name).containsExactly("충현공원");
+        assertThat(live.getShelter(res.shelters().get(0).shelterId()).capacity()).isEqualTo(6060); // 상세·경로용으로 저장됨
+    }
+
+    @Test
+    void 외부_조회가_실패하면_저장된_대피소로_응답() {
+        Shelter saved = shelter("saved-near", 37.5047, 127.0364);
+        repository.saveAll(List.of(saved));
+        SafetydataClient client = mock(SafetydataClient.class);
+        when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenThrow(new BusinessException(ErrorCode.EXTERNAL_API_TIMEOUT));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+
+        NearbyShelterResponse res = live.findNearby(new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null));
+
+        assertThat(res.shelters()).extracting(NearbyShelterResponse.Item::shelterId).containsExactly(saved.id());
+    }
+
+    @Test
+    void 외부_조회가_실패하고_저장된_대피소도_없으면_원래_오류() {
+        SafetydataClient client = mock(SafetydataClient.class);
+        when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenThrow(new BusinessException(ErrorCode.EXTERNAL_API_TIMEOUT));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+
+        // 빈 목록을 주면 "주변에 대피소 없음"으로 오인하므로 504를 그대로 낸다
+        assertThatThrownBy(() -> live.findNearby(new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null)))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.EXTERNAL_API_TIMEOUT);
+    }
+
+    @Test
+    void 미사용으로_바뀐_시설은_조회_대상에서_빠진다() {
+        SafetydataClient client = mock(SafetydataClient.class);
+        when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(List.of(item("1168000000", 1L, "충현공원", "37.5047", "127.0364", "1")))
+                .thenReturn(List.of(item("1168000000", 1L, "충현공원", "37.5047", "127.0364", "0")));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+        NearbyShelterRequest request = new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null);
+        UUID id = live.findNearby(request).shelters().get(0).shelterId();
+
+        NearbyShelterResponse after = live.findNearby(request);
+
+        assertThat(after.shelters()).isEmpty();
+        assertThatThrownBy(() -> live.getShelter(id))
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.SHELTER_NOT_FOUND);
     }
 
