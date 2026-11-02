@@ -170,6 +170,21 @@ class FcmAdapterTest {
         assertThat(result.toString()).doesNotContain("device-registration-token", "temporary-oauth");
     }
 
+    @Test void interruptedOAuthExchangePreservesTheCancellationSignal() throws Exception {
+        Fixture fixture = serviceAccount();
+        boolean previous = Thread.interrupted();
+        try {
+            var tokens = new ServiceAccountFcmTokens(fixture.file().toString(), Clock.systemUTC(), (uri, body) -> {
+                throw new InterruptedException("test-only cancellation");
+            });
+            assertThat(tokens.accessToken()).isNull();
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+            if (previous) Thread.currentThread().interrupt();
+        }
+    }
+
     private static Push push() {
         return new Push(UUID.randomUUID(), "EARTHQUAKE", "서울", "지진 관련 공식 안내", "공식 재난 안내 원문");
     }

@@ -44,6 +44,26 @@ public class NotificationService {
         return result;
     }
 
+    /** Merge partial HTTP updates while holding the same member lock as settings writes. */
+    @Transactional
+    public SettingsResponse patchSettings(MemberSession session, SettingsRequest values, Set<String> presentFields) {
+        requireAuthenticated(session);
+        if (values == null || presentFields == null || !Set.of("enabled", "interestAreaIds",
+                "minimumSeverity", "nightNotificationEnabled").containsAll(presentFields)) throw invalid();
+        Settings locked;
+        try { locked = connected(store).findSettingsForUpdate(session.memberId()); }
+        catch (UnsupportedOperationException unsupported) { throw unavailable(); }
+        if (locked == null) throw unavailable();
+        List<String> selected = presentFields.contains("interestAreaIds") ? values.interestAreaIds()
+                : selectedAreaIds(session.memberId()).stream().map(UUID::toString).toList();
+        String minimum = presentFields.contains("minimumSeverity") ? values.minimumSeverity()
+                : minimumCode(locked);
+        return updateSettings(session, new SettingsRequest(
+                presentFields.contains("enabled") ? values.enabled() : Boolean.valueOf(locked.enabled()), selected, minimum,
+                presentFields.contains("nightNotificationEnabled") ? values.nightNotificationEnabled()
+                        : Boolean.valueOf(locked.allowAfter22())));
+    }
+
     @Transactional
     public SettingsResponse updateSettings(MemberSession session, SettingsRequest request) {
         requireAuthenticated(session);
@@ -115,14 +135,21 @@ public class NotificationService {
     }
 
     private SettingsResponse response(UUID memberId, Settings settings) {
-        List<UUID> ids = connected(areas).findOwned(memberId).stream().filter(InterestArea::notifyEnabled)
+        return new SettingsResponse(settings.enabled(), selectedAreaIds(memberId), minimumCode(settings),
+                settings.allowAfter22());
+    }
+
+    private List<UUID> selectedAreaIds(UUID memberId) {
+        return connected(areas).findOwned(memberId).stream().filter(InterestArea::notifyEnabled)
                 .map(InterestArea::id).toList();
+    }
+
+    private String minimumCode(Settings settings) {
         Severity minimum = settings.minimumSeverityId() == null ? null
                 : connected(severities).findById(settings.minimumSeverityId());
         if (settings.minimumSeverityId() != null
                 && (minimum == null || !settings.minimumSeverityId().equals(minimum.id()))) throw unavailable();
-        return new SettingsResponse(settings.enabled(), ids, minimum == null ? null : minimum.code(),
-                settings.allowAfter22());
+        return minimum == null ? null : minimum.code();
     }
 
     private void requireAuthenticated(MemberSession session) {

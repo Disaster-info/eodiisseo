@@ -130,7 +130,8 @@ public class NotificationDispatchService {
             List<Device> active = store.get().findActiveDevices(event.memberId());
             for (Delivery previous : latest.values()) {
                 if (previous.result() != DeliveryResult.FAILED || previous.deviceTokenId() == null
-                        || previous.attemptNo() == Short.MAX_VALUE || !retryPolicy.get().mayRetry(event, previous, time.current())) continue;
+                        || acceptanceUnknown(previous) || previous.attemptNo() == Short.MAX_VALUE
+                        || !retryPolicy.get().mayRetry(event, previous, time.current())) continue;
                 Device current = active.stream().filter(d -> d.id().equals(previous.deviceTokenId())).findFirst().orElse(null);
                 if (current == null) continue;
                 DeliveryResult result = attempt(event, current, previous.targetOrdinal(),
@@ -214,9 +215,10 @@ public class NotificationDispatchService {
                                 PushResult result = sender.get().send(token, new Push(disaster.id(), disaster.type(),
                                         disaster.regionName(), disaster.title(), disaster.mainContent()));
                                 success = result != null && result.successful() && !result.invalidToken();
-                                if (result != null && result.invalidToken())
+                                if (result != null && result.outcome() == PushOutcome.UNREGISTERED)
                                     data.deactivateDevice(current.id(), current.tokenHash(), current.tokenCiphertext());
-                                if (!success) error = result != null && result.invalidToken() ? "INVALID_DEVICE_TOKEN" : "FCM_SEND_FAILED";
+                                if (!success) error = result == null ? PushOutcome.ACCEPTANCE_UNKNOWN.errorCode()
+                                        : result.outcome().errorCode();
                                 if (success && result.providerMessageId() != null && result.providerMessageId().length() <= 255
                                         && !result.providerMessageId().contains(token)) providerId = result.providerMessageId();
                             }
@@ -224,11 +226,23 @@ public class NotificationDispatchService {
                     }
                 }
             }
-        } catch (RuntimeException safeFailure) { error = "FCM_SEND_FAILED"; success = false; providerId = null; }
+        } catch (RuntimeException safeFailure) {
+            // Once submission starts, a thrown sender error cannot prove that FCM rejected it.
+            error = sentAt == null ? "FCM_SEND_FAILED" : PushOutcome.ACCEPTANCE_UNKNOWN.errorCode();
+            success = false; providerId = null;
+        }
         DeliveryResult outcome = success ? DeliveryResult.SUCCESS : DeliveryResult.FAILED;
         data.finishDelivery(new Delivery(pending.id(), pending.eventId(), pending.deviceTokenId(), ordinal,
                 attemptNo, sentAt, outcome, providerId, error));
         return outcome;
+    }
+
+    private static boolean acceptanceUnknown(Delivery attempt) {
+        return PushOutcome.NETWORK_TIMEOUT.errorCode().equals(attempt.errorCode())
+                || PushOutcome.ACCEPTANCE_UNKNOWN.errorCode().equals(attempt.errorCode())
+                // Existing generic failures predate acceptance classification; do not guess that
+                // the provider rejected them after a process restart or deployment.
+                || "FCM_SEND_FAILED".equals(attempt.errorCode());
     }
 
     private void recordNoDevice(Event event) {

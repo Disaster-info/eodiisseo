@@ -72,7 +72,7 @@ class NotificationSafetyRegressionTest {
     }
 
     @Test
-    void ambiguousProviderFailureDoesNotDeleteDeviceAndCanBeRetriedExplicitly() {
+    void ambiguousProviderFailureDoesNotDeleteDeviceAndCannotBeRetriedAsAKnownRejection() {
         var f = new NotificationFixture();
         f.device("device-a");
         FcmSender ambiguousFailure = new FcmSender() {
@@ -91,14 +91,15 @@ class NotificationSafetyRegressionTest {
         var event = f.store.events.values().iterator().next();
         assertThat(f.store.findDeliveries(event.id())).singleElement().satisfies(delivery -> {
             assertThat(delivery.result()).isEqualTo(DeliveryResult.FAILED);
-            assertThat(delivery.errorCode()).isEqualTo("FCM_SEND_FAILED");
+            assertThat(delivery.errorCode()).isEqualTo("FCM_ACCEPTANCE_UNKNOWN");
         });
-        // The configured test retry policy is explicit; no background retry is invented.
+        // Even an explicit policy cannot turn an unknown acceptance into a known rejection.
         var retry = f.dispatcher().retry(event.id(), f.now.plusSeconds(1));
-        assertThat(retry.successfulDevices()).isEqualTo(1);
+        assertThat(retry.successfulDevices()).isZero();
+        assertThat(f.sends).isZero();
         assertThat(f.store.findDeliveries(event.id()))
                 .extracting(Delivery::attemptNo)
-                .containsExactly((short) 1, (short) 2);
+                .containsExactly((short) 1);
     }
 
     @Test

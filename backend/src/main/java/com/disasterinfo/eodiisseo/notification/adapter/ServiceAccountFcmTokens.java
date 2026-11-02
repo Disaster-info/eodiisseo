@@ -96,6 +96,10 @@ public final class ServiceAccountFcmTokens {
             // Refresh early; no stale token is reused after a failed refresh.
             cached = new CachedToken(token, now.plusSeconds(seconds - Math.max(60, seconds / 10)));
             return token;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            cached = null;
+            return null;
         } catch (Exception ignored) {
             cached = null;
             return null;

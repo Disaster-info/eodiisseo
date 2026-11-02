@@ -13,6 +13,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice(basePackages = "com.disasterinfo.eodiisseo.notification")
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class NotificationHttpErrors {
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorBody> invalidJson() {
+        return notification(new NotificationException(NotificationException.Reason.INVALID_REQUEST));
+    }
+
     @ExceptionHandler(NotificationException.class)
     public ResponseEntity<ErrorBody> notification(NotificationException failure) {
         return ResponseEntity.status(failure.status()).body(new ErrorBody(

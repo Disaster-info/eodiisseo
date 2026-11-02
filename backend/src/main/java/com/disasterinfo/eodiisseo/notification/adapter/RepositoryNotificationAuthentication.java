@@ -1,6 +1,7 @@
 package com.disasterinfo.eodiisseo.notification.adapter;
 
-import com.disasterinfo.eodiisseo.auth.repository.AuthRepository;
+import com.disasterinfo.eodiisseo.auth.exception.ApiProblem;
+import com.disasterinfo.eodiisseo.auth.service.SessionAccessService;
 import com.disasterinfo.eodiisseo.notification.NotificationContracts.Authentication;
 import com.disasterinfo.eodiisseo.notification.NotificationContracts.MemberSession;
 import com.disasterinfo.eodiisseo.notification.NotificationException;
@@ -10,18 +11,15 @@ import org.springframework.stereotype.Component;
 import java.util.Objects;
 import java.util.UUID;
 
-/**
- * Notification-side adapter around the existing auth team's DB checks.
- * Disabled until the auth owner confirms the contract and database readiness.
- * Does not parse bearer headers or mint trusted sessions from request parameters.
- */
+/** Legacy opt-in adapter. The auth owner's shared bridge takes precedence when enabled. */
 @Component
 @ConditionalOnProperty(name = "eodiisseo.notification.auth.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "AUTH_BRIDGES_ENABLED", havingValue = "false", matchIfMissing = true)
 public final class RepositoryNotificationAuthentication implements Authentication {
-    private final AuthRepository auth;
+    private final SessionAccessService sessions;
 
-    public RepositoryNotificationAuthentication(AuthRepository auth) {
-        this.auth = Objects.requireNonNull(auth);
+    public RepositoryNotificationAuthentication(SessionAccessService sessions) {
+        this.sessions = Objects.requireNonNull(sessions);
     }
 
     @Override
@@ -30,14 +28,12 @@ public final class RepositoryNotificationAuthentication implements Authenticatio
             throw new NotificationException(NotificationException.Reason.UNAUTHENTICATED);
         }
         try {
-            // AuthRepository applies member ownership, ACTIVE, expiration and revocation checks.
-            if (auth.findUsableSession(session.serviceSessionId(), session.memberId()) == null) {
-                throw new NotificationException(NotificationException.Reason.UNAUTHENTICATED);
-            }
-        } catch (NotificationException known) {
-            throw known;
-        } catch (RuntimeException databaseFailure) {
-            // Do not expose SQL errors or silently allow requests during auth outages.
+            sessions.requireActiveSession(session.memberId(), session.serviceSessionId());
+        } catch (ApiProblem failure) {
+            throw new NotificationException(failure.status() == 401
+                    ? NotificationException.Reason.UNAUTHENTICATED
+                    : NotificationException.Reason.DEPENDENCY_UNAVAILABLE);
+        } catch (RuntimeException failure) {
             throw new NotificationException(NotificationException.Reason.DEPENDENCY_UNAVAILABLE);
         }
     }
@@ -46,9 +42,8 @@ public final class RepositoryNotificationAuthentication implements Authenticatio
     public boolean isActiveMember(UUID memberId) {
         if (memberId == null) return false;
         try {
-            return auth.countActiveMember(memberId) == 1;
-        } catch (RuntimeException databaseFailure) {
-            // The dispatch worker records a safe internal failure instead of sending.
+            return sessions.isActiveMember(memberId);
+        } catch (RuntimeException failure) {
             throw new NotificationException(NotificationException.Reason.DEPENDENCY_UNAVAILABLE);
         }
     }

@@ -211,7 +211,7 @@ class NotificationDispatchTest {
         assertThat(f.store.deliveries.values()).singleElement().satisfies(d -> {assertThat(d.errorCode()).isEqualTo("DEVICE_REGISTRATION_CHANGED");assertThat(d.deviceTokenId()).isNull();});
     }
     @Test void missingRetryPolicyDoesNotInventRetryAttempts() {
-        var f=new NotificationFixture();f.device("device-a");f.failFcm=true;f.dispatcher().process(initial(f),f.now);
+        var f=new NotificationFixture();f.device("device-a");f.transientFcmFailure=true;f.dispatcher().process(initial(f),f.now);
         var dispatcher=new NotificationDispatchService(Optional.of(f.auth),Optional.of(f.store),Optional.of(f.interests),Optional.of(f.severityReader),Optional.of(id -> f.disaster),Optional.of(f.testCipher),Optional.of(f.testFcm),Optional.empty());
         var event=f.store.events.values().iterator().next();assertThat(dispatcher.retry(event.id(),f.now.plusSeconds(1)).connected()).isFalse();assertThat(f.sends).isEqualTo(1);
     }
@@ -232,7 +232,7 @@ class NotificationDispatchTest {
         var f=new NotificationFixture();f.device("device-a");f.failFcm=true;
         var result=f.dispatcher().process(initial(f),f.now);
         assertThat(result.failedDevices()).isEqualTo(1);assertThat(result.internalFailures()).isZero();
-        assertThat(f.store.deliveries.values()).singleElement().satisfies(d -> {assertThat(d.result()).isEqualTo(DeliveryResult.FAILED);assertThat(d.errorCode()).isEqualTo("FCM_SEND_FAILED");assertThat(d.toString()).doesNotContain("test-token-device-a");});
+        assertThat(f.store.deliveries.values()).singleElement().satisfies(d -> {assertThat(d.result()).isEqualTo(DeliveryResult.FAILED);assertThat(d.errorCode()).isEqualTo("FCM_ACCEPTANCE_UNKNOWN");assertThat(d.toString()).doesNotContain("test-token-device-a");});
     }
     @Test void invalidTokenIsDeactivatedAndNotRetried() {
         var f=new NotificationFixture();f.device("device-a");f.invalidToken=true;f.dispatcher().process(initial(f),f.now);
@@ -279,20 +279,20 @@ class NotificationDispatchTest {
         assertThat(f.store.deliveries.values()).singleElement().satisfies(d -> assertThat(d.errorCode()).isEqualTo("INVALID_DEVICE_TOKEN"));
     }
     @Test void retriesFailedDeviceWithStableOrdinalAndIncrementedAttemptOnly() {
-        var f=new NotificationFixture();f.device("device-a");f.failFcm=true;f.dispatcher().process(initial(f),f.now);
-        f.failFcm=false;var event=f.store.events.values().iterator().next();
+        var f=new NotificationFixture();f.device("device-a");f.transientFcmFailure=true;f.dispatcher().process(initial(f),f.now);
+        f.transientFcmFailure=false;var event=f.store.events.values().iterator().next();
         assertThat(f.dispatcher().retry(event.id(),f.now.plusSeconds(1)).successfulDevices()).isEqualTo(1);
         assertThat(f.store.deliveries.values()).extracting(Delivery::attemptNo).containsExactly((short)1,(short)2);
         assertThat(f.store.deliveries.values()).allMatch(d -> d.targetOrdinal()==1);
         assertThat(f.dispatcher().retry(event.id(),f.now.plusSeconds(2)).successfulDevices()).isZero();assertThat(f.sends).isEqualTo(2);
     }
     @Test void settingsChangedToOffSuppressRetry() {
-        var f=new NotificationFixture();f.device("device-a");f.failFcm=true;f.dispatcher().process(initial(f),f.now);
+        var f=new NotificationFixture();f.device("device-a");f.transientFcmFailure=true;f.dispatcher().process(initial(f),f.now);
         var event=f.store.events.values().iterator().next();f.store.settings.put(f.member,new Settings(false,null,true,f.now));
         assertThat(f.dispatcher().retry(event.id(),f.now.plusSeconds(1)).successfulDevices()).isZero();assertThat(f.sends).isEqualTo(1);
     }
     @Test void unregisteredDeviceSuppressesRetryAndKeepsAnonymousHistory() {
-        var f=new NotificationFixture();f.device("device-a");f.failFcm=true;f.dispatcher().process(initial(f),f.now);
+        var f=new NotificationFixture();f.device("device-a");f.transientFcmFailure=true;f.dispatcher().process(initial(f),f.now);
         var event=f.store.events.values().iterator().next();f.service().unregisterDevice(f.session,"device-a");
         assertThat(f.dispatcher().retry(event.id(),f.now.plusSeconds(1)).successfulDevices()).isZero();
         assertThat(f.store.deliveries.values()).allMatch(d -> d.deviceTokenId()==null);

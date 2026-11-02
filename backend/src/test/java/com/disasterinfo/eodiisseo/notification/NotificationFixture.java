@@ -12,7 +12,7 @@ final class NotificationFixture {
     final Severity warning = new Severity(UUID.randomUUID(), "WARNING", 4);
     final Severity severe = new Severity(UUID.randomUUID(), "SEVERE", 8);
     final MemoryStore store = new MemoryStore();
-    boolean active = true, revoked, expired, fcmConfigured = true, failFcm, invalidToken;
+    boolean active = true, revoked, expired, fcmConfigured = true, failFcm, transientFcmFailure, invalidToken;
     int sends;
     OfficialDisaster disaster = new OfficialDisaster(disasterId, "HEAVY_RAIN", "test official region", "test official title", "test official content", warning, DisasterStatus.ONGOING, true);
     List<InterestArea> owned = new ArrayList<>(List.of(new InterestArea(area1, true), new InterestArea(area2, true)));
@@ -45,6 +45,7 @@ final class NotificationFixture {
         @Override public PushResult send(String raw, Push push) {
             sends++;
             if (failFcm) throw new IllegalStateException("test raw credential " + raw);
+            if (transientFcmFailure) return new PushResult(false, false, null, PushOutcome.TRANSIENT_FAILURE);
             return new PushResult(!invalidToken, invalidToken, "test-provider-message");
         }
     };
@@ -65,6 +66,7 @@ final class NotificationFixture {
         final Map<UUID, Delivery> deliveries = new LinkedHashMap<>();
         @Override public synchronized void initializeSettings(UUID id, Instant now) { settings.putIfAbsent(id,new Settings(false,null,false,now)); }
         @Override public Settings findSettings(UUID id) { return settings.get(id); }
+        @Override public Settings findSettingsForUpdate(UUID id) { return findSettings(id); }
         @Override public void saveSettings(UUID id, Settings s) { settings.put(id, s); }
         @Override public List<UUID> findEnabledMembers() { return settings.entrySet().stream().filter(e -> e.getValue().enabled()).map(Map.Entry::getKey).toList(); }
         @Override public Device findDevice(String id) { return devices.get(id); }
