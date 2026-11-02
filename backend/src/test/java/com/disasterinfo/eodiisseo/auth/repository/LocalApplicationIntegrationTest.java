@@ -44,7 +44,12 @@ class LocalApplicationIntegrationTest {
             String token=context.getBean(TokenService.class).issue(member,session,now.plus(Duration.ofDays(14)));
             int port=((ServletWebServerApplicationContext)context).getWebServer().getPort();String base="http://127.0.0.1:"+port;
             try(var client=HttpClient.newHttpClient()){
+                assertErrorTraceMatches(client,base+"/api/v1/members/me",null,"GET",null,401);
+                assertErrorTraceMatches(client,base+"/api/v1/members/me","test-only-invalid-token","GET",null,401);
+                assertErrorTraceMatches(client,base+"/api/v1/auth/refresh",null,"POST","{}",400);
                 assertEquals(401,send(client,base+"/api/v1/members/me",null,"GET",null));
+                assertEquals(401,send(client,base+"/api/v1/shelters/nearby?latitude=37.5&longitude=127",null,"GET",null));
+                assertEquals(401,send(client,base+"/api/v1/routes/shelters/"+UUID.randomUUID(),null,"GET",null));
                 assertEquals(200,send(client,base+"/api/v1/members/me",token,"GET",null));
                 assertEquals(200,send(client,base+"/api/v1/checklists?disasterType=EARTHQUAKE",token,"GET",null));
                 assertEquals(403,send(client,base+"/api/v1/ops/status",token,"GET",null));
@@ -72,5 +77,15 @@ class LocalApplicationIntegrationTest {
         if(body!=null)request.header("Content-Type","application/json");
         request.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body));
         return client.send(request.build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+    }
+    private static void assertErrorTraceMatches(HttpClient client,String url,String token,String method,String body,int expected) throws Exception {
+        var request=HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(15));
+        if(token!=null)request.header("Authorization","Bearer "+token);
+        if(body!=null)request.header("Content-Type","application/json");
+        request.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body));
+        var response=client.send(request.build(),HttpResponse.BodyHandlers.ofString());
+        assertEquals(expected,response.statusCode());
+        var error=new tools.jackson.databind.ObjectMapper().readTree(response.body());
+        assertEquals(response.headers().firstValue("X-Trace-Id").orElseThrow(),error.get("traceId").asText());
     }
 }
