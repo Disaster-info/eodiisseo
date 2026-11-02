@@ -65,6 +65,7 @@ public class NotificationService {
         Severity minimum = request.minimumSeverity() == null ? null
                 : connected(severities).findByCode(request.minimumSeverity());
         if (request.minimumSeverity() != null && minimum == null) throw invalid();
+        if (minimum != null && !request.minimumSeverity().equals(minimum.code())) throw unavailable();
         Settings settings = new Settings(request.enabled(), minimum == null ? null : minimum.id(),
                 request.nightNotificationEnabled(), Instant.now());
         // Area adapter must join this transaction and recheck ownership before changing notify_enabled.
@@ -118,7 +119,8 @@ public class NotificationService {
                 .map(InterestArea::id).toList();
         Severity minimum = settings.minimumSeverityId() == null ? null
                 : connected(severities).findById(settings.minimumSeverityId());
-        if (settings.minimumSeverityId() != null && minimum == null) throw unavailable();
+        if (settings.minimumSeverityId() != null
+                && (minimum == null || !settings.minimumSeverityId().equals(minimum.id()))) throw unavailable();
         return new SettingsResponse(settings.enabled(), ids, minimum == null ? null : minimum.code(),
                 settings.allowAfter22());
     }

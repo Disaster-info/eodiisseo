@@ -149,7 +149,8 @@ public class NotificationDispatchService {
         if (settings.minimumSeverityId() != null) {
             if (disaster.severity() == null || severities.isEmpty()) return false;
             Severity minimum = severities.get().findById(settings.minimumSeverityId());
-            if (minimum == null || disaster.severity().rank() < minimum.rank()) return false;
+            if (minimum == null || !settings.minimumSeverityId().equals(minimum.id())
+                    || disaster.severity().rank() < minimum.rank()) return false;
         }
         boolean related = areas.orElseThrow().findOwned(memberId).stream().filter(InterestArea::notifyEnabled)
                 .anyMatch(area -> areas.orElseThrow().isRelated(disaster.id(), area.id()));

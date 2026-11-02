@@ -1,6 +1,6 @@
 package com.disasterinfo.eodiisseo.ai.chat;
 
-/** Safe internal failures for the future authenticated HTTP/global error adapter. */
+/** Domain failures translated by the scoped AI HTTP advice without exposing failure details. */
 public class ChatException extends RuntimeException {
 
     private final Reason reason;

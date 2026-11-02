@@ -1,6 +1,6 @@
 package com.disasterinfo.eodiisseo.ai.summary;
 
-/** The eventual shared HTTP error adapter supplies code/message/traceId; no local advice is added. */
+/** Domain failures translated to the existing shared HTTP error body by the scoped AI advice. */
 public class SummaryException extends RuntimeException {
     private final Reason reason;
 

@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -78,9 +79,16 @@ public class DashboardService {
         BaseLocation baseLocation = resolveLocation(authenticatedMemberId, criteria);
 
         // Query disasters outside weather failure handling; failures must never look like no disasters.
+        HashSet<UUID> ids = new HashSet<>();
         List<MajorDisaster> majorDisasters = disasters
                 .findCandidates(authenticatedMemberId, criteria, baseLocation).stream()
                 .filter(candidate -> candidate.dataOrigin() == DataOrigin.OFFICIAL)
+                // The port requires distinct official IDs, including records later excluded by status.
+                .peek(candidate -> {
+                    if (!ids.add(candidate.disaster().disasterId())) {
+                        throw unavailable("Disaster query returned duplicate identifiers.");
+                    }
+                })
                 .filter(candidate -> switch (candidate.disaster().status()) {
                     case OCCURRED, ONGOING -> true;
                     case ENDED, LIFTED -> false;
@@ -93,7 +101,7 @@ public class DashboardService {
         if (criteria.basis() == DashboardQuery.Basis.NATIONWIDE) {
             return new DashboardResponse(null, null, WeatherStatus.NOT_REQUESTED, majorDisasters);
         }
-        Weather weather = readWeather(baseLocation);
+        Weather weather = readWeather(authenticatedMemberId, baseLocation);
         WeatherStatus weatherStatus = weather == null ? WeatherStatus.UNAVAILABLE
                 : weather.stale() ? WeatherStatus.STALE : WeatherStatus.AVAILABLE;
         return new DashboardResponse(baseLocation, weather, weatherStatus, majorDisasters);
@@ -124,9 +132,16 @@ public class DashboardService {
         return resolved;
     }
 
-    private Weather readWeather(BaseLocation baseLocation) {
+    private Weather readWeather(UUID authenticatedMemberId, BaseLocation baseLocation) {
         try {
-            return weatherReader.map(reader -> reader.findWeather(baseLocation)).orElse(null);
+            return weatherReader.map(reader -> reader.findWeather(authenticatedMemberId, baseLocation)).orElse(null);
+        } catch (DashboardException failure) {
+            if (failure.reason() == DashboardException.Reason.UNAUTHENTICATED
+                    || failure.reason() == DashboardException.Reason.FORBIDDEN) {
+                // An authorization failure cannot be downgraded into a successful dashboard response.
+                throw failure;
+            }
+            return null;
         } catch (RuntimeException exception) {
             return null;
         }

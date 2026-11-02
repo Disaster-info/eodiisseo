@@ -47,7 +47,7 @@ class DashboardDisasterQueryServiceTest {
                 new DashboardDisasterQueryReader.Entry(item(UUID.randomUUID(), "EARTHQUAKE", DisasterStatus.ENDED), DataOrigin.OFFICIAL),
                 new DashboardDisasterQueryReader.Entry(matching, DataOrigin.OFFICIAL),
                 new DashboardDisasterQueryReader.Entry(item(UUID.randomUUID(), "HEAVY_RAIN", DisasterStatus.ONGOING), DataOrigin.OFFICIAL),
-                new DashboardDisasterQueryReader.Entry(item(UUID.randomUUID(), "HEAVY_RAIN", DisasterStatus.ENDED), DataOrigin.MOCK));
+                new DashboardDisasterQueryReader.Entry(item(DISASTER, "HEAVY_RAIN", DisasterStatus.ENDED), DataOrigin.MOCK));
 
         assertThat(service(reader).getDisasters(MEMBER, SESSION,
                 new DisasterListQuery("HEAVY_RAIN", "ENDED")).disasters()).containsExactly(matching);
@@ -120,6 +120,39 @@ class DashboardDisasterQueryServiceTest {
         reader.entries = List.of(entry, entry);
         assertReason(() -> service(reader).getDisasters(MEMBER, SESSION,
                 new DisasterListQuery(null, "ONGOING")), DashboardException.Reason.DEPENDENCY_UNAVAILABLE);
+    }
+
+    @Test
+    void requestedStatusCannotHideConflictingRecordsOfTheSameOfficialDisaster() {
+        FakeReader reader = new FakeReader();
+        reader.entries = List.of(
+                new DashboardDisasterQueryReader.Entry(item(DISASTER, "HEAVY_RAIN", DisasterStatus.ONGOING), DataOrigin.OFFICIAL),
+                new DashboardDisasterQueryReader.Entry(item(DISASTER, "HEAVY_RAIN", DisasterStatus.ENDED), DataOrigin.OFFICIAL));
+
+        assertReason(() -> service(reader).getDisasters(MEMBER, SESSION,
+                new DisasterListQuery(null, "ONGOING")), DashboardException.Reason.DEPENDENCY_UNAVAILABLE);
+    }
+
+    @Test
+    void requestedTypeCannotHideConflictingRecordsOfTheSameOfficialDisaster() {
+        FakeReader reader = new FakeReader();
+        reader.entries = List.of(
+                new DashboardDisasterQueryReader.Entry(item(DISASTER, "HEAVY_RAIN", DisasterStatus.ONGOING), DataOrigin.OFFICIAL),
+                new DashboardDisasterQueryReader.Entry(item(DISASTER, "EARTHQUAKE", DisasterStatus.ONGOING), DataOrigin.OFFICIAL));
+
+        assertReason(() -> service(reader).getDisasters(MEMBER, SESSION,
+                new DisasterListQuery("HEAVY_RAIN", null)), DashboardException.Reason.DEPENDENCY_UNAVAILABLE);
+    }
+
+    @Test
+    void filteringOutBothConflictingRecordsCannotTurnAnInvalidSnapshotIntoAnEmptySuccess() {
+        FakeReader reader = new FakeReader();
+        reader.entries = List.of(
+                new DashboardDisasterQueryReader.Entry(item(DISASTER, "HEAVY_RAIN", DisasterStatus.ONGOING), DataOrigin.OFFICIAL),
+                new DashboardDisasterQueryReader.Entry(item(DISASTER, "HEAVY_RAIN", DisasterStatus.ENDED), DataOrigin.OFFICIAL));
+
+        assertReason(() -> service(reader).getDisasters(MEMBER, SESSION,
+                new DisasterListQuery("EARTHQUAKE", null)), DashboardException.Reason.DEPENDENCY_UNAVAILABLE);
     }
 
     @ParameterizedTest
