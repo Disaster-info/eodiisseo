@@ -8,9 +8,9 @@ try {
         EODIISSEO_AUDIT_JDBC_URL='jdbc:postgresql://127.0.0.1:55433/postgres'
         EODIISSEO_AUDIT_DISPOSABLE='true'
         EODIISSEO_LOCAL_DB_TESTS='true'
-        # The other owner's audit startup test creates its own minimal schema.
-        # CanonicalDatabaseIntegrationTest explicitly runs the REAL migrations on a separate DB.
-        SPRING_FLYWAY_ENABLED='false'
+        # Startup audits now begin with an empty schema and validate production migrations.
+        # Tests with minimal JPA fixtures create their schemas directly without Spring startup.
+        SPRING_FLYWAY_ENABLED='true'
         AUTH_BRIDGES_ENABLED='false'
     }
     Get-Content -LiteralPath (Join-Path $repo '.env') | ForEach-Object {if($_ -match '^(JWT_SECRET|KMA_SERVICE_KEY|DATA_GO_KR_SERVICE_KEY)=(.*)$'){$values[$matches[1]]=$matches[2]}}
