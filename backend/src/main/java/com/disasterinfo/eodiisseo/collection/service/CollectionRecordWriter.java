@@ -33,14 +33,17 @@ public class CollectionRecordWriter {
     private void shelter(UUID source,CollectedRecord record,String raw,Instant now){
         var p=record.payload();String name=Objects.toString(p.get("VT_ACMDFCLTY_NM"),"");
         if(name.isBlank()||name.length()>200)throw new IllegalArgumentException("Invalid shelter name");
+        String canonicalKey="SAFETYDATA:DSSP-IF-10943:"+record.key();
+        UUID canonicalId=com.disasterinfo.eodiisseo.common.util.UuidV5.of(canonicalKey);
+        if("0".equals(Objects.toString(p.get("USE_SE_CD"),""))){db.update("update shelter set active=false where source_id=? and source_record_key=?",source,canonicalKey);return;}
         Double lat=number(p.get("LA")),lon=number(p.get("LO"));
         if((lat==null)!=(lon==null)||lat!=null&&(lat < -90||lat > 90||lon < -180||lon > 180))throw new IllegalArgumentException("Invalid shelter coordinates");
         Integer capacity=null;Object value=p.get("VT_ACMD_PSBL_NMPR");if(value!=null&&!value.toString().isBlank()){
-            try{capacity=new java.math.BigDecimal(value.toString()).intValueExact();}catch(Exception e){throw new IllegalArgumentException("Invalid shelter capacity");}
-            if(capacity<0)throw new IllegalArgumentException("Invalid shelter capacity");
+            try{capacity=new java.math.BigDecimal(value.toString()).intValueExact();}catch(Exception e){capacity=null;}
+            if(capacity!=null&&capacity<0)capacity=null;
         }
         String address=Objects.toString(p.get("RN_DTL_ADRES"),Objects.toString(p.get("EQK_ACMDFCLTY_ADRES"),null));
-        db.update("insert into shelter(shelter_id,source_id,source_record_key,name,address,point,collected_at,additional_info,active,shelter_type,capacity) values(?,?,?,?,?,case when ?::double precision is null then null else ST_SetSRID(ST_MakePoint(?::double precision,?::double precision),4326)::geography end,?,?::jsonb,true,'EARTHQUAKE_OUTDOOR',?) on conflict(source_id,source_record_key) do update set name=excluded.name,address=excluded.address,point=excluded.point,collected_at=excluded.collected_at,additional_info=excluded.additional_info,active=true,capacity=excluded.capacity",UUID.randomUUID(),source,record.key(),name,address,lat,lon,lat,now,raw,capacity);
+        db.update("insert into shelter(shelter_id,source_id,source_record_key,name,address,point,collected_at,additional_info,active,shelter_type,capacity) values(?,?,?,?,?,case when ?::double precision is null then null else ST_SetSRID(ST_MakePoint(?::double precision,?::double precision),4326)::geography end,?,?::jsonb,true,'EARTHQUAKE_OUTDOOR',?) on conflict(source_id,source_record_key) do update set name=excluded.name,address=excluded.address,point=excluded.point,collected_at=excluded.collected_at,additional_info=excluded.additional_info,active=true,capacity=excluded.capacity",canonicalId,source,canonicalKey,name,address,lat,lon,lat,now,raw,capacity);
         // Partial or empty snapshots never delete/deactivate existing facilities.
     }
     private Double number(Object value){if(value==null||value.toString().isBlank())return null;try{double d=Double.parseDouble(value.toString());if(!Double.isFinite(d))throw new IllegalArgumentException();return d;}catch(Exception e){throw new IllegalArgumentException("Invalid coordinate");}}
