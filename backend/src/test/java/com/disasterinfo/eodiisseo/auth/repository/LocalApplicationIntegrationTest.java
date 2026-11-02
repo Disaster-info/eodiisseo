@@ -32,7 +32,7 @@ class LocalApplicationIntegrationTest {
         try(var context=new SpringApplicationBuilder(EodiisseoApplication.class).web(WebApplicationType.SERVLET).run(
             "--server.address=127.0.0.1","--server.port=0","--spring.profiles.active=local-db-verification",
             "--spring.datasource.url="+source.getUrl(),"--spring.datasource.username=eodiisseo_audit","--spring.datasource.password=",
-            "--spring.flyway.enabled=true","--spring.jpa.hibernate.ddl-auto=validate","--AUTH_BRIDGES_ENABLED=true",
+            "--spring.flyway.enabled=true","--spring.jpa.hibernate.ddl-auto=validate","--AUTH_BRIDGES_ENABLED=true","--eodiisseo.notification.auth.enabled=true",
             "--JWT_SECRET=test-only-key-0123456789abcdefghijk","--debug=false","--logging.level.root=WARN")){
             assertEquals(1,context.getBeansOfType(ChatAuthenticationPort.class).size());
             assertEquals(1,context.getBeansOfType(SummaryAuthPort.class).size());
@@ -51,10 +51,21 @@ class LocalApplicationIntegrationTest {
                 assertEquals(401,send(client,base+"/api/v1/shelters/nearby?latitude=37.5&longitude=127",null,"GET",null));
                 assertEquals(401,send(client,base+"/api/v1/routes/shelters/"+UUID.randomUUID(),null,"GET",null));
                 assertEquals(200,send(client,base+"/api/v1/members/me",token,"GET",null));
+                assertEquals(401,send(client,base+"/api/v1/interest-areas",null,"GET",null));
+                assertEquals(200,send(client,base+"/api/v1/interest-areas",token,"GET",null));
+                assertErrorTraceMatches(client,base+"/api/v1/members/me/location-consent",token,"PATCH","{}",400);
+                assertErrorTraceMatches(client,base+"/api/v1/members/me/location",token,"PUT","{\"latitude\":37.5,\"longitude\":127}",403);
+                assertEquals(200,send(client,base+"/api/v1/members/me/location-consent",token,"PATCH","{\"consented\":true}"));
+                assertEquals(200,send(client,base+"/api/v1/members/me/location",token,"PUT","{\"latitude\":37.5,\"longitude\":127}"));
+                assertEquals(200,send(client,base+"/api/v1/members/me/location-consent",token,"PATCH","{\"consented\":false}"));
+                assertEquals(0,db.count("select count(*) from member_location where member_id=?",member));
+                assertEquals(403,send(client,base+"/api/v1/ops/collections/sources",token,"GET",null));
                 assertEquals(200,send(client,base+"/api/v1/checklists?disasterType=EARTHQUAKE",token,"GET",null));
                 assertEquals(403,send(client,base+"/api/v1/ops/status",token,"GET",null));
                 db.update("insert into member_role values(?,'OPS',?)",member,now);
                 assertEquals(200,send(client,base+"/api/v1/ops/status",token,"GET",null));
+                assertEquals(200,send(client,base+"/api/v1/ops/collections/sources",token,"GET",null));
+                assertErrorTraceMatches(client,base+"/api/v1/ops/admin-areas/import",token,"POST","{\"areas\":[]}",400);
                 assertEquals(401,send(client,base+"/api/v1/auth/refresh",null,"POST","{\"refreshToken\":\"test-only-invalid\"}"));
                 assertEquals(400,send(client,base+"/api/v1/auth/refresh",null,"POST","{}"));
                 assertEquals(400,send(client,base+"/api/v1/groups/not-a-uuid",token,"GET",null));

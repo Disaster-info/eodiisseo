@@ -31,7 +31,8 @@ public class AuthenticationPortsConfiguration {
             private ChatException unauthorized(){return new ChatException(ChatException.Reason.UNAUTHENTICATED,"An active service session is required.");}
         };
     }
-    @Bean public NotificationContracts.Authentication notificationAuthentication(SessionAccessService sessions){
+    @Bean @ConditionalOnProperty(name="eodiisseo.notification.auth.enabled",havingValue="false",matchIfMissing=true)
+    public NotificationContracts.Authentication notificationAuthentication(SessionAccessService sessions){
         return new NotificationContracts.Authentication(){
             public void requireActiveSession(NotificationContracts.MemberSession session){
                 if(session==null)throw new NotificationException(NotificationException.Reason.UNAUTHENTICATED);

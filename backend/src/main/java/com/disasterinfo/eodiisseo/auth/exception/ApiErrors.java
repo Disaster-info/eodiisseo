@@ -13,7 +13,8 @@ import org.springframework.core.annotation.Order;
 
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackages = {"com.disasterinfo.eodiisseo.auth","com.disasterinfo.eodiisseo.group",
-    "com.disasterinfo.eodiisseo.weather","com.disasterinfo.eodiisseo.checklist","com.disasterinfo.eodiisseo.ops"})
+    "com.disasterinfo.eodiisseo.weather","com.disasterinfo.eodiisseo.checklist","com.disasterinfo.eodiisseo.ops",
+    "com.disasterinfo.eodiisseo.location","com.disasterinfo.eodiisseo.area","com.disasterinfo.eodiisseo.collection","com.disasterinfo.eodiisseo.disaster"})
 public class ApiErrors {
     @ExceptionHandler(ApiProblem.class)
     public ResponseEntity<Map<String,Object>> problem(ApiProblem e) {

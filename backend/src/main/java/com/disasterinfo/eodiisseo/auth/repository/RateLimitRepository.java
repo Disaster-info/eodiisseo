@@ -19,5 +19,9 @@ public class RateLimitRepository {
         return db.one("insert into auth_request_window(member_id,scope,window_start,request_count) values(?,'GROUP_JOIN',?,1) on conflict(member_id,scope,window_start) do update set request_count=auth_request_window.request_count+1 returning request_count",member,windowStart);
     }
 
+    public Map<String,Object> incrementLocationWindow(UUID member, Instant windowStart) {
+        return db.one("insert into auth_request_window(member_id,scope,window_start,request_count) values(?,'LOCATION_WRITE',?,1) on conflict(member_id,scope,window_start) do update set request_count=auth_request_window.request_count+1 returning request_count",member,windowStart);
+    }
+
 
 }

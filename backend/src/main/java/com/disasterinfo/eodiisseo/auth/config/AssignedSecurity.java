@@ -28,7 +28,7 @@ public class AssignedSecurity {
     @Bean public SecurityFilterChain assignedFeatures(HttpSecurity http,TokenService tokens,AuthRepository repository,ObjectMapper json) throws Exception {
         return http.securityMatcher("/api/v1/auth/**","/api/v1/members/me/**","/api/v1/groups/**",
                 "/api/v1/weather/**","/api/v1/checklists/**","/api/v1/ops/**",
-                "/api/v1/shelters/**","/api/v1/routes/**")
+                "/api/v1/shelters/**","/api/v1/routes/**","/api/v1/interest-areas/**")
             .cors(org.springframework.security.config.Customizer.withDefaults())
             .csrf(c->c.disable()).sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(a->a.requestMatchers("/api/v1/auth/google","/api/v1/auth/kakao",
