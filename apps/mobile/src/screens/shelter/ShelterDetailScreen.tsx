@@ -1,7 +1,8 @@
 // FS-SHELTER-002: 대피소 상세 — 원본 데이터에 있는 항목만 표시
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
-import { Btn, Card, Header, InfoRow, MapBox, Page, useTheme } from '../../components/ui';
+import { TmapView } from '../../components/map';
+import { Btn, Card, Header, InfoRow, Page, useTheme } from '../../components/ui';
 import { SHELTERS } from '../../data/mock';
 
 export default function ShelterDetailScreen({ id }: { id: number }) {
@@ -12,7 +13,7 @@ export default function ShelterDetailScreen({ id }: { id: number }) {
     <View style={s.fill}>
       <Header title={sh.name} />
       <Page>
-        <MapBox><Text style={s.muted}>대피소 위치 지도 (지도 SDK 연동 예정)</Text></MapBox>
+        <TmapView markers={[{ lat: sh.lat, lon: sh.lon, title: sh.name }]} label={`${sh.name} 위치 지도`} />
         <Card>
           <InfoRow icon="location-outline" text={sh.addr} />
           <InfoRow icon="business-outline" text={sh.type} />

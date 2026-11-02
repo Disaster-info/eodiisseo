@@ -7,9 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.disasterinfo.eodiisseo"
     },
     "android": {
+      "package": "com.disasterinfo.eodiisseo",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -24,7 +26,14 @@
     "plugins": [
       "@react-native-vector-icons/ionicons",
       "expo-font",
-      "expo-router"
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "가까운 대피소와 대피 경로를 안내하기 위해 현재 위치를 사용합니다."
+        }
+      ],
+      "expo-web-browser"
     ],
     "scheme": "eodiisseo",
     "experiments": {
