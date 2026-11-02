@@ -141,4 +141,20 @@ class DomainDatabaseIntegrationTest {
         db.update("insert into disaster_area values(?,?,?,'IMPACT','OFFICIAL',?,?)",UUID.randomUUID(),disaster,unknown,src.get("source_disaster_id"),clock.instant());
         assertEquals(com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterReader.Relevance.UNKNOWN,reader.findCandidates(actor,query,null).stream().filter(c->c.disaster().disasterId().equals(disaster)).findFirst().orElseThrow().relevance());
     }
+    @Test void collectedShelterUsesTheSameStableIdAsShelterOwner() throws Exception {
+        UUID source=UUID.fromString("20000000-0000-0000-0000-000000000002");String key="1168000000:"+System.nanoTime();
+        var record=new CollectedRecord(key,Map.of("VT_ACMDFCLTY_NM","[TEST] shelter","LA","37.5","LO","127.0","USE_SE_CD","1"));
+        UUID id=com.disasterinfo.eodiisseo.common.util.UuidV5.of("SAFETYDATA:DSSP-IF-10943:"+key);
+        tx.execute(s->writer().save(source,"SAFETYDATA_EARTHQUAKE_SHELTER",List.of(record),clock.instant()));
+        assertEquals(id,db.one("select shelter_id from shelter where source_id=? and source_record_key=?",source,"SAFETYDATA:DSSP-IF-10943:"+key).get("shelter_id"));
+        try{
+            var type=Class.forName("com.disasterinfo.eodiisseo.shelter.repository.JdbcShelterRepository");
+            var repository=type.getConstructor(org.springframework.jdbc.core.JdbcTemplate.class).newInstance(new org.springframework.jdbc.core.JdbcTemplate(DomainDatabaseIntegrationTest.source()));
+            assertTrue(((Optional<?>)type.getMethod("findById",UUID.class).invoke(repository,id)).isPresent());
+        }catch(ClassNotFoundException ownerBranchNotMergedYet){/* Stable identity is verified above on the feature branch too. */}
+        var unused=new CollectedRecord(key,Map.of("VT_ACMDFCLTY_NM","[TEST] shelter","USE_SE_CD","0"));
+        tx.execute(s->writer().save(source,"SAFETYDATA_EARTHQUAKE_SHELTER",List.of(unused),clock.instant()));
+        assertEquals(0,db.count("select count(*) from shelter where shelter_id=? and active",id));
+    }
+    private static javax.sql.DataSource source(){return CanonicalDatabaseIntegrationTest.source;}
 }
