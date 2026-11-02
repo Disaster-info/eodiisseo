@@ -14,7 +14,7 @@ export function LevelBadge({ d }: { d: Disaster }) {
 // 상태는 색 대신 글자로 (빨강은 경보 전용). ink: 표지판 위에 놓일 때의 글자색
 export function StatusBadge({ d, ink }: { d: Disaster; ink?: string }) {
   const { C } = useTheme();
-  return <Badge text={d.status} color={ink ?? (isActive(d) ? C.text : C.sub)} />;
+  return <Badge text={d.status} color={ink ?? (isActive(d) ? C.text : C.sub)} rim={ink} />;
 }
 
 // 최신 수집 실패 안내 (마지막 정상 데이터를 최신처럼 보이지 않게)

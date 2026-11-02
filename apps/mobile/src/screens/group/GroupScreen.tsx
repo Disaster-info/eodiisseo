@@ -48,7 +48,7 @@ export default function GroupScreen() {
       {groups.map(g => (
         <Card key={g.id} onPress={() => router.push(`/groups/${g.id}`)}>
           <View style={[s.row, { gap: 12 }]}>
-            <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: C.primarySoft, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ ...s.rim, width: 44, height: 44, borderRadius: 14, backgroundColor: C.primarySoft, justifyContent: 'center', alignItems: 'center' }}>
               <Icon name="people" size={22} color={C.primary} />
             </View>
             <View style={{ flex: 1 }}>

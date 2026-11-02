@@ -1,0 +1,57 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>4. 세이지 대피소</title><style>:root{--bg:#E3EBE5;--card:#F9FBF9;--text:#13201A;--sub:#4F5E57;--line:#CFDAD2;--accent:#0B5CAD;--accentSoft:#DDE7F0;--danger:#B3201A;--dangerSoft:#F6E3DF;--seg:#D2DDD5;--segOn:#F9FBF9;--tab:rgba(249,251,249,.94);--map:#D3E0D7;--grid:rgba(255,255,255,.7);--tabOff:#B9C7BE}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:390px;height:844px;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+.status{height:47px}.wrap{padding:0 16px;display:flex;flex-direction:column;gap:10px}
+.top{display:flex;align-items:baseline;gap:8px;padding:4px 20px 14px}.top b{font-size:28px;font-weight:800;letter-spacing:-.6px}.top span{font-size:13px;color:var(--sub)}
+.sign{border-radius:18px;padding:18px;color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.9)}
+.red{background:#D7261E}.green{background:#0E7A4F}
+.k{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700}
+.dot{width:22px;height:22px;border-radius:50%;background:#fff;color:#D7261E;font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center}
+.h{font-size:34px;font-weight:900;letter-spacing:-1.2px;margin-top:6px;line-height:1.1}
+.p{font-size:16px;line-height:1.5;margin-top:8px}.meta{font-size:13px;margin-top:10px}
+.row{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-top:4px}
+.name{font-size:22px;font-weight:800;letter-spacing:-.4px}
+.km{font-size:44px;font-weight:900;letter-spacing:-1.5px;font-variant-numeric:tabular-nums;line-height:1;white-space:nowrap}.km i{font-style:normal;font-size:17px;font-weight:800;margin-left:2px}
+.sub{font-size:13px;margin-top:6px}
+.btns{display:flex;gap:8px;margin-top:14px}.btns a{flex:1;height:50px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;text-decoration:none}
+.solid{background:#fff;color:#0E7A4F}.line{color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.9)}
+.list{background:var(--card);border-radius:18px;padding:2px 16px}
+.li{display:flex;align-items:center;gap:12px;min-height:58px;border-top:.5px solid var(--line)}.li:first-child{border-top:none}
+.li b{font-size:16px;font-weight:700}.li s{display:block;text-decoration:none;font-size:14px;color:var(--sub);margin-top:1px}
+.li em{font-style:normal;color:var(--danger);font-weight:700}
+.chev{margin-left:auto;color:var(--sub);font-size:18px}
+.ic{width:24px;height:24px;border-radius:50%;background:var(--dangerSoft);color:var(--danger);font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none}
+.tri{width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-bottom:20px solid #F5C400;flex:none;filter:drop-shadow(0 0 .5px #D7261E)}
+.sec{display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:var(--sub);padding:6px 4px 0}
+.seg{display:flex;background:var(--seg);border-radius:12px;padding:3px;gap:3px}
+.seg div{flex:1;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--sub)}
+.seg .on{background:var(--segOn);color:var(--text);font-weight:800;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.map{height:150px;border-radius:18px;background:var(--map);position:relative;overflow:hidden}
+.map:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 37px,var(--grid) 37px 39px),repeating-linear-gradient(90deg,transparent 0 53px,var(--grid) 53px 55px)}
+.pin{position:absolute;width:26px;height:26px;border-radius:50%;border:2.5px solid #0E7A4F;background:var(--card);color:var(--text);font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center}
+.pin.one{background:#0E7A4F;color:#fff}
+.me{position:absolute;left:180px;top:66px;width:18px;height:18px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 6px var(--accentSoft)}
+.n{width:28px;height:28px;border-radius:50%;background:var(--accentSoft);color:var(--accent);font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex:none}
+.go{margin-left:auto;height:40px;padding:0 14px;border-radius:12px;background:#0B5CAD;color:#fff;font-size:14px;font-weight:800;display:flex;align-items:center}
+.nav{height:96px;padding:52px 16px 0;display:flex;align-items:center;gap:12px;font-size:17px;font-weight:700}.nav span{font-size:24px;font-weight:400}
+.gline{border-radius:18px;padding:14px 18px;color:#fff;background:#0E7A4F;display:flex;align-items:center;gap:12px;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.9)}
+.gline b{font-size:17px;font-weight:800}.gline s{display:block;text-decoration:none;font-size:13px;margin-top:2px}.gline .km2{margin-left:auto;font-size:28px;font-weight:900;font-variant-numeric:tabular-nums}
+.box{background:var(--card);border-radius:18px;padding:16px 18px}
+.lab{display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:800;color:var(--accent)}
+.lab span{font-size:12px;background:var(--accentSoft);padding:3px 8px;border-radius:6px}
+.txt{font-size:16px;line-height:1.55;margin-top:8px}.note{font-size:13px;color:var(--sub);margin-top:8px}
+.src{font-size:14px;font-weight:800}.src s{text-decoration:none;font-weight:500;color:var(--sub)}
+hr{border:0;border-top:.5px solid var(--line);margin:12px 0}
+.tab{position:absolute;bottom:0;left:0;right:0;height:83px;background:var(--tab);border-top:.5px solid var(--line);display:flex;justify-content:space-around;padding-top:10px;font-size:11px;color:var(--sub)}
+.tab div{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px}.tab i{width:24px;height:24px;border-radius:7px;background:var(--tabOff)}
+.tab .on{color:var(--accent);font-weight:700}.tab .on i{background:var(--accent)}</style></head><body><div class="status"></div><div class="top"><b>대피소</b></div>
+<div class="wrap">
+<div class="seg"><div class="on">현재 위치 · 강남구</div><div>경기 수원시</div></div>
+<section class="sign green"><div class="k">가장 가까운 대피소</div><div class="row"><div class="name">역삼초등학교 체육관</div><div class="km">0.4<i>km</i></div></div>
+<div class="sub">지진옥외대피장소 · 역삼로 123 · 직선거리</div><div class="btns"><a class="solid" href="#">경로 안내</a><a class="line" href="#">상세정보</a></div></section>
+<div class="map"><span class="me"></span><span class="pin one" style="left:120px;top:40px">1</span><span class="pin" style="left:260px;top:30px">2</span><span class="pin" style="left:230px;top:100px">3</span></div>
+<div class="sec"><span>반경 2km 내 다른 대피소</span><span>직선거리순</span></div>
+<div class="list">
+<div class="li"><span class="n">2</span><div><b>강남구민회관</b><s>1.2km · 임시주거시설</s></div><span class="go">경로</span></div>
+<div class="li"><span class="n">3</span><div><b>선릉공원</b><s>1.8km · 지진옥외대피장소</s></div><span class="go">경로</span></div>
+</div></div><nav class="tab"><div class=""><i></i>홈</div><div class="on"><i></i>대피소</div><div class=""><i></i>안심그룹</div><div class=""><i></i>체크리스트</div><div class=""><i></i>내정보</div></nav></body></html>

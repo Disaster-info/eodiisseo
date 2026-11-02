@@ -17,7 +17,7 @@ export default function ConsentScreen() {
         <View style={s.divider} />
         <Label icon="lock-closed" text="제공 범위" />
         <InfoRow icon="time-outline" text="최신 위치 1건과 갱신 시각만 저장" />
-        <Text style={[s.muted, { marginTop: 8 }]}>동의는 내정보 › 위치 설정에서 언제든 철회할 수 있습니다.</Text>
+        <Text style={[s.muted, { marginTop: 8 }]}>동의는 내정보 › 서비스 설정 › 위치정보 이용 동의에서 언제든 철회할 수 있습니다.</Text>
       </Card>
       <Btn title="동의하고 계속" onPress={() => { setLocConsent(true); setNeedConsent(false); }} />
       <Btn title="거부하고 위치 직접 지정" outline onPress={() => { setLocConsent(false); setNeedConsent(false); }} />

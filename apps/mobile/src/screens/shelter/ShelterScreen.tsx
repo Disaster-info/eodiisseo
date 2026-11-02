@@ -55,7 +55,7 @@ export default function ShelterScreen() {
       {rest.map((sh, i) => (
         <Card key={sh.id} onPress={() => router.push(`/shelters/${sh.id}`)}>
           <View style={[s.row, { gap: 12 }]}>
-            <View style={{ minWidth: 32, minHeight: 32, paddingHorizontal: 6, borderRadius: 999, backgroundColor: C.primarySoft, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ ...s.rim, minWidth: 32, minHeight: 32, paddingHorizontal: 6, borderRadius: 999, backgroundColor: C.primarySoft, justifyContent: 'center', alignItems: 'center' }}>
               <Text style={[s.bold, s.num, { fontWeight: '800', color: C.primary }]}>{i + 2}</Text>
             </View>
             <View style={{ flex: 1 }}>

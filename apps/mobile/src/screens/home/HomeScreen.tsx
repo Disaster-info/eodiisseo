@@ -6,7 +6,7 @@ import { AccessibilityInfo, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import Animated, { Easing, FadeIn, FadeInUp, useReducedMotion } from 'react-native-reanimated';
 import { DisasterCard } from '../../components/disaster';
 import { ShelterSign } from '../../components/shelter';
-import { Card, Chip, Icon, IconName, Page, Sign, knownImpact, useTheme } from '../../components/ui';
+import { Card, Chip, Icon, IconName, Page, Sign, IconMark, knownImpact, useTheme } from '../../components/ui';
 import { DISASTERS, ME, WEATHER, WEATHER_ICON, WEATHER_TIP, isActive } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
@@ -80,8 +80,8 @@ export default function HomeScreen() {
           return (
             <Pressable key={g.id} onPress={() => router.push(`/groups/${g.id}`)} accessibilityRole="button"
               style={({ pressed }) => [s.row, { minHeight: 52, paddingVertical: 8 }, n > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }, pressed && s.pressed]}>
-              <Icon name={hit ? 'warning' : 'people'} size={22} color={hit ? C.danger : C.primary} />
-              <Text style={[s.body, { flex: 1 }]} numberOfLines={2}>
+              <IconMark name={hit ? 'warning' : 'people'} color={hit ? C.danger : C.primary} />
+              <Text style={[s.body, { flex: 1 }]} numberOfLines={2} lineBreakStrategyIOS="hangul-word">
                 <Text style={{ fontWeight: '700' }}>{g.name}</Text>
                 {hit > 0 && <Text style={{ color: C.danger, fontWeight: '700' }}> · {hit}명 영향지역</Text>}
                 {!!rest && <Text style={{ color: C.sub }}> · {rest}</Text>}
