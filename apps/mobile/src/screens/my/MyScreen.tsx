@@ -88,7 +88,7 @@ export default function MyScreen() {
           <View style={{ flex: 1 }}>
             <Text style={s.h2}>{member.name}</Text>
             {/* 로그인 제공자는 아래 '계정' 묶음에 표시 (여기서 같이 쓰면 이메일이 잘림) */}
-            <Text style={[s.muted, { marginTop: 1 }]} numberOfLines={1}>{member.email}</Text>
+            {!!member.email && <Text style={[s.muted, { marginTop: 1 }]} numberOfLines={1}>{member.email}</Text>}
           </View>
           {nameDraft === null && (
             <Pressable onPress={() => setNameDraft(member.name)} hitSlop={8} accessibilityRole="button" accessibilityLabel="프로필 편집"
@@ -110,7 +110,7 @@ export default function MyScreen() {
             <TextInput accessibilityLabel="이름" style={s.input} value={nameDraft} onChangeText={setNameDraft} maxLength={10} autoFocus
               placeholder="2~10자" placeholderTextColor={C.sub} returnKeyType="done" onSubmitEditing={saveName} />
             <Text style={s.bold}>이메일</Text>
-            <Text style={[s.muted, { marginBottom: 12 }]}>{member.email} · {provider} 계정 정보라 여기서 바꿀 수 없어요.</Text>
+            <Text style={[s.muted, { marginBottom: 12 }]}>{member.email ? `${member.email} · ` : ''}{provider} 계정 정보라 여기서 바꿀 수 없어요.</Text>
             <View style={s.row}>
               <View style={{ flex: 1 }}><Btn title="취소" outline onPress={() => setNameDraft(null)} /></View>
               <View style={{ flex: 1 }}><Btn title="저장" onPress={saveName} /></View>
@@ -147,7 +147,7 @@ export default function MyScreen() {
         <Row icon="person-remove-outline" title="회원 탈퇴" sub="모든 데이터 삭제 · 되돌릴 수 없어요" onPress={requestWithdraw} danger />
       </Group>
 
-      <Text style={[s.small, { textAlign: 'center', marginTop: 4 }]}>가입일 {member.joinedAt}</Text>
+      {!!member.joinedAt && <Text style={[s.small, { textAlign: 'center', marginTop: 4 }]}>가입일 {member.joinedAt}</Text>}
       {/* 시연용: 인증 만료 상황 재현 (개발 모드에서만 보임) */}
       {__DEV__ && <Pressable onPress={expire} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={[s.small, { textAlign: 'center' }]}>[개발용] 인증 만료 시뮬레이션</Text></Pressable>}
     </Page>
