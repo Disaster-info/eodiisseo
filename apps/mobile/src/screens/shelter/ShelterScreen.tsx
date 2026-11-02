@@ -1,19 +1,22 @@
-// FS-SHELTER-001: 기준 위치 선택 → 1km 부터 1km 씩 반경 확대 검색 → 직선거리순 목록 + 지도 마커 연동
+// FS-SHELTER-001: 기준 위치 선택 → 1km 부터 1km 씩 반경 확대 검색 → 직선거리순 목록 + 지도 마커
+// 가장 가까운 1곳이 주인공(녹색 안내판). 모든 항목에서 경로를 바로 열 수 있음 (선택 단계 없음)
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
-import { Btn, C, Card, Chip, Empty, Icon, Page, s } from '../../components/ui';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ShelterSign } from '../../components/shelter';
+import { Btn, Card, Chip, Empty, Icon, Page, useTheme } from '../../components/ui';
 import { MAX_RADIUS, SHELTERS, searchShelters } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 export default function ShelterScreen() {
+  const { C, s } = useTheme();
   const { location, isManual, areas, areaNames } = useApp();
   const [base, setBase] = useState(location);
   const [from, setFrom] = useState(1);
-  const [sel, setSel] = useState<number | null>(null);
   const region = base === location || areas.includes(base) ? base : location;
   const { radius, list } = searchShelters(SHELTERS, region, from);
-  const pickBase = (r: string) => { setBase(r); setFrom(1); setSel(null); };
+  const pickBase = (r: string) => { setBase(r); setFrom(1); };
+  const [nearest, ...rest] = list;
 
   return (
     <Page>
@@ -22,45 +25,49 @@ export default function ShelterScreen() {
         {areas.filter(a => a !== location).map(a => <Chip key={a} text={areaNames[a] ?? a} on={region === a} onPress={() => pickBase(a)} />)}
       </ScrollView>
 
-      {/* ponytail: 지도 SDK 연동 전 임시 마커. 실제 좌표 대신 순번으로 배치 */}
-      <View style={[s.map, { height: 200 }]}>
-        <View style={{ position: 'absolute', left: '48%', top: '45%', alignItems: 'center' }}>
-          <Icon name="navigate-circle" size={28} color={C.primary} />
-        </View>
-        {list.map((sh, i) => (
-          <View key={sh.id} style={{ position: 'absolute', left: `${12 + ((i * 29) % 70)}%`, top: `${14 + ((i * 41) % 60)}%` }}>
-            <View style={{ width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center',
-              backgroundColor: sel === sh.id ? C.danger : C.card, borderWidth: 2, borderColor: sel === sh.id ? C.danger : C.primary }}>
-              <Text style={{ fontSize: 12, fontWeight: '800', color: sel === sh.id ? '#fff' : C.primary }}>{i + 1}</Text>
-            </View>
-          </View>
-        ))}
-        <Text style={[s.muted, { position: 'absolute', bottom: 8 }]}>지도 SDK 연동 예정 · 확대/이동 지원</Text>
-      </View>
+      {!nearest && <Empty icon="shield-outline" text={`최대 반경 ${MAX_RADIUS}km 안에 등록된 대피소가 없어요.\n다른 기준 위치를 선택해 보세요.`} />}
 
-      <View style={s.row}>
-        <Text style={[s.section, { flex: 1 }]}>반경 {radius}km 내 대피소</Text>
-        <Text style={[s.muted, { marginTop: 8 }]}>직선거리순</Text>
-      </View>
-      {list.length === 0 && <Empty icon="shield-outline" text={`최대 반경 ${MAX_RADIUS}km 안에 등록된 대피소가 없어요.\n다른 기준 위치를 선택해 보세요.`} />}
-      {list.map((sh, i) => (
-        <Card key={sh.id} onPress={() => setSel(sel === sh.id ? null : sh.id)}>
+      {nearest && <ShelterSign region={region} secondary={{ title: '상세정보', onPress: () => router.push(`/shelters/${nearest.id}`) }} />}
+
+      {/* ponytail: 지도 SDK 연동 전 임시 마커. 실제 좌표 대신 순번으로 배치 */}
+      {nearest && (
+        <View style={[s.map, { height: 180 }]} accessible accessibilityLabel={`지도 자리 표시. 대피소 ${list.length}곳`}>
+          <View style={{ position: 'absolute', left: '48%', top: '45%' }}>
+            <Icon name="navigate-circle" size={28} color={C.primary} />
+          </View>
+          {list.map((sh, i) => (
+            <View key={sh.id} style={{ position: 'absolute', left: `${12 + ((i * 29) % 70)}%`, top: `${14 + ((i * 41) % 60)}%`,
+              width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center',
+              backgroundColor: i === 0 ? C.sign.green : C.card, borderWidth: 2, borderColor: C.sign.green }}>
+              <Text maxFontSizeMultiplier={1.2} style={[s.small, { fontWeight: '800', color: i === 0 ? C.onSign : C.success }]}>{i + 1}</Text>
+            </View>
+          ))}
+          <Text style={[s.small, { position: 'absolute', bottom: 8 }]}>지도 SDK 연동 예정 · 확대/이동 지원</Text>
+        </View>
+      )}
+
+      {rest.length > 0 && (
+        <View style={[s.row, { marginTop: 8 }]}>
+          <Text style={[s.section, { flex: 1, marginTop: 0 }]}>반경 {radius}km 내 다른 대피소</Text>
+          <Text style={s.small}>직선거리순</Text>
+        </View>
+      )}
+      {rest.map((sh, i) => (
+        <Card key={sh.id} onPress={() => router.push(`/shelters/${sh.id}`)}>
           <View style={[s.row, { gap: 12 }]}>
-            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: sel === sh.id ? C.danger : C.primarySoft, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '800', color: sel === sh.id ? '#fff' : C.primary }}>{i + 1}</Text>
+            <View style={{ minWidth: 32, minHeight: 32, paddingHorizontal: 6, borderRadius: 999, backgroundColor: C.primarySoft, justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={[s.bold, s.num, { fontWeight: '800', color: C.primary }]}>{i + 2}</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={s.bold}>{sh.name}</Text>
-              <Text style={s.muted} numberOfLines={1}>{sh.type} · {sh.addr}</Text>
+              <Text style={s.muted} numberOfLines={1}>{sh.distance}km · {sh.type}</Text>
             </View>
-            <Text style={[s.bold, { color: C.primary }]}>{sh.distance}km</Text>
+            <Pressable onPress={() => router.push(`/route/${sh.id}`)} accessibilityRole="button" accessibilityLabel={`${sh.name} 경로 안내`}
+              style={({ pressed }) => [s.row, { gap: 4, minHeight: 44, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.fill }, pressed && s.pressed]}>
+              <Icon name="navigate" size={16} color={C.onSign} />
+              <Text style={[s.bold, { color: C.onSign }]}>경로</Text>
+            </Pressable>
           </View>
-          {sel === sh.id && (
-            <View style={[s.row, { marginTop: 12 }]}>
-              <View style={{ flex: 1 }}><Btn title="상세정보" outline onPress={() => router.push(`/shelters/${sh.id}`)} /></View>
-              <View style={{ flex: 1 }}><Btn title="경로 보기" icon="navigate" onPress={() => router.push(`/route/${sh.id}`)} /></View>
-            </View>
-          )}
         </Card>
       ))}
       {list.length > 0 && radius < MAX_RADIUS && (

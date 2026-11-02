@@ -1,11 +1,12 @@
 // 재난 대비 체크리스트 + 완료율
 import { useState } from 'react';
-import { Text, View } from 'react-native';
-import { C, Card, Chip, Icon, Page, s } from '../../components/ui';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Card, Icon, Page, useTheme, Segmented } from '../../components/ui';
 import { CHECKLIST } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 export default function ChecklistScreen() {
+  const { C, s } = useTheme();
   const { checked, setChecked } = useApp();
   const [type, setType] = useState('지진');
   const items = CHECKLIST[type];
@@ -14,7 +15,7 @@ export default function ChecklistScreen() {
   const pct = Math.round((done / items.length) * 100);
   return (
     <Page>
-      <View style={s.row}>{Object.keys(CHECKLIST).map(t => <Chip key={t} text={t} on={type === t} onPress={() => setType(t)} />)}</View>
+      <Segmented label="재난 유형" items={Object.keys(CHECKLIST)} value={type} onChange={setType} />
       <Card>
         <View style={s.row}>
           <Text style={[s.bold, { flex: 1 }]}>{type} 대비 완료율</Text>
@@ -23,17 +24,18 @@ export default function ChecklistScreen() {
         <Text style={s.muted}>{done}/{items.length}개 완료</Text>
         <View style={s.bar}><View style={[s.barFill, { width: `${pct}%` }]} /></View>
       </Card>
-      {items.map(i => {
-        const on = !!checked[key(i)];
-        return (
-          <Card key={i} onPress={() => setChecked(c => ({ ...c, [key(i)]: !on }))}>
-            <View style={[s.row, { gap: 12 }]}>
+      <View style={[s.card, { paddingVertical: 4 }]}>
+        {items.map((i, n) => {
+          const on = !!checked[key(i)];
+          return (
+            <Pressable key={i} onPress={() => setChecked(c => ({ ...c, [key(i)]: !on }))} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={i}
+              style={({ pressed }) => [s.row, { gap: 12, minHeight: 56 }, n > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }, pressed && s.pressed]}>
               <Icon name={on ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={on ? C.success : C.sub} />
-              <Text style={[s.body, on && { textDecorationLine: 'line-through', color: C.sub }]}>{i}</Text>
-            </View>
-          </Card>
-        );
-      })}
+              <Text style={[s.body, { flex: 1 }, on && { textDecorationLine: 'line-through', color: C.sub }]}>{i}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </Page>
   );
 }

@@ -1,6 +1,6 @@
 # 어디있어 (프론트 UI)
 
-백엔드 없이 목업 데이터로 동작하는 React Native(Expo SDK 57) 화면입니다.
+백엔드 없이 목업 데이터로 동작하는 React Native(Expo SDK 58) 화면입니다.
 
 ## 실행
 

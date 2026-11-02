@@ -3,14 +3,20 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
-import { C, applyTheme } from '../components/ui';
+import { AppThemeProvider, useTheme } from '../components/ui';
 import { AppProvider, useApp } from '../store/AppContext';
 
+// 테마 모드(시스템/라이트/다크) → 실제 라이트·다크 결정 후 화면 전체에 색을 내려줌
 function RootStack() {
-  const { theme, member } = useApp();
+  const { theme } = useApp();
   const system = useColorScheme();
   const dark = theme === 'system' ? system === 'dark' : theme === 'dark';
-  applyTheme(dark); // 자식 화면이 그려지기 전에 색상 교체
+  return <AppThemeProvider dark={dark}><Navigator dark={dark} /></AppThemeProvider>;
+}
+
+function Navigator({ dark }: { dark: boolean }) {
+  const { member } = useApp();
+  const { C } = useTheme();
   const base = dark ? DarkTheme : DefaultTheme;
   const navTheme = { ...base, colors: { ...base.colors, primary: C.primary, background: C.bg, card: C.card, text: C.text, border: C.border } };
 

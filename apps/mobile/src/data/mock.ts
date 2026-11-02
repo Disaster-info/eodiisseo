@@ -77,7 +77,6 @@ export const WEATHER_TIP: Partial<Record<Weather['cond'], string>> = {
   비: '우산을 챙기고 지하차도·하천변은 피하세요.', 눈: '빙판길 미끄럼에 주의하세요.', 맑음: '야외 활동 시 수분을 충분히 섭취하세요.',
 };
 export const LEVELS: Level[] = ['정보', '주의보', '경보']; // 낮음 → 높음
-export const LEVEL_COLOR: Record<Level, string> = { 경보: '#E5484D', 주의보: '#F59E0B', 정보: '#6B7280' };
 export const LEVEL_ICON = { 경보: 'alert-circle', 주의보: 'warning', 정보: 'information-circle' } as const;
 export const TYPE_ICON = { 지진: 'pulse', 호우: 'rainy', 산불: 'flame' } as const;
 // 기기 GPS 가 알려주는 현재 위치 (실제로는 FS-LOC-002 현재 위치 조회 결과)
@@ -148,7 +147,7 @@ export const JOINABLE_GROUPS: Group[] = [
   { id: 101, name: '동아리', category: '친구', code: 'FULL-0000', createdByMe: false,
     members: Array.from({ length: 10 }, (_, i) => ({ id: 200 + i, name: `회원${i + 1}`, admin: i === 0, sharing: false, impact: '위치정보 미제공' as Impact })) },
 ];
-export const IMPACT_STYLE = {
-  '영향지역 포함': { color: '#E5484D', icon: 'warning' }, '영향지역 밖': { color: '#16A34A', icon: 'checkmark-circle' },
-  '위치정보 미제공': { color: '#6B7280', icon: 'eye-off' }, '판단 불가': { color: '#6B7280', icon: 'help-circle' },
-} as const satisfies Record<Impact, { color: string; icon: string }>;
+// 색은 테마의 impactColor() 에서 정함
+export const IMPACT_ICON = {
+  '영향지역 포함': 'warning', '영향지역 밖': 'checkmark-circle', '위치정보 미제공': 'eye-off', '판단 불가': 'help-circle',
+} as const satisfies Record<Impact, string>;

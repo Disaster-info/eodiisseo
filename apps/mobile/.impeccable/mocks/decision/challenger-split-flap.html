@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>출발 안내판</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:390px;height:844px;overflow:hidden;background:#111214;color:#F4F4F0;font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+.status{height:47px}
+.top{padding:6px 16px 14px;display:flex;justify-content:space-between;align-items:baseline}
+.top b{font-size:24px;font-weight:800}
+.top span{font-size:13px;color:#9A9DA3;font-variant-numeric:tabular-nums}
+.hd{display:grid;grid-template-columns:56px 1fr 72px 64px;gap:4px;padding:0 12px 6px;font-size:11px;color:#9A9DA3;font-weight:700}
+.r{display:grid;grid-template-columns:56px 1fr 72px 64px;gap:4px;padding:0 12px;margin-bottom:4px}
+.c{background:#232529;border-radius:4px;height:52px;display:flex;align-items:center;padding:0 8px;font-weight:800;font-size:17px;position:relative;overflow:hidden}
+.c:after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:#0A0B0C}
+.big .c{height:72px;font-size:24px}
+.red{color:#FF5A4E}.amb{color:#F2A900}.dim{opacity:.38}
+.lamp{display:inline-block;width:8px;height:8px;border-radius:50%;background:#F2A900;margin-right:6px}
+.note{padding:4px 14px 12px;font-size:12px;color:#F2A900}
+.shel{margin:14px 12px 0;border:2px solid #F4F4F0;border-radius:8px;padding:14px;display:flex;justify-content:space-between;align-items:center}
+.shel b{font-size:22px;font-weight:800}
+.shel span{font-size:30px;font-weight:900;font-variant-numeric:tabular-nums}
+.tab{position:absolute;bottom:0;left:0;right:0;height:83px;background:#18191C;border-top:1px solid #2C2E33;display:flex;justify-content:space-around;padding-top:10px;font-size:11px;color:#9A9DA3}
+.tab div{display:flex;flex-direction:column;align-items:center;gap:4px}
+.tab i{width:24px;height:24px;border-radius:6px;background:#3A3D42}
+.tab .on{color:#F4F4F0;font-weight:700}.tab .on i{background:#F4F4F0}
+</style></head><body>
+<div class="status"></div>
+<div class="top"><b>재난 현황</b><span>13:42 갱신</span></div>
+<div class="hd"><span>유형</span><span>지역</span><span>등급</span><span>상태</span></div>
+<div class="r big"><div class="c red">호우</div><div class="c">서울 강남구</div><div class="c red">경보</div><div class="c">진행</div></div>
+<div class="r"><div class="c">호우</div><div class="c">경기 수원시</div><div class="c amb">주의보</div><div class="c">진행</div></div>
+<div class="r"><div class="c">산불</div><div class="c amb"><span class="lamp"></span>강원 강릉시</div><div class="c amb">주의보</div><div class="c">진행</div></div>
+<div class="note">강릉시: 최신 수집 실패 · 마지막 정상 13:15</div>
+<div class="r dim"><div class="c">지진</div><div class="c">경북 경주시</div><div class="c">정보</div><div class="c">해제</div></div>
+<div class="r dim"><div class="c">지진</div><div class="c">부산 해운대구</div><div class="c">—</div><div class="c">종료</div></div>
+<div class="shel"><b>역삼초 체육관</b><span>0.4 km</span></div>
+<nav class="tab"><div class="on"><i></i>홈</div><div><i></i>대피소</div><div><i></i>안심그룹</div><div><i></i>체크리스트</div><div><i></i>내정보</div></nav>
+</body></html>

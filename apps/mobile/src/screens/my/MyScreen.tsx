@@ -1,8 +1,8 @@
 // FS-AUTH-006 회원정보 조회·프로필(이름) 수정, 003 소셜 계정 연결, 005 로그아웃, 007 회원 탈퇴 / FS-LOC-001 동의 철회 / FS-OPS 진입
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Switch, Text, TextInput, View } from 'react-native';
-import { Btn, C, Card, Chip, Icon, IconName, Label, Page, confirm, notify, s } from '../../components/ui';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import { AppSwitch, Btn, Card, Icon, IconName, Page, confirm, notify, useTheme, Segmented } from '../../components/ui';
 import { Provider } from '../../data/mock';
 import { ThemeMode, useApp } from '../../store/AppContext';
 
@@ -13,8 +13,10 @@ const THEMES: { mode: ThemeMode; label: string }[] = [
 const PROVIDER_ICON: Record<Provider, IconName> = { Google: 'logo-google', Kakao: 'chatbubble' };
 
 // 설정 목록의 한 줄: 아이콘 + 제목 + (부가설명) + 오른쪽 요소
-const Row = ({ icon, title, sub, right, onPress }: { icon: IconName; title: string; sub?: string; right?: React.ReactNode; onPress?: () => void }) => (
-  <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => [s.row, { gap: 12, paddingVertical: 10 }, pressed && s.pressed]}>
+function Row({ icon, title, sub, right, onPress }: { icon: IconName; title: string; sub?: string; right?: React.ReactNode; onPress?: () => void }) {
+  const { C, s } = useTheme();
+  return (
+  <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} style={({ pressed }) => [s.row, { gap: 12, paddingVertical: 10, minHeight: 52 }, pressed && s.pressed]}>
     <Icon name={icon} size={22} color={C.sub} />
     <View style={{ flex: 1 }}>
       <Text style={s.body}>{title}</Text>
@@ -22,10 +24,12 @@ const Row = ({ icon, title, sub, right, onPress }: { icon: IconName; title: stri
     </View>
     {right ?? (onPress && <Icon name="chevron-forward" size={18} color={C.sub} />)}
   </Pressable>
-);
+  );
+}
 
 export default function MyScreen() {
-  const { member, rename, provider, linked, setLinked, noti, locConsent, setLocConsent, location, areas, areaNames,
+  const { C, s } = useTheme();
+  const { member, rename, provider, linked, setLinked, noti, locConsent, setLocConsent, isManual, location, areas, areaNames,
     logout, expire, withdraw, adminBlockingGroups, theme, setTheme } = useApp();
   const [nameDraft, setNameDraft] = useState<string | null>(null); // null = 보기 모드
   if (!member) return null;
@@ -40,6 +44,10 @@ export default function MyScreen() {
   // FS-AUTH-003: 추가 인증을 거친 뒤에만 연결 (이메일이 같아도 자동 통합하지 않음)
   const connect = (p: Provider) => confirm('소셜 계정 연결', `${p} 계정으로 추가 인증을 진행합니다.\n이미 다른 회원에 연결된 계정은 연결할 수 없습니다.`, '인증하기',
     () => { setLinked(l => [...l, p]); notify('연결 완료', `${p} 계정이 연결되었습니다.`); });
+
+  // FS-LOC-001: 철회는 모든 그룹 공유를 끄므로 확인 후 처리. 다시 동의해도 그룹 공유는 자동으로 켜지지 않음
+  const toggleConsent = (on: boolean) => on ? setLocConsent(true)
+    : confirm('위치정보 동의 철회', `모든 그룹에서 내 위치공유가 즉시 중단돼요. 다시 동의해도 그룹별로 직접 켜야 해요.${isManual ? '' : '\n철회 후 기준 위치를 직접 지정해야 해요.'}`, '철회', () => setLocConsent(false));
 
   const requestWithdraw = () => {
     if (adminBlockingGroups.length)
@@ -68,7 +76,7 @@ export default function MyScreen() {
           <View style={{ marginTop: 12 }}>
             <View style={s.divider} />
             <Text style={s.bold}>이름</Text>
-            <TextInput style={s.input} value={nameDraft} onChangeText={setNameDraft} maxLength={10} autoFocus
+            <TextInput accessibilityLabel="이름" style={s.input} value={nameDraft} onChangeText={setNameDraft} maxLength={10} autoFocus
               placeholder="2~10자" placeholderTextColor={C.sub} returnKeyType="done" onSubmitEditing={saveName} />
             <Text style={s.bold}>이메일</Text>
             <Text style={[s.muted, { marginBottom: 12 }]}>{member.email} · {provider} 계정 정보라 여기서 바꿀 수 없어요.</Text>
@@ -80,25 +88,25 @@ export default function MyScreen() {
         )}
       </Card>
 
+      <Text style={[s.small, { fontWeight: '700', marginTop: 8, marginLeft: 16, marginBottom: -4 }]}>소셜 계정 연결</Text>
       <Card>
-        <Label icon="link" text="소셜 계정 연결" />
         {PROVIDERS.map(p => (
           <Row key={p} icon={PROVIDER_ICON[p]} title={p}
             right={p === provider ? <Text style={s.muted}>로그인 계정</Text>
               : linked.includes(p) ? <Text style={[s.muted, { color: C.success }]}>연결됨</Text>
-              : <Pressable onPress={() => connect(p)}><Text style={s.link}>연결하기</Text></Pressable>} />
+              : <Pressable onPress={() => connect(p)} accessibilityRole="button" accessibilityLabel={`${p} 계정 연결하기`}><Text style={s.link}>연결하기</Text></Pressable>} />
         ))}
       </Card>
 
+      <Text style={[s.small, { fontWeight: '700', marginTop: 8, marginLeft: 16, marginBottom: -4 }]}>서비스 설정</Text>
       <Card>
-        <Label icon="settings" text="서비스 설정" />
         <Row icon="location-outline" title="위치정보 이용 동의" sub="OFF 하면 모든 그룹에서 내 위치공유가 중단됩니다."
-          right={<Switch value={locConsent} onValueChange={setLocConsent} trackColor={{ true: C.primary }} />} />
+          right={<AppSwitch accessibilityLabel="위치정보 이용 동의" value={locConsent} onValueChange={toggleConsent} />} />
         <Row icon="notifications-outline" title="재난 알림 설정" sub={noti.on ? `${noti.minLevel} 이상 · 야간 ${noti.night ? '허용' : '차단'}` : '알림 꺼짐'}
           onPress={() => router.push('/noti')} />
         <Row icon="contrast-outline" title="화면 테마" />
-        <View style={[s.row, { flexWrap: 'wrap', marginLeft: 34 }]}>
-          {THEMES.map(t => <Chip key={t.mode} text={t.label} on={theme === t.mode} onPress={() => setTheme(t.mode)} />)}
+        <View style={{ marginLeft: 34, marginBottom: 6 }}>
+          <Segmented label="화면 테마" items={THEMES.map(t => ({ value: t.mode, label: t.label }))} value={theme} onChange={setTheme} />
         </View>
         <Row icon="pin-outline" title="기준 위치 직접 지정" sub={`현재: ${location}`} onPress={() => router.push('/location')} />
         <Row icon="star-outline" title="관심지역 관리" sub={areas.length ? areas.map(a => areaNames[a] ?? a).join(', ') : '없음'} onPress={() => router.push('/areas')} />
@@ -109,11 +117,11 @@ export default function MyScreen() {
       )}
 
       <Btn title="로그아웃" icon="log-out-outline" outline onPress={() => confirm('로그아웃', '로그아웃할까요?', '로그아웃', logout)} />
-      <Pressable onPress={requestWithdraw}>
-        <Text style={[s.muted, { textAlign: 'center', padding: 8 }]}>회원 탈퇴</Text>
+      <Pressable onPress={requestWithdraw} accessibilityRole="button" style={({ pressed }) => [{ minHeight: 48, justifyContent: 'center' }, pressed && s.pressed]}>
+        <Text style={[s.muted, { textAlign: 'center', color: C.danger }]}>회원 탈퇴</Text>
       </Pressable>
       {/* 시연용: 인증 만료 상황 재현 (개발 모드에서만 보임) */}
-      {__DEV__ && <Pressable onPress={expire}><Text style={[s.muted, { textAlign: 'center' }]}>[개발용] 인증 만료 시뮬레이션</Text></Pressable>}
+      {__DEV__ && <Pressable onPress={expire} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={[s.muted, { textAlign: 'center' }]}>[개발용] 인증 만료 시뮬레이션</Text></Pressable>}
     </Page>
   );
 }

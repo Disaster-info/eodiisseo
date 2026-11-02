@@ -2,14 +2,16 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { Badge, Btn, C, Card, Chip, Icon, Label, Page, notify, s } from '../../components/ui';
-import { CATEGORIES, JOINABLE_GROUPS, ME } from '../../data/mock';
+import { Badge, Btn, Card, Chip, Icon, Label, Page, notify, knownImpact, useTheme } from '../../components/ui';
+import { CATEGORIES, Group, JOINABLE_GROUPS, ME } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 const MAX_CREATE = 3;
 const MAX_MEMBERS = 10;
+const hit = (g: Group) => g.members.filter(m => knownImpact(m) === '영향지역 포함').length;
 
 export default function GroupScreen() {
+  const { C, s } = useTheme();
   const { groups, setGroups } = useApp();
   const [name, setName] = useState('');
   const [category, setCategory] = useState('가족');
@@ -55,7 +57,8 @@ export default function GroupScreen() {
                 <Badge text={g.category} color={C.sub} />
                 {g.members.find(m => m.id === ME)?.admin && <Badge text="관리자" color={C.primary} />}
               </View>
-              <Text style={s.muted}>구성원 {g.members.length}/{MAX_MEMBERS} · 영향지역 {g.members.filter(m => m.impact === '영향지역 포함').length}명</Text>
+              <Text style={s.muted}>구성원 {g.members.length}/{MAX_MEMBERS}{hit(g) ? '' : ' · 영향지역 포함 없음'}</Text>
+              {hit(g) > 0 && <Text style={[s.muted, { color: C.danger, fontWeight: '700' }]}>영향지역 포함 {hit(g)}명</Text>}
             </View>
             <Icon name="chevron-forward" size={18} color={C.sub} />
           </View>
@@ -63,14 +66,14 @@ export default function GroupScreen() {
       ))}
       <Card>
         <Label icon="add-circle" text={`새 그룹 만들기 (${created}/${MAX_CREATE})`} />
-        <TextInput style={s.input} placeholder="그룹 이름" placeholderTextColor={C.sub} value={name} onChangeText={setName} maxLength={20} />
+        <TextInput accessibilityLabel="새 그룹 이름" style={s.input} placeholder="그룹 이름" placeholderTextColor={C.sub} value={name} onChangeText={setName} maxLength={20} />
         <View style={[s.row, { flexWrap: 'wrap' }]}>{CATEGORIES.map(c => <Chip key={c} text={c} on={category === c} onPress={() => setCategory(c)} />)}</View>
         <Btn title="만들기" icon="add" onPress={create} />
       </Card>
       <Card>
         <Label icon="key" text="초대 코드로 참여" />
         {/* 일부 안드로이드 키보드는 autoCapitalize 를 무시하므로 입력값을 직접 대문자로 변환 */}
-        <TextInput style={[s.input, { letterSpacing: 1 }]} placeholder="예: FRD-1234" placeholderTextColor={C.sub} value={code}
+        <TextInput accessibilityLabel="초대 코드" style={[s.input, { letterSpacing: 1 }]} placeholder="예: FRD-1234" placeholderTextColor={C.sub} value={code}
           onChangeText={t => setCode(t.toUpperCase())} autoCapitalize="characters" autoCorrect={false} maxLength={12} />
         <Btn title="참여하기" icon="enter-outline" outline onPress={join} />
       </Card>

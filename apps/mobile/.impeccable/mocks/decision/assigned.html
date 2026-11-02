@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>도로표지</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:390px;height:844px;overflow:hidden;background:#F2F3F1;color:#16181B;font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+.status{height:47px}
+.top{display:flex;align-items:baseline;gap:8px;padding:6px 16px 12px}
+.top b{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.top span{font-size:13px;color:#5C6168}
+/* 규제판: 경보 */
+.alert{margin:0 12px;background:#D7261E;color:#fff;border-radius:10px;padding:16px;border:3px solid #fff;outline:2px solid #D7261E}
+.alert .row{display:flex;align-items:center;gap:12px}
+.ring{width:52px;height:52px;border-radius:50%;background:#fff;border:7px solid #16181B;display:flex;align-items:center;justify-content:center;font-weight:900;color:#D7261E;font-size:22px;flex:none}
+.alert h1{font-size:30px;font-weight:900;letter-spacing:-1px;line-height:1.1}
+.alert p{font-size:15px;margin-top:10px;line-height:1.45}
+.alert small{display:block;font-size:12px;opacity:.85;margin-top:8px}
+/* 안내판: 대피 */
+.guide{margin:12px 12px 0;background:#0E7A4F;color:#fff;border-radius:10px;padding:14px 16px;border:3px solid #fff;outline:2px solid #0E7A4F}
+.guide .k{font-size:13px;font-weight:700;opacity:.9}
+.guide .dest{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
+.guide .dest b{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.guide .km{font-size:34px;font-weight:900;font-variant-numeric:tabular-nums}
+.guide .km i{font-style:normal;font-size:16px;margin-left:2px}
+.arrow{font-size:30px;font-weight:900;margin-left:8px}
+.go{margin-top:12px;display:flex;gap:8px}
+.go a{flex:1;height:48px;border-radius:8px;background:#fff;color:#0E7A4F;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;text-decoration:none}
+.go a.o{background:transparent;color:#fff;border:2px solid #fff}
+/* 중립 바탕 위 일반 행 */
+.sec{font-size:13px;font-weight:700;color:#5C6168;padding:18px 16px 6px}
+.row2{display:flex;align-items:center;gap:12px;background:#fff;margin:0 12px;padding:14px;border-radius:10px;margin-bottom:8px}
+.tri{width:0;height:0;border-left:13px solid transparent;border-right:13px solid transparent;border-bottom:23px solid #D7261E;position:relative;flex:none}
+.tri:after{content:"";position:absolute;left:-8px;top:6px;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:14px solid #F5C400}
+.dot{width:26px;height:26px;border-radius:50%;background:#0B5CAD;flex:none}
+.row2 .t{flex:1}
+.row2 b{font-size:16px;font-weight:700}
+.row2 s{text-decoration:none;display:block;font-size:13px;color:#5C6168;margin-top:2px}
+.row2 em{font-style:normal;font-size:13px;font-weight:700}
+.wx{padding:6px 16px;font-size:13px;color:#5C6168}
+.tab{position:absolute;bottom:0;left:0;right:0;height:83px;background:#fff;border-top:1px solid #D9DCD8;display:flex;justify-content:space-around;padding-top:10px;font-size:11px;color:#5C6168}
+.tab div{display:flex;flex-direction:column;align-items:center;gap:4px}
+.tab i{width:24px;height:24px;border-radius:6px;background:#C4C8C4}
+.tab .on{color:#0B5CAD;font-weight:700}.tab .on i{background:#0B5CAD}
+</style></head><body>
+<div class="status"></div>
+<div class="top"><b>서울 강남구</b><span>현재 위치</span></div>
+
+<section class="alert">
+  <div class="row"><div class="ring">!</div><div><h1>호우경보</h1><div style="font-size:15px;font-weight:700;margin-top:2px">진행중 · 기상청</div></div></div>
+  <p>시간당 50mm 이상 강한 비. 저지대·지하공간 출입을 피하세요.</p>
+  <small>AI 요약 · 원문 2건 보기 › &nbsp;·&nbsp; 갱신 13:40</small>
+</section>
+
+<section class="guide">
+  <div class="k">가장 가까운 대피소</div>
+  <div class="dest"><b>역삼초등학교 체육관</b><span><span class="km">0.4<i>km</i></span><span class="arrow">↗</span></span></div>
+  <div class="go"><a href="#">경로 안내</a><a class="o" href="#">다른 대피소 2곳</a></div>
+</section>
+
+<div class="sec">안심그룹</div>
+<div class="row2"><div class="dot" style="background:#D7261E"></div><div class="t"><b>우리 가족</b><s>4명 중 1명 영향지역 포함 · 1명 위치 미제공</s></div><em style="color:#D7261E">확인 ›</em></div>
+
+<div class="sec">다른 지역 발생 중</div>
+<div class="row2"><div class="tri"></div><div class="t"><b>경기 수원시 호우주의보</b><s>관심지역 · 갱신 12:50</s></div></div>
+
+<div class="wx">강남구 비 · 21° · 13:00 기준</div>
+
+<nav class="tab"><div class="on"><i></i>홈</div><div><i></i>대피소</div><div><i></i>안심그룹</div><div><i></i>체크리스트</div><div><i></i>내정보</div></nav>
+</body></html>
