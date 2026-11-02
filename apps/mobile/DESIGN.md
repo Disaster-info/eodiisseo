@@ -10,7 +10,7 @@ colors:
   on-yellow: "#16181B"
   primary: "#0B5CAD"
   fill: "#0B5CAD"
-  primary-soft: "#E3EDF8"
+  primary-soft: "#DCE8F6"
   notice-text: "#0A4C8F"
   danger: "#B3201A"
   danger-soft: "#FBE6E4"
@@ -18,10 +18,11 @@ colors:
   warning: "#8A5A00"
   success: "#0E7A4F"
   text: "#16181B"
-  sub: "#5C6168"
-  border: "#D9DCD8"
-  concrete-ground: "#F2F3F1"
+  sub: "#4E5B6A"
+  border: "#D3DEEA"
+  sky-ground: "#E6EDF5"
   card: "#FFFFFF"
+  rim: "#000000"
   primary-dark: "#7DB2EC"
   fill-dark: "#1F67B5"
   primary-soft-dark: "#16263A"
@@ -34,7 +35,8 @@ colors:
   text-dark: "#EDEEEC"
   sub-dark: "#A3A8AE"
   border-dark: "#30353A"
-  concrete-ground-dark: "#121416"
+  sky-ground-dark: "#121416"
+  rim-dark: "#C9CED6"
   card-dark: "#1C1F22"
 typography:
   display:
@@ -158,7 +160,7 @@ components:
     rounded: "{rounded.badge}"
     padding: "3px 8px"
   input:
-    backgroundColor: "{colors.concrete-ground}"
+    backgroundColor: "{colors.sky-ground}"
     textColor: "{colors.text}"
     typography: "{typography.body}"
     rounded: "{rounded.control}"
@@ -187,7 +189,7 @@ components:
 
 **Creative North Star: "도로표지 (The Road Sign)"**
 
-앱은 길을 묻기 전에 답한다. 화면은 중립 콘크리트 회색 바탕 위에 놓인 한국 도로표지판이다. 색은 판면 안에만 산다: 청색 안내판은 평시 상태, 노란 주의판(바깥 빨간 테두리)은 주의보, 빨간 규제판(안쪽 흰 테두리)은 경보, 녹색 안내판은 대피 안내. 판 하나에 결정 하나. 바탕·카드·목록은 색을 쓰지 않고, 위험도와 행동은 표지판의 종류(모양 + 색 + 글자)로 읽힌다.
+앱은 길을 묻기 전에 답한다. 화면은 옅은 하늘색(스카이) 바탕 위에 놓인 한국 도로표지판이다. 색은 판면 안에만 산다: 청색 안내판은 평시 상태, 노란 주의판(바깥 빨간 테두리)은 주의보, 빨간 규제판(안쪽 흰 테두리)은 경보, 녹색 안내판은 대피 안내. 판 하나에 결정 하나. 바탕·카드·목록은 색을 쓰지 않고, 위험도와 행동은 표지판의 종류(모양 + 색 + 글자)로 읽힌다.
 
 밀도는 낮고 글자는 크다. 시스템 글꼴의 굵은 고딕 한 줄 안내, 자릿수 폭이 고정된 큰 거리 숫자(km), 의미 단위 타입 스케일(본문 17, 하한 13)이 고령자와 한 손 사용을 기준으로 맞춰져 있다. 표지판 색은 실제 도로표지처럼 낮·밤 모두 같은 값이고, 바탕·글자 색만 라이트/다크 테마로 바뀐다.
 
@@ -203,7 +205,7 @@ components:
 
 ## Colors
 
-중립 콘크리트 회색 바탕에 도로표지 네 가지 색만 판면으로 올라오는, 색이 드문 팔레트.
+옅은 하늘색(스카이) 바탕에 도로표지 네 가지 색만 판면으로 올라오는, 색이 드문 팔레트. 다크 모드 바탕은 중립 짙은 회색.
 
 ### Primary
 - **안내판 청색 (Guide Blue)** (`sign-blue`): 평시 상태 판('발령 중인 경보 없음'), 정보 등급 배지 바탕. 흰 글자 6.67:1.
@@ -221,7 +223,7 @@ components:
 - **주의 글자 황토 (Warning Ink)** (`warning` / `warning-dark`): 수집 실패(stale) 안내 글자.
 
 ### Neutral
-- **콘크리트 바탕 (Concrete Ground)** (`concrete-ground` / `concrete-ground-dark`): 화면 바탕, 입력칸 바탕.
+- **스카이 바탕 (Sky Ground)** (`sky-ground` / `sky-ground-dark`): 화면 바탕, 입력칸 바탕.
 - **카드 (Card)** (`card` / `card-dark`): 중립 카드, 탭 바·헤더 바, 시트.
 - **본문 글자 (Text)** (`text` / `text-dark`): 본문·제목. 라이트 바탕 대비 15.98:1.
 - **보조 글자 (Sub)** (`sub` / `sub-dark`): 메타 정보, 꺼진 아이콘, '판단 불가'. 라이트 바탕 5.61:1, 다크 7.71:1.
@@ -232,6 +234,8 @@ components:
 **The Color-In-The-Panel Rule.** 표지판 네 가지 색(`sign-*`)은 판면·등급 배지·응급 버튼 안에만 칠한다. 바탕, 카드, 목록 행은 중립 색만 쓴다.
 
 **The Primary-Is-Ink Rule.** `primary`는 글자와 아이콘 전용, `fill`은 흰 글자를 얹는 꽉 찬 바탕 전용이다. 다크 `primary-dark`는 절대 버튼 바탕이 되지 않는다(흰 글자가 묻힌다).
+
+**The Rimmed-Icon Rule.** 색이 있는 아이콘·배지(등급·상태 배지, 상태 아이콘 원, 연한 번호 원·타일)에는 1.25px `rim` 테두리를 두른다. 라이트는 검정 `#000000`(바탕 대비 17.8:1), 다크는 밝은 회색 `#C9CED6`(11.7:1). 노란 배지(바탕 대비 1.39:1)나 연한 파란 원(카드 대비 1.24:1)처럼 바탕과 비슷한 색도 경계가 보이게 한다. 표지판 위의 배지는 판 글자색(흰색/검정)을 테두리로 쓴다. 공용 `Badge`·`IconMark`·`s.rim`을 쓴다.
 
 **The Red-Means-Danger Rule.** 빨강은 위험에만 쓴다: 경보, 파괴적 동작(삭제·탈퇴·제외), 영향지역 포함. 선택 상태는 `fill`/`primary`, 진행 상태(진행중·해제)는 색이 아니라 글자로 표시한다.
 
@@ -306,7 +310,7 @@ components:
 - **Internal Padding:** 16 (행 묶음 카드는 위아래 4 + 행 높이 52)
 
 ### Inputs / Fields
-- **Style:** `concrete-ground` 바탕, 1px `border`, 10px 모서리, 글자 17, 안쪽 12/14
+- **Style:** `sky-ground` 바탕, 1px `border`, 10px 모서리, 글자 17, 안쪽 12/14
 - **Focus:** 시스템 기본
 
 ### Navigation
