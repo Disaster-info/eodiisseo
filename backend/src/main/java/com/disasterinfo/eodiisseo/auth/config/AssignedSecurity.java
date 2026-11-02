@@ -2,6 +2,7 @@ package com.disasterinfo.eodiisseo.auth.config;
 import com.disasterinfo.eodiisseo.auth.repository.AuthRepository;
 import com.disasterinfo.eodiisseo.auth.security.SessionAuthenticationFilter;
 import com.disasterinfo.eodiisseo.auth.security.TokenService;
+import com.disasterinfo.eodiisseo.auth.exception.ApiTraceId;
 
 import java.io.IOException;
 import java.time.Clock;
@@ -26,7 +27,9 @@ public class AssignedSecurity {
     }
     @Bean public SecurityFilterChain assignedFeatures(HttpSecurity http,TokenService tokens,AuthRepository repository,ObjectMapper json) throws Exception {
         return http.securityMatcher("/api/v1/auth/**","/api/v1/members/me/**","/api/v1/groups/**",
-                "/api/v1/weather/**","/api/v1/checklists/**","/api/v1/ops/**")
+                "/api/v1/weather/**","/api/v1/checklists/**","/api/v1/ops/**",
+                "/api/v1/shelters/**","/api/v1/routes/**")
+            .cors(org.springframework.security.config.Customizer.withDefaults())
             .csrf(c->c.disable()).sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(a->a.requestMatchers("/api/v1/auth/google","/api/v1/auth/kakao",
                     "/api/v1/auth/refresh","/api/v1/auth/withdrawal/cancel").permitAll()
@@ -37,6 +40,6 @@ public class AssignedSecurity {
     }
     private static void write(ObjectMapper json,HttpServletResponse r,int status,String code) throws IOException {
         r.setStatus(status);r.setContentType("application/json;charset=UTF-8");
-        r.getWriter().write(json.writeValueAsString(Map.of("code",code,"message","요청 권한을 확인하세요.","traceId",UUID.randomUUID().toString())));
+        r.getWriter().write(json.writeValueAsString(Map.of("code",code,"message","요청 권한을 확인하세요.","traceId",ApiTraceId.current())));
     }
 }

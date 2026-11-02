@@ -157,6 +157,10 @@ public class AuthRepository {
         return db.one("select s.session_id from auth_session s join member m using(member_id) where s.session_id=? and s.member_id=? and s.revoked_at is null and s.expires_at>now() and m.status='ACTIVE'",session,member);
     }
 
+    public Map<String,Object> lockUsableSession(UUID session, UUID member) {
+        return db.one("select s.session_id from auth_session s join member m using(member_id) where s.session_id=? and s.member_id=? and s.revoked_at is null and s.expires_at>now() and m.status='ACTIVE' for update of s",session,member);
+    }
+
     public List<Map<String,Object>> listCurrentRoles(UUID member) {
         return db.rows("select role from member_role where member_id=?",member);
     }

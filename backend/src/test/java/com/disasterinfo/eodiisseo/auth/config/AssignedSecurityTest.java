@@ -25,15 +25,17 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 
 @ExtendWith(SpringExtension.class) @WebAppConfiguration
 @ContextConfiguration(classes=AssignedSecurityTest.Config.class)
-@TestPropertySource(properties="JWT_SECRET=0123456789abcdef0123456789abcdef")
+@TestPropertySource(properties={"JWT_SECRET=0123456789abcdef0123456789abcdef","app.cors.allowed-origin-patterns=http://localhost:*"})
 class AssignedSecurityTest {
     @org.springframework.boot.test.context.TestConfiguration @EnableWebMvc @EnableWebSecurity
-    @Import({AssignedSecurity.class,OpsController.class,ApiErrors.class,com.disasterinfo.eodiisseo.auth.controller.AuthController.class})
+    @Import({AssignedSecurity.class,OpsController.class,ApiErrors.class,com.disasterinfo.eodiisseo.auth.controller.AuthController.class,com.disasterinfo.eodiisseo.common.config.WebConfig.class})
     static class Config {
         @Bean com.disasterinfo.eodiisseo.auth.repository.AuthRepository authRepository(OwnedDatabase db) { return new com.disasterinfo.eodiisseo.auth.repository.AuthRepository(db); }
         @Bean OwnedDatabase database() { return mock(OwnedDatabase.class); }
@@ -53,6 +55,19 @@ class AssignedSecurityTest {
         when(db.rows(startsWith("select role"),eq(member))).thenReturn(List.of(object("role","USER")));
     }
     @Test void anonymousOperationsRequestIsUnauthorized() throws Exception { mvc.perform(get("/api/v1/ops/status")).andExpect(status().isUnauthorized()); }
+    @Test void publicShelterAndRouteMappingsRequireAuthentication() throws Exception {
+        mvc.perform(get("/api/v1/shelters/nearby").param("latitude","37.5").param("longitude","127")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/routes/shelters/"+UUID.randomUUID())).andExpect(status().isUnauthorized());
+    }
+    @Test void browserPreflightDoesNotRequireBearerCredentials() throws Exception {
+        mvc.perform(options("/api/v1/ops/status").header("Origin","http://localhost:8081")
+            .header("Access-Control-Request-Method","GET").header("Access-Control-Request-Headers","authorization"))
+            .andExpect(status().isOk()).andExpect(header().string("Access-Control-Allow-Origin","http://localhost:8081"));
+    }
+    @Test void browserPreflightRejectsUntrustedOrigins() throws Exception {
+        mvc.perform(options("/api/v1/ops/status").header("Origin","https://untrusted.invalid")
+            .header("Access-Control-Request-Method","GET")).andExpect(status().isForbidden());
+    }
     @Test void ordinaryMemberCannotUseOperations() throws Exception { mvc.perform(get("/api/v1/ops/status").header("Authorization","Bearer "+token)).andExpect(status().isForbidden()); }
     @Test void currentServerRoleAllowsOperations() throws Exception {
         when(db.rows(startsWith("select role"),eq(member))).thenReturn(List.of(object("role","USER"),object("role","OPS")));

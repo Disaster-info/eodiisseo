@@ -1,0 +1,83 @@
+{
+  "disasterMessageResponse": {
+    "header": {
+      "resultCode": "00",
+      "resultMsg": "NORMAL SERVICE",
+      "errorMsg": null
+    },
+    "numOfRows": 10,
+    "pageNo": 1,
+    "totalCount": 1,
+    "body": [
+      {
+        "SN": 9000000003,
+        "CRT_DT": "2026-10-30 09:00:00",
+        "MSG_CN": "[TEST] 가상지역 산불 관련 안내입니다. 주민께서는 발송기관의 후속 안내를 확인해 주세요.",
+        "RCPTN_RGN_NM": "[TEST] 가상 산불 안내지역",
+        "EMRG_STEP_NM": "안전안내"
+      }
+    ]
+  },
+  "weatherObservationResponse": {
+    "response": {
+      "header": {
+        "resultCode": "00",
+        "resultMsg": "NORMAL_SERVICE"
+      },
+      "body": {
+        "dataType": "JSON",
+        "items": {
+          "item": [
+            {
+              "baseDate": "20261030",
+              "baseTime": "0800",
+              "category": "T1H",
+              "nx": 92,
+              "ny": 131,
+              "obsrValue": "23.1"
+            },
+            {
+              "baseDate": "20261030",
+              "baseTime": "0800",
+              "category": "PTY",
+              "nx": 92,
+              "ny": 131,
+              "obsrValue": "0"
+            }
+          ]
+        },
+        "pageNo": 1,
+        "numOfRows": 1000,
+        "totalCount": 2
+      }
+    }
+  },
+  "weatherForecastResponse": {
+    "response": {
+      "header": {
+        "resultCode": "00",
+        "resultMsg": "NORMAL_SERVICE"
+      },
+      "body": {
+        "dataType": "JSON",
+        "items": {
+          "item": [
+            {
+              "baseDate": "20261030",
+              "baseTime": "0730",
+              "category": "SKY",
+              "nx": 92,
+              "ny": 131,
+              "fcstDate": "20261030",
+              "fcstTime": "0900",
+              "fcstValue": "3"
+            }
+          ]
+        },
+        "pageNo": 1,
+        "numOfRows": 1000,
+        "totalCount": 1
+      }
+    }
+  }
+}

@@ -16,7 +16,7 @@ class KmaWeatherProviderTest {
     private HttpServer server;
     private final ObjectMapper json=new ObjectMapper();
     private final AtomicBoolean encodedOnce=new AtomicBoolean();
-    private boolean observationError,forecastError;
+    private boolean observationError,forecastError,missingTemperature;
     @BeforeEach void start() throws Exception {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/",exchange->{
@@ -26,6 +26,7 @@ class KmaWeatherProviderTest {
             boolean forecast=exchange.getRequestURI().getPath().endsWith("getUltraSrtFcst");
             var items=new ArrayList<Map<String,Object>>();
             for(var category:forecast?List.of("SKY"):List.of("T1H","PTY")) {
+                if(missingTemperature && category.equals("T1H")) continue;
                 var row=object("baseDate",params.get("base_date"),"baseTime",params.get("base_time"),"nx",60,"ny",127,"category",category);
                 if(forecast) {row.put("fcstDate","20261016");row.put("fcstTime","1200");row.put("fcstValue","3");}
                 else row.put("obsrValue",category.equals("T1H")?"22.4":"0");items.add(row);
@@ -44,6 +45,10 @@ class KmaWeatherProviderTest {
     }
     @Test void httpSuccessWithProviderErrorIsNotSuccessfulWeather() {
         observationError=true;assertEquals(502,assertThrows(ApiProblem.class,()->provider().current(new KmaGrid(60,127),Instant.parse("2026-10-16T03:00:00Z"))).status());
+    }
+    @Test void missingTemperatureIsNotCachedAsSuccessfulWeather() {
+        missingTemperature=true;
+        assertEquals(502,assertThrows(ApiProblem.class,()->provider().current(new KmaGrid(60,127),Instant.parse("2026-10-16T03:00:00Z"))).status());
     }
     @Test void optionalForecastFailurePreservesObservationAndDoesNotInventSunny() {
         forecastError=true;var weather=provider().current(new KmaGrid(60,127),Instant.parse("2026-10-16T03:00:00Z"));

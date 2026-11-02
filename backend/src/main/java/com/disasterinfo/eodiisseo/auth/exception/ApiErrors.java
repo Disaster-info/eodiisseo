@@ -8,13 +8,16 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackages = {"com.disasterinfo.eodiisseo.auth","com.disasterinfo.eodiisseo.group",
     "com.disasterinfo.eodiisseo.weather","com.disasterinfo.eodiisseo.checklist","com.disasterinfo.eodiisseo.ops"})
 public class ApiErrors {
     @ExceptionHandler(ApiProblem.class)
     public ResponseEntity<Map<String,Object>> problem(ApiProblem e) {
-        if(e.status()==429) return ResponseEntity.status(429).header("Retry-After","60").body(Map.of("code",e.code(),"message",e.getMessage(),"traceId",UUID.randomUUID().toString()));
+        if(e.status()==429) return ResponseEntity.status(429).header("Retry-After","60").body(Map.of("code",e.code(),"message",e.getMessage(),"traceId",ApiTraceId.current()));
         return response(e.status(), e.code(), e.getMessage());
     }
     @ExceptionHandler({MethodArgumentNotValidException.class, MethodArgumentTypeMismatchException.class,
@@ -33,6 +36,6 @@ public class ApiErrors {
     }
     private ResponseEntity<Map<String,Object>> response(int status, String code, String message) {
         return ResponseEntity.status(status).body(Map.of("code", code, "message", message,
-            "traceId", UUID.randomUUID().toString()));
+            "traceId", ApiTraceId.current()));
     }
 }

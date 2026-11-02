@@ -1,0 +1,83 @@
+{
+  "disasterMessageResponse": {
+    "header": {
+      "resultCode": "00",
+      "resultMsg": "NORMAL SERVICE",
+      "errorMsg": null
+    },
+    "numOfRows": 10,
+    "pageNo": 1,
+    "totalCount": 1,
+    "body": [
+      {
+        "SN": 9000000001,
+        "CRT_DT": "2026-10-30 09:08:00",
+        "MSG_CN": "[TEST] 가상지역에서 흔들림 신고가 접수되었습니다. 관계기관 안내를 확인해 주세요.",
+        "RCPTN_RGN_NM": "[TEST] 가상 지진 안내지역",
+        "EMRG_STEP_NM": "안전안내"
+      }
+    ]
+  },
+  "weatherObservationResponse": {
+    "response": {
+      "header": {
+        "resultCode": "00",
+        "resultMsg": "NORMAL_SERVICE"
+      },
+      "body": {
+        "dataType": "JSON",
+        "items": {
+          "item": [
+            {
+              "baseDate": "20261030",
+              "baseTime": "0800",
+              "category": "T1H",
+              "nx": 60,
+              "ny": 127,
+              "obsrValue": "18.2"
+            },
+            {
+              "baseDate": "20261030",
+              "baseTime": "0800",
+              "category": "PTY",
+              "nx": 60,
+              "ny": 127,
+              "obsrValue": "0"
+            }
+          ]
+        },
+        "pageNo": 1,
+        "numOfRows": 1000,
+        "totalCount": 2
+      }
+    }
+  },
+  "weatherForecastResponse": {
+    "response": {
+      "header": {
+        "resultCode": "00",
+        "resultMsg": "NORMAL_SERVICE"
+      },
+      "body": {
+        "dataType": "JSON",
+        "items": {
+          "item": [
+            {
+              "baseDate": "20261030",
+              "baseTime": "0730",
+              "category": "SKY",
+              "nx": 60,
+              "ny": 127,
+              "fcstDate": "20261030",
+              "fcstTime": "0900",
+              "fcstValue": "1"
+            }
+          ]
+        },
+        "pageNo": 1,
+        "numOfRows": 1000,
+        "totalCount": 1
+      }
+    }
+  }
+}

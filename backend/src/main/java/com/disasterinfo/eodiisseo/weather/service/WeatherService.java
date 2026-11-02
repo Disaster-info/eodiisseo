@@ -26,6 +26,11 @@ public class WeatherService {
         if(cache<=0 || stale<=cache || fallback<=stale) throw new IllegalStateException("Invalid weather cache/age settings");
     }
     @org.springframework.transaction.annotation.Transactional
+    public Map<String,Object> currentCoordinates(double latitude,double longitude) {
+        // Domain adapter only: caller authenticates before use. Coordinates are never stored as member locations.
+        return current(null,latitude,longitude,null);
+    }
+    @org.springframework.transaction.annotation.Transactional
     public Map<String,Object> current(UUID member,Double latitude,Double longitude,UUID interestArea) {
         validateInput(latitude,longitude,interestArea);
         String name=null;

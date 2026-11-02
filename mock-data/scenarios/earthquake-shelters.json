@@ -1,0 +1,38 @@
+{
+  "header": {
+    "resultCode": "00",
+    "resultMsg": "NORMAL SERVICE",
+    "errorMsg": null
+  },
+  "numOfRows": 10,
+  "pageNo": 1,
+  "totalCount": 2,
+  "body": [
+    {
+      "ARCD": "1168000000",
+      "ACMDFCLTY_SN": 900001,
+      "VT_ACMDFCLTY_NM": "[TEST] 가상 운동장",
+      "RN_DTL_ADRES": "[TEST] 가상 도로명주소",
+      "EQK_ACMDFCLTY_ADRES": "[TEST] 가상 지번주소",
+      "LO": "127.0000",
+      "LA": "37.5000",
+      "VT_ACMD_PSBL_NMPR": 250,
+      "FCLTY_AR": 1200.0,
+      "USE_SE_CD": "1",
+      "TELNO": null
+    },
+    {
+      "ARCD": "1168000000",
+      "ACMDFCLTY_SN": 900002,
+      "VT_ACMDFCLTY_NM": "[TEST] 수용인원 미제공 시설",
+      "RN_DTL_ADRES": null,
+      "EQK_ACMDFCLTY_ADRES": "[TEST] 가상 지번주소 2",
+      "LO": "127.0040",
+      "LA": "37.5050",
+      "VT_ACMD_PSBL_NMPR": null,
+      "FCLTY_AR": null,
+      "USE_SE_CD": "1",
+      "TELNO": null
+    }
+  ]
+}

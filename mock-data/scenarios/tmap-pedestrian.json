@@ -1,0 +1,71 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          127.0,
+          37.5
+        ]
+      },
+      "properties": {
+        "totalDistance": 680,
+        "totalTime": 540,
+        "index": 0,
+        "pointIndex": 0,
+        "name": "[TEST] 출발지",
+        "description": "[TEST] 경로 표시용 출발점",
+        "pointType": "SP",
+        "turnType": 200
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            127.0,
+            37.5
+          ],
+          [
+            127.002,
+            37.503
+          ],
+          [
+            127.004,
+            37.505
+          ]
+        ]
+      },
+      "properties": {
+        "index": 1,
+        "lineIndex": 0,
+        "name": "[TEST] 경로 표시용 구간",
+        "description": "[TEST] 가상 구간",
+        "distance": 680,
+        "time": 540
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          127.004,
+          37.505
+        ]
+      },
+      "properties": {
+        "index": 2,
+        "pointIndex": 1,
+        "name": "[TEST] 도착지",
+        "description": "[TEST] 경로 표시용 도착점",
+        "pointType": "EP",
+        "turnType": 201
+      }
+    }
+  ]
+}

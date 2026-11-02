@@ -2,6 +2,7 @@ package com.disasterinfo.eodiisseo.auth.security;
 import com.disasterinfo.eodiisseo.auth.repository.AuthRepository;
 import com.disasterinfo.eodiisseo.auth.security.TokenService;
 import com.disasterinfo.eodiisseo.auth.exception.ApiProblem;
+import com.disasterinfo.eodiisseo.auth.exception.ApiTraceId;
 import java.io.IOException;
 import java.util.*;
 import jakarta.servlet.*;
@@ -44,6 +45,6 @@ public final class SessionAuthenticationFilter extends OncePerRequestFilter {
 
     private static void write(ObjectMapper json,HttpServletResponse r,int status,String code) throws IOException {
         r.setStatus(status);r.setContentType("application/json;charset=UTF-8");
-        r.getWriter().write(json.writeValueAsString(Map.of("code",code,"message","요청 권한을 확인하세요.","traceId",UUID.randomUUID().toString())));
+        r.getWriter().write(json.writeValueAsString(Map.of("code",code,"message","요청 권한을 확인하세요.","traceId",ApiTraceId.current())));
     }
 }

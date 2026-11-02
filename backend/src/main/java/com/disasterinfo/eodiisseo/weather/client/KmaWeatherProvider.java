@@ -48,7 +48,7 @@ public class KmaWeatherProvider implements WeatherProvider {
         }
         BigDecimal temperature=null;
         try { if(raw.containsKey("T1H")) temperature=new BigDecimal(raw.get("T1H")); } catch(NumberFormatException invalid) { throw unavailable(); }
-        if(temperature!=null && (temperature.compareTo(new BigDecimal("-100"))<0 || temperature.compareTo(new BigDecimal("100"))>0)) throw unavailable();
+        if(temperature==null || temperature.compareTo(new BigDecimal("-100"))<0 || temperature.compareTo(new BigDecimal("100"))>0) throw unavailable();
         String sky=null;Instant skyAt=null;
         // SKY is not an observation category. Keep the valid-time interval separate from issuance time.
         try {
