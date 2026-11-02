@@ -130,6 +130,40 @@ class NotificationSafetyRegressionTest {
         });
     }
 
+    @Test
+    void unresolvedPendingDeliveryMustNotBeRetriedOrResubmitted() {
+        var f = new NotificationFixture();
+        f.device("device-a");
+        Device device = f.store.findActiveDevices(f.member).getFirst();
+        Event event = new Event(UUID.randomUUID(), f.member, f.disasterId, "INITIAL",
+                EventKind.INITIAL, f.warning.id(), f.disaster.title(),
+                f.now, f.now.plusSeconds(86_400), null);
+        assertThat(f.store.claimEvent(event)).isTrue();
+
+        // Simulate a process that died after claiming the attempt, with the
+        // external FCM outcome unknown. This is NOT proof that FCM received it.
+        Delivery pending = new Delivery(UUID.randomUUID(), event.id(), device.id(),
+                (short) 1, (short) 1, null, DeliveryResult.PENDING, null, null);
+        assertThat(f.store.beginDelivery(pending)).isTrue();
+
+        var dispatcher = f.dispatcher(); // Test retry policy would allow attempt 2 for FAILED.
+        var retry = dispatcher.retry(event.id(), f.now.plusSeconds(3_600));
+        assertThat(retry.connected()).isTrue();
+        assertThat(retry.successfulDevices()).isZero();
+        assertThat(retry.failedDevices()).isZero();
+        assertThat(f.sends).isZero();
+
+        // Reprocessing the same official event must not bypass event deduplication.
+        var duplicate = dispatcher.process(
+                new DisasterChange(f.disasterId, ChangeKind.NEW, null), f.now.plusSeconds(3_600));
+        assertThat(duplicate.createdEvents()).isZero();
+        assertThat(f.sends).isZero();
+        assertThat(f.store.findDeliveries(event.id())).singleElement().satisfies(delivery -> {
+            assertThat(delivery.result()).isEqualTo(DeliveryResult.PENDING);
+            assertThat(delivery.attemptNo()).isEqualTo((short) 1);
+        });
+    }
+
     private static NotificationDispatchService dispatcher(NotificationFixture f, InterestAreas areas, FcmSender sender) {
         return new NotificationDispatchService(
                 Optional.of(f.auth), Optional.of(f.store), Optional.of(areas),
