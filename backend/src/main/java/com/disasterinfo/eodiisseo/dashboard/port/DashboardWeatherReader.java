@@ -3,6 +3,8 @@ package com.disasterinfo.eodiisseo.dashboard.port;
 import com.disasterinfo.eodiisseo.dashboard.dto.DashboardResponse.BaseLocation;
 import com.disasterinfo.eodiisseo.dashboard.dto.DashboardResponse.Weather;
 
+import java.util.UUID;
+
 /** Boundary to the weather service's completed result, including its fallback/stale decision. */
 public interface DashboardWeatherReader {
 
@@ -12,4 +14,9 @@ public interface DashboardWeatherReader {
      * fallback (under 10800 seconds). Dashboard never computes or refreshes those policies.
      */
     Weather findWeather(BaseLocation baseLocation);
+
+    /** Pass the already authenticated member to service adapters without changing legacy readers. */
+    default Weather findWeather(UUID authenticatedMemberId, BaseLocation baseLocation) {
+        return findWeather(baseLocation);
+    }
 }

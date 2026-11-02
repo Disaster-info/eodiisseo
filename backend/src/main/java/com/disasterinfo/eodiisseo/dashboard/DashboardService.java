@@ -93,7 +93,7 @@ public class DashboardService {
         if (criteria.basis() == DashboardQuery.Basis.NATIONWIDE) {
             return new DashboardResponse(null, null, WeatherStatus.NOT_REQUESTED, majorDisasters);
         }
-        Weather weather = readWeather(baseLocation);
+        Weather weather = readWeather(authenticatedMemberId, baseLocation);
         WeatherStatus weatherStatus = weather == null ? WeatherStatus.UNAVAILABLE
                 : weather.stale() ? WeatherStatus.STALE : WeatherStatus.AVAILABLE;
         return new DashboardResponse(baseLocation, weather, weatherStatus, majorDisasters);
@@ -124,9 +124,16 @@ public class DashboardService {
         return resolved;
     }
 
-    private Weather readWeather(BaseLocation baseLocation) {
+    private Weather readWeather(UUID authenticatedMemberId, BaseLocation baseLocation) {
         try {
-            return weatherReader.map(reader -> reader.findWeather(baseLocation)).orElse(null);
+            return weatherReader.map(reader -> reader.findWeather(authenticatedMemberId, baseLocation)).orElse(null);
+        } catch (DashboardException failure) {
+            if (failure.reason() == DashboardException.Reason.UNAUTHENTICATED
+                    || failure.reason() == DashboardException.Reason.FORBIDDEN) {
+                // An authorization failure cannot be downgraded into a successful dashboard response.
+                throw failure;
+            }
+            return null;
         } catch (RuntimeException exception) {
             return null;
         }
