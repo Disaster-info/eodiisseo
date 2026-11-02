@@ -37,14 +37,14 @@ export const DISASTERS: Disaster[] = [
 ];
 export const isActive = (d: Disaster) => d.status === '발생' || d.status === '진행중';
 
-// FS-SHELTER: distance = 지역 기준점으로부터 직선거리(km). 없는 항목(capacity 등)은 비워 둠
-export type Shelter = { id: number; region: string; name: string; addr: string; distance: number; type: string; capacity?: number; updatedAt?: string };
+// FS-SHELTER: distance = 지역 기준점으로부터 직선거리(km). 없는 항목(capacity 등)은 비워 둠. lat·lon = WGS84 좌표 (TMAP 장소 검색으로 확인)
+export type Shelter = { id: number; region: string; name: string; addr: string; distance: number; type: string; lat: number; lon: number; capacity?: number; updatedAt?: string };
 export const SHELTERS: Shelter[] = [
-  { id: 1, region: '서울 강남구', name: '역삼초등학교 체육관', addr: '서울 강남구 역삼로 123', distance: 0.4, capacity: 500, type: '지진옥외대피장소', updatedAt: '2026-09-01' },
-  { id: 2, region: '서울 강남구', name: '강남구민회관', addr: '서울 강남구 학동로 426', distance: 1.2, capacity: 800, type: '임시주거시설', updatedAt: '2026-09-01' },
-  { id: 3, region: '서울 강남구', name: '선릉공원', addr: '서울 강남구 선릉로 100길', distance: 1.8, type: '지진옥외대피장소' },
-  { id: 4, region: '경기 수원시', name: '수원종합운동장', addr: '경기 수원시 장안구 경수대로 893', distance: 2.6, capacity: 3000, type: '지진옥외대피장소', updatedAt: '2026-07-10' },
-  { id: 5, region: '서울 마포구', name: '망원한강공원', addr: '서울 마포구 마포나루길 467', distance: 0.9, type: '지진옥외대피장소', updatedAt: '2026-08-15' },
+  { id: 1, region: '서울 강남구', name: '역삼초등학교 체육관', lat: 37.49215825, lon: 127.03251821, addr: '서울 강남구 역삼로 123', distance: 0.4, capacity: 500, type: '지진옥외대피장소', updatedAt: '2026-09-01' },
+  { id: 2, region: '서울 강남구', name: '강남구민회관', lat: 37.49357531, lon: 127.06382087, addr: '서울 강남구 학동로 426', distance: 1.2, capacity: 800, type: '임시주거시설', updatedAt: '2026-09-01' },
+  { id: 3, region: '서울 강남구', name: '선릉공원', lat: 37.50735128, lon: 127.05226598, addr: '서울 강남구 선릉로 100길', distance: 1.8, type: '지진옥외대피장소' },
+  { id: 4, region: '경기 수원시', name: '수원종합운동장', lat: 37.29645834, lon: 127.01127564, addr: '경기 수원시 장안구 경수대로 893', distance: 2.6, capacity: 3000, type: '지진옥외대피장소', updatedAt: '2026-07-10' },
+  { id: 5, region: '서울 마포구', name: '망원한강공원', lat: 37.55412085, lon: 126.89733433, addr: '서울 마포구 마포나루길 467', distance: 0.9, type: '지진옥외대피장소', updatedAt: '2026-08-15' },
 ];
 export const MAX_RADIUS = 5; // km, 시스템 정책값
 // from km 부터 시작해 대피소가 나오는 첫 반경에서 멈춤. 최대 반경까지 없으면 빈 목록
@@ -56,11 +56,6 @@ export function searchShelters(all: Shelter[], region: string, from = 1) {
   }
   return { radius: MAX_RADIUS, list: [] };
 }
-
-// 경로 API 응답 흉내. 없는 대피소 id = 경로를 찾을 수 없음. minutes 는 API 가 준 경우에만
-export const ROUTES: Record<number, { km: number; minutes?: number }> = {
-  1: { km: 0.6, minutes: 9 }, 2: { km: 1.5, minutes: 22 }, 3: { km: 2.3 }, 5: { km: 1.1, minutes: 16 },
-};
 
 type Weather = { temp: number; cond: '맑음' | '흐림' | '비' | '눈'; at: string };
 // '서울 마포구' 는 일부러 없음 → 날씨 조회 실패 화면 확인용
