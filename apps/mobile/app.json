@@ -33,7 +33,18 @@
           "locationWhenInUsePermission": "가까운 대피소와 대피 경로를 안내하기 위해 현재 위치를 사용합니다."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraMavenRepos": [
+              "https://devrepo.kakao.com/nexus/content/groups/public/"
+            ]
+          }
+        }
+      ]
     ],
     "scheme": "eodiisseo",
     "experiments": {

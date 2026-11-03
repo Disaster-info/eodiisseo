@@ -117,8 +117,9 @@ export const CHECKLIST: Record<string, string[]> = {
 
 export type Provider = 'Google' | 'Kakao';
 // operator: 운영 관리 권한 (FS-OPS-000). 시연용으로 true
-export type MemberInfo = { name: string; email: string; joinedAt: string; operator: boolean };
-export const MOCK_MEMBER: MemberInfo = { name: '홍길동', email: 'hong@example.com', joinedAt: '2026-09-01', operator: true };
+// id: 백엔드 회원 ID (기기에 저장한 위치 설정이 어느 회원 것인지 구분)
+export type MemberInfo = { id: string; name: string; email: string; joinedAt: string; operator: boolean };
+export const MOCK_MEMBER: MemberInfo = { id: 'mock-member', name: '홍길동', email: 'hong@example.com', joinedAt: '2026-09-01', operator: true };
 
 // 소셜 인증 흉내. 실제로는 Google/Kakao SDK 인증 → 백엔드 토큰 검증으로 교체
 export const mockAuthenticate = (_p: Provider) => new Promise<MemberInfo>(r => setTimeout(() => r(MOCK_MEMBER), 800));

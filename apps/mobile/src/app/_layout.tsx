@@ -15,8 +15,9 @@ function RootStack() {
 }
 
 function Navigator({ dark }: { dark: boolean }) {
-  const { member, needConsent, needLocation } = useApp();
+  const { ready, member, needConsent, needLocation } = useApp();
   const { C } = useTheme();
+  if (!ready) return null; // 저장된 로그인 확인 중 (잠깐). 끝나면 로그인 화면 또는 바로 홈
   const base = dark ? DarkTheme : DefaultTheme;
   const navTheme = { ...base, colors: { ...base.colors, primary: C.primary, background: C.bg, card: C.card, text: C.text, border: C.border } };
 
