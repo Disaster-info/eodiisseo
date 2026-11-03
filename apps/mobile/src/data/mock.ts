@@ -12,7 +12,8 @@ export type Disaster = {
   sources: { org: string; text: string }[]; // FS-DATA-003: 동일 재난 통합 시 기관별 원문 유지
 };
 export type Impact = '영향지역 포함' | '영향지역 밖' | '위치정보 미제공' | '판단 불가';
-export type Member = { id: number; name: string; admin: boolean; sharing: boolean; place?: string; updatedMin?: number; impact: Impact };
+// lat·lon: 위치 공유 중인 구성원의 마지막 좌표 (백엔드 GET /groups/{id}/members/locations 가 주는 값)
+export type Member = { id: number; name: string; admin: boolean; sharing: boolean; place?: string; lat?: number; lon?: number; updatedMin?: number; impact: Impact };
 export type Group = { id: number; name: string; category: string; code: string; createdByMe: boolean; members: Member[] };
 
 export const DISASTERS: Disaster[] = [
@@ -129,15 +130,15 @@ export const ME = 0; // 로그인한 본인의 구성원 id
 export const INIT_GROUPS: Group[] = [
   { id: 1, name: '우리 가족', category: '가족', code: 'FAM-7K2Q', createdByMe: true, members: [
     { id: ME, name: '나', admin: true, sharing: true, place: '서울 강남구', updatedMin: 1, impact: '영향지역 포함' },
-    { id: 1, name: '엄마', admin: false, sharing: true, place: '경기 수원시', updatedMin: 4, impact: '영향지역 포함' },
-    { id: 2, name: '아빠', admin: false, sharing: true, place: '부산 해운대구', updatedMin: 95, impact: '영향지역 밖' },
+    { id: 1, name: '엄마', admin: false, sharing: true, place: '경기 수원시', lat: 37.26690601, lon: 127.00022192, updatedMin: 4, impact: '영향지역 포함' },
+    { id: 2, name: '아빠', admin: false, sharing: true, place: '부산 해운대구', lat: 35.1631, lon: 129.1636, updatedMin: 95, impact: '영향지역 밖' },
     { id: 3, name: '동생', admin: false, sharing: false, impact: '위치정보 미제공' },
   ] },
 ];
 // 초대 코드로 참여해 볼 수 있는 가짜 "서버" 그룹 (FULL-0000 은 10명 꽉 찬 그룹)
 export const JOINABLE_GROUPS: Group[] = [
   { id: 100, name: '대학 동기', category: '친구', code: 'FRD-1234', createdByMe: false, members: [
-    { id: 11, name: '민수', admin: true, sharing: true, place: '서울 마포구', updatedMin: 3, impact: '영향지역 밖' },
+    { id: 11, name: '민수', admin: true, sharing: true, place: '서울 마포구', lat: 37.565434, lon: 126.901462, updatedMin: 3, impact: '영향지역 밖' },
     { id: 12, name: '지영', admin: false, sharing: false, impact: '위치정보 미제공' },
   ] },
   { id: 101, name: '동아리', category: '친구', code: 'FULL-0000', createdByMe: false,

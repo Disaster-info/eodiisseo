@@ -2,13 +2,14 @@
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { SocialButtons } from '../../components/social';
-import { Btn, Icon, useTheme } from '../../components/ui';
+import { Btn, Icon, useLayout, useTheme } from '../../components/ui';
 import { useSocialLogin } from '../../data/auth';
 import { Provider } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 export default function LoginScreen() {
   const { C, s } = useTheme();
+  const { column } = useLayout();
   const { login, loginNotice } = useApp();
   const [pending, setPending] = useState<Provider | null>(null);
   const [error, setError] = useState('');
@@ -34,7 +35,9 @@ export default function LoginScreen() {
   const cancel = () => { attempt.current++; setPending(null); };
 
   return (
-    <View style={[s.center, { gap: 12, backgroundColor: C.card }]}>
+    <View style={[s.center, { backgroundColor: C.card }]}>
+      {/* 로그인 양식은 웹에서도 400 칸 가운데 (안내 문구가 끝까지 늘어나지 않게) */}
+      <View style={[column, { maxWidth: 400, alignItems: 'center', gap: 12 }]}>
       <View style={{ width: 88, height: 88, borderRadius: 28, backgroundColor: C.fill, justifyContent: 'center', alignItems: 'center' }}>
         <Icon name="location" size={48} color="#fff" />
       </View>
@@ -52,6 +55,7 @@ export default function LoginScreen() {
       ) : (
         <SocialButtons onPress={start} />
       )}
+      </View>
     </View>
   );
 }

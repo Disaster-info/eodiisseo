@@ -1,6 +1,6 @@
 // 재난 대비 체크리스트 + 완료율
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Card, Icon, Page, useTheme, Segmented } from '../../components/ui';
 import { CHECKLIST } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
@@ -29,7 +29,7 @@ export default function ChecklistScreen() {
           const on = !!checked[key(i)];
           return (
             <Pressable key={i} onPress={() => setChecked(c => ({ ...c, [key(i)]: !on }))} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={i}
-              style={({ pressed }) => [s.row, { gap: 12, minHeight: 56 }, n > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }, pressed && s.pressed]}>
+              style={({ pressed }) => [s.row, { gap: 12, minHeight: 56 }, n > 0 && s.divTop, pressed && s.pressed]}>
               <Icon name={on ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={on ? C.success : C.sub} />
               <Text style={[s.body, { flex: 1 }, on && { textDecorationLine: 'line-through', color: C.sub }]}>{i}</Text>
             </Pressable>

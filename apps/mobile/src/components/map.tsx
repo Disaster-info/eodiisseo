@@ -1,17 +1,47 @@
-// TMAP 지도 (iOS·Android: WebView). 웹은 map.web.tsx
-import { View } from 'react-native';
-import { WebView } from 'react-native-webview';
-import { LatLon, MapMarker, tmapHtml } from '../data/tmap';
-import { useTheme } from './ui';
+// TMAP 지도 틀 (iOS·Android·웹 공통): 높이 + '크게 보기' 버튼 + 전체 화면 지도
+// 화면 안 지도는 미리보기(움직이지 않음), 누르면 전체 화면에서 확대·이동 — 스크롤 화면 안 지도의 손가락 동작 겹침을 없앰
+import { useState } from 'react';
+import { Modal, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LatLon, MapMarker } from '../data/tmap';
+import { MapCanvas } from './mapCanvas';
+import { Icon, useTheme } from './ui';
 
-// path: 경로선 좌표 (있으면 마커와 함께 화면에 맞춰 보여줌)
-export function TmapView({ markers, path, label }: { markers: MapMarker[]; path?: LatLon[]; label: string }) {
+// path: 경로선 좌표 (있으면 마커와 함께 화면에 맞춰 보여줌). height: 화면 안 지도 높이 (기본 160)
+export function TmapView({ markers, path, label, height = 160 }: { markers: MapMarker[]; path?: LatLon[]; label: string; height?: number }) {
   const { C, s } = useTheme();
+  const { top, bottom } = useSafeAreaInsets();
+  const [full, setFull] = useState(false);
   return (
-    <View style={[s.map, { overflow: 'hidden' }]} accessible accessibilityLabel={label}>
-      <WebView source={{ html: tmapHtml(markers, path, C.primary), baseUrl: 'https://localhost' }} originWhitelist={['*']}
-        // s.map 이 alignItems: 'center' 라 너비를 직접 주지 않으면 iOS 에서 WebView 너비가 0 (빈 화면)
-        containerStyle={{ width: '100%' }} />
-    </View>
+    <>
+      {/* 미리보기: 손가락 동작을 받지 않음(화면 스크롤과 겹치지 않게) → 지도 어디를 눌러도 크게 보기 */}
+      <Pressable onPress={() => setFull(true)} accessibilityRole="button" accessibilityLabel={`${label}. 눌러서 크게 보기`}
+        style={({ pressed }) => [s.map, { height, overflow: 'hidden', alignItems: 'stretch', justifyContent: 'flex-start' }, pressed && s.pressed]}>
+        <View style={{ flex: 1, pointerEvents: 'none' }}>
+          <MapCanvas markers={markers} path={path} label={label} interactive={false} />
+        </View>
+        <View style={[s.row, { position: 'absolute', top: 8, left: 8, gap: 4, minHeight: 36, paddingHorizontal: 12, borderRadius: 999,
+          backgroundColor: C.card, borderWidth: 1, borderColor: C.border, pointerEvents: 'none' }]}>
+          <Icon name="expand-outline" size={18} color={C.primary} />
+          <Text style={[s.small, { color: C.primary, fontWeight: '700' }]}>크게 보기</Text>
+        </View>
+      </Pressable>
+
+      {/* 전체 화면 지도: 닫기 버튼 또는 Android 뒤로가기로 닫힘 */}
+      <Modal visible={full} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setFull(false)} statusBarTranslucent>
+        <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: top, paddingBottom: bottom }}>
+          <View style={[s.row, { minHeight: 56, paddingHorizontal: 8, gap: 4, backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.border }]}>
+            <Text style={[s.bold, { flex: 1, marginLeft: 8 }]} numberOfLines={1} accessibilityRole="header">{label}</Text>
+            <Pressable onPress={() => setFull(false)} accessibilityRole="button" accessibilityLabel="지도 닫기" hitSlop={8}
+              style={({ pressed }) => [{ width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }, pressed && s.pressed]}>
+              <Icon name="close" size={26} color={C.text} />
+            </Pressable>
+          </View>
+          <View style={{ flex: 1 }}>
+            {full && <MapCanvas markers={markers} path={path} label={label} interactive />}
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }

@@ -1,4 +1,16 @@
-// TMAP 장소(POI) 통합 검색 — https://openapi.sk.com (앱 키: .env.local 의 EXPO_PUBLIC_TMAP_APP_KEY)
+// TMAP (SK open API) — 장소 검색·도보 경로·주소↔좌표 변환·지도 HTML (앱 키: .env.local 의 EXPO_PUBLIC_TMAP_APP_KEY)
+const KEY = process.env.EXPO_PUBLIC_TMAP_APP_KEY ?? '';
+// REST 호출 공통: 앱 키 헤더 + JSON 요청(Accept 가 없으면 일부 API 가 빈 응답). body 가 있으면 POST. 실패 상태면 Error
+async function tmap(path: string, body?: object) {
+  const headers = { Accept: 'application/json', appKey: KEY };
+  const res = await fetch(`https://apis.openapi.sk.com/tmap/${path}`, body
+    ? { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : { headers });
+  if (!res.ok) throw new Error(`TMAP ${res.status}`);
+  return res;
+}
+
+// 장소(POI) 통합 검색
 export type Poi = { id: string; name: string; addr: string; region: string; lat: number; lon: number };
 
 type RawPoi = { id: string; name: string; upperAddrName: string; middleAddrName: string; lowerAddrName: string; frontLat: string; frontLon: string };
@@ -6,11 +18,8 @@ type RawPoi = { id: string; name: string; upperAddrName: string; middleAddrName:
 export async function searchPois(keyword: string): Promise<Poi[]> {
   const q = new URLSearchParams({ version: '1', searchKeyword: keyword, searchType: 'all', page: '1', count: '20',
     resCoordType: 'WGS84GEO', reqCoordType: 'WGS84GEO', multiPoint: 'N', searchtypCd: 'A', poiGroupYn: 'N' });
-  const res = await fetch(`https://apis.openapi.sk.com/tmap/pois?${q}`, {
-    headers: { Accept: 'application/json', appKey: process.env.EXPO_PUBLIC_TMAP_APP_KEY ?? '' },
-  });
+  const res = await tmap(`pois?${q}`);
   if (res.status === 204) return []; // 검색 결과 없음 (본문 없이 옴)
-  if (!res.ok) throw new Error(`TMAP ${res.status}`);
   const json = await res.json();
   return (json.searchPoiInfo.pois.poi as RawPoi[]).map(p => ({
     id: p.id, name: p.name,
@@ -25,16 +34,18 @@ export async function searchPois(keyword: string): Promise<Poi[]> {
 export type LatLon = { lat: number; lon: number };
 export type Place = LatLon & { name: string }; // 장소 검색으로 고른 출발점
 export type Route = { meters: number; seconds: number; path: LatLon[] };
+
+/** 두 좌표 사이 직선거리(km) — 하버사인 공식 */
+export function distanceKm(a: LatLon, b: LatLon) {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
 type Feature = { geometry: { type: string; coordinates: number[][] }; properties: { totalDistance?: number; totalTime?: number } };
 
 export async function searchRoute(from: LatLon, to: LatLon): Promise<Route> {
-  const res = await fetch('https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1', {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', appKey: process.env.EXPO_PUBLIC_TMAP_APP_KEY ?? '' },
-    body: JSON.stringify({ startX: from.lon, startY: from.lat, endX: to.lon, endY: to.lat, startName: '출발', endName: '도착',
-      reqCoordType: 'WGS84GEO', resCoordType: 'WGS84GEO' }),
-  });
-  if (!res.ok) throw new Error(`TMAP ${res.status}`);
+  const res = await tmap('routes/pedestrian?version=1', { startX: from.lon, startY: from.lat, endX: to.lon, endY: to.lat,
+    startName: '출발', endName: '도착', reqCoordType: 'WGS84GEO', resCoordType: 'WGS84GEO' });
   const { features } = (await res.json()) as { features: Feature[] };
   return {
     meters: features[0].properties.totalDistance ?? 0,
@@ -47,10 +58,7 @@ export async function searchRoute(from: LatLon, to: LatLon): Promise<Route> {
 // TMAP 주소 지오코딩: '서울 강남구' 같은 지역 이름 → 대표 좌표 (구청·시청 부근). 지역만 고른 지정 위치의 경로 출발점
 export async function coordsOf(addr: string): Promise<LatLon> {
   const q = new URLSearchParams({ version: '1', fullAddr: addr, coordType: 'WGS84GEO' });
-  const res = await fetch(`https://apis.openapi.sk.com/tmap/geo/fullAddrGeo?${q}`, {
-    headers: { Accept: 'application/json', appKey: process.env.EXPO_PUBLIC_TMAP_APP_KEY ?? '' },
-  });
-  if (!res.ok) throw new Error(`TMAP ${res.status}`);
+  const res = await tmap(`geo/fullAddrGeo?${q}`);
   const c = (await res.json()).coordinateInfo.coordinate[0] as { lat: string; lon: string; newLat: string; newLon: string };
   return { lat: Number(c.lat || c.newLat), lon: Number(c.lon || c.newLon) }; // 지번 좌표가 없으면 도로명 좌표
 }
@@ -63,10 +71,7 @@ const SIDO: Record<string, string> = {
 };
 export async function regionOf({ lat, lon }: LatLon): Promise<string> {
   const q = new URLSearchParams({ version: '1', lat: String(lat), lon: String(lon), coordType: 'WGS84GEO', addressType: 'A10' });
-  const res = await fetch(`https://apis.openapi.sk.com/tmap/geo/reversegeocoding?${q}`, {
-    headers: { Accept: 'application/json', appKey: process.env.EXPO_PUBLIC_TMAP_APP_KEY ?? '' }, // Accept 가 없으면 빈 응답
-  });
-  if (!res.ok) throw new Error(`TMAP ${res.status}`);
+  const res = await tmap(`geo/reversegeocoding?${q}`);
   const { city_do, gu_gun } = (await res.json()).addressInfo as { city_do: string; gu_gun: string };
   return `${SIDO[city_do] ?? city_do} ${gu_gun.split(' ')[0]}`; // '수원시 팔달구' → '수원시' (POI 검색과 같은 규칙)
 }
@@ -78,7 +83,7 @@ export function tmapHtml(markers: MapMarker[], path: LatLon[] = [], lineColor = 
   const data = JSON.stringify(markers).replace(/</g, '\\u003c'); // 이름에 </script> 가 있어도 안전하게
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <style>html,body,#map{margin:0;width:100%;height:100%}</style>
-<script src="https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=${process.env.EXPO_PUBLIC_TMAP_APP_KEY ?? ''}"></script>
+<script src="https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=${KEY}"></script>
 </head><body><div id="map"></div><script>
 var markers = ${data};
 var path = ${JSON.stringify(path)};

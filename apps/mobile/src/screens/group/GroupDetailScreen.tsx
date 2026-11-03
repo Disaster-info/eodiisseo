@@ -2,9 +2,9 @@
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { AppSwitch, ActionMenu, Btn, Card, Chip, Header, Icon, Label, MapBox, Page, STALE_MIN, confirm, freshness, impactColor, knownImpact, notify, useTheme, IconMark } from '../../components/ui';
-import { CATEGORIES, GPS_LOCATION, IMPACT_ICON, Impact, ME, Member } from '../../data/mock';
+import { CATEGORIES, IMPACT_ICON, Impact, ME, Member } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 // 영향지역 포함 → 판단 불가 → 위치 미제공 → 밖 (확인이 필요한 사람부터)
@@ -12,7 +12,7 @@ const IMPACT_ORDER: Record<Impact, number> = { '영향지역 포함': 0, '판단
 
 export default function GroupDetailScreen({ id }: { id: number }) {
   const { C, s } = useTheme();
-  const { groups, setGroups, locConsent } = useApp();
+  const { groups, setGroups, locConsent, location } = useApp();
   const [edit, setEdit] = useState<{ name: string; category: string } | null>(null); // 그룹 정보 수정 중
   const [picking, setPicking] = useState(false); // 관리자 탈퇴: 권한 넘길 사람 고르는 중
   const [copied, setCopied] = useState(false);   // 초대 코드 복사 직후 2초간 '복사됨' 표시
@@ -27,7 +27,7 @@ export default function GroupDetailScreen({ id }: { id: number }) {
   const toggleShare = (on: boolean) => {
     if (on && !locConsent) return notify('위치정보 이용 동의가 필요합니다', '내정보 › 서비스 설정 › 위치정보 이용 동의를 켜 주세요.');
     update(ms => ms.map(m => m.id !== ME ? m : on
-      ? { ...m, sharing: true, place: GPS_LOCATION, updatedMin: 0, impact: '판단 불가' }
+      ? { ...m, sharing: true, place: location, updatedMin: 0, impact: '판단 불가' } // 지금 기준 위치 (목업 고정값 아님)
       : { ...m, sharing: false, place: undefined, updatedMin: undefined, impact: '위치정보 미제공' }));
   };
   const kick = (m: Member) => confirm('구성원 제외', `${m.name}님을 그룹에서 제외할까요?`, '제외',
@@ -69,7 +69,7 @@ export default function GroupDetailScreen({ id }: { id: number }) {
           // 오래된 위치로는 영향상태를 확정하지 않음
           const old = (m.updatedMin ?? 0) > STALE_MIN && (m.impact === '영향지역 포함' || m.impact === '영향지역 밖');
           return (
-            <View key={m.id} style={[{ paddingVertical: 12 }, n > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }]}>
+            <View key={m.id} style={[{ paddingVertical: 12 }, n > 0 && s.divTop]}>
               <View style={s.row}>
                 <Icon name="person-circle" size={36} color={C.sub} />
                 <View style={{ flex: 1 }}>

@@ -1,4 +1,4 @@
-// 백엔드 API 호출 + 로그인 세션(토큰) 관리: 저장(tokenStore), 자동 갱신(/auth/refresh), 만료·로그아웃 처리 (FS-AUTH-004·005)
+// 백엔드 API 호출 + 로그인 세션(토큰) 관리: 저장(storage), 자동 갱신(/auth/refresh), 만료·로그아웃 처리 (FS-AUTH-004·005)
 import { MemberInfo, Provider } from './mock';
 import { getItem, removeItem, setItem } from './storage';
 

@@ -2,7 +2,7 @@
 // 가장 가까운 1곳이 주인공(녹색 안내판). 모든 항목에서 경로를 바로 열 수 있음 (선택 단계 없음)
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { TmapView } from '../../components/map';
 import { ShelterSign } from '../../components/shelter';
 import { Btn, Card, Chip, Empty, Icon, Page, useTheme } from '../../components/ui';
@@ -18,6 +18,8 @@ export default function ShelterScreen() {
   const { radius, list } = searchShelters(SHELTERS, region, from);
   const pickBase = (r: string) => { setBase(r); setFrom(1); };
   const [nearest, ...rest] = list;
+  // 지도 높이: 화면 높이의 38% (240~440). 더 키우면 대피소 안내판·목록이 밀려나서, 크게 볼 때는 '크게 보기'(전체 화면)
+  const mapHeight = Math.round(Math.min(440, Math.max(240, useWindowDimensions().height * 0.38)));
 
   return (
     <Page>
@@ -30,7 +32,7 @@ export default function ShelterScreen() {
 
       {nearest && <ShelterSign region={region} secondary={{ title: '상세정보', onPress: () => router.push(`/shelters/${nearest.id}`) }} />}
 
-      {nearest && <TmapView markers={[...list.map(sh => ({ lat: sh.lat, lon: sh.lon, title: sh.name })), ...(myPos && region === location ? [{ ...myPos, title: '내 위치', me: true }] : [])]} label={`대피소 ${list.length}곳 위치 지도`} />}
+      {nearest && <TmapView height={mapHeight} markers={[...list.map(sh => ({ lat: sh.lat, lon: sh.lon, title: sh.name })), ...(myPos && region === location ? [{ ...myPos, title: '내 위치', me: true }] : [])]} label={`대피소 ${list.length}곳 위치 지도`} />}
 
       {rest.length > 0 && (
         <View style={[s.row, { marginTop: 8 }]}>

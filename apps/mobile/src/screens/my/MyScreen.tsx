@@ -2,7 +2,7 @@
 // 배치: 프로필 + 상태 요약 태그 → 위치·알림 → 화면 → 계정 → 로그아웃·탈퇴 (비슷한 설정끼리 묶음, 모든 행 같은 높이)
 import { router } from 'expo-router';
 import { Children, ReactNode, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { AppSwitch, Badge, Btn, Icon, IconName, Page, Segmented, confirm, notify, useTheme } from '../../components/ui';
 import { Provider } from '../../data/mock';
 import { ThemeMode, useApp } from '../../store/AppContext';
@@ -35,13 +35,13 @@ function Row({ icon, title, sub, value, right, onPress, danger }:
 
 // 묶음: 제목(선택) + 카드 안 행 사이에 얇은 구분선
 function Group({ title, children }: { title?: string; children: ReactNode }) {
-  const { C, s } = useTheme();
+  const { s } = useTheme();
   const rows = Children.toArray(children).filter(Boolean);
   return (
     <View>
       {!!title && <Text style={[s.small, { fontWeight: '700', marginLeft: 16, marginBottom: 6 }]}>{title}</Text>}
       <View style={[s.card, { paddingVertical: 2 }]}>
-        {rows.map((r, i) => <View key={i} style={i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }}>{r}</View>)}
+        {rows.map((r, i) => <View key={i} style={i > 0 && s.divTop}>{r}</View>)}
       </View>
     </View>
   );
@@ -128,8 +128,14 @@ export default function MyScreen() {
       </Group>
 
       <Group title="화면">
-        <Row icon="contrast-outline" title="화면 테마"
-          right={<View style={{ width: 196 }}><Segmented label="화면 테마" items={THEMES.map(t => ({ value: t.mode, label: t.label }))} value={theme} onChange={setTheme} /></View>} />
+        {/* 고정 폭 대신 제목 아래 한 줄 전체 → 좁은 화면·큰 글씨에서도 제목이 눌리지 않음 */}
+        <View style={{ paddingVertical: 10, gap: 8 }}>
+          <View style={[s.row, { gap: 12 }]}>
+            <Icon name="contrast-outline" size={22} color={C.sub} />
+            <Text style={[s.body, { flex: 1 }]}>화면 테마</Text>
+          </View>
+          <Segmented label="화면 테마" items={THEMES.map(t => ({ value: t.mode, label: t.label }))} value={theme} onChange={setTheme} />
+        </View>
       </Group>
 
       <Group title="계정">

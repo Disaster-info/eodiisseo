@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Linking, ScrollView, Text, TextInput, View, type ScrollViewInstance } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Badge, Btn, Chip, Header, Icon, useTheme } from '../../components/ui';
+import { Badge, Btn, Chip, Header, Icon, useLayout, useTheme } from '../../components/ui';
 import { BASIC_GUIDE, GUIDES } from '../../data/mock';
 
 type Msg = { id: number; me: boolean; text: string; sources?: string[]; fallback?: boolean };
@@ -18,6 +18,7 @@ function answer(q: string): Omit<Msg, 'id' | 'me'> {
 
 export default function ChatScreen() {
   const { C, s } = useTheme();
+  const { gutter, column } = useLayout();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [q, setQ] = useState('');
   const [pending, setPending] = useState(false);
@@ -42,12 +43,12 @@ export default function ChatScreen() {
     // automaticOffset: 헤더 높이 자동 보정. -bottom: 키보드가 하단 바를 덮으므로 그 여백만큼 덜 올림
     <KeyboardAvoidingView style={s.fill} behavior="padding" automaticOffset keyboardVerticalOffset={-bottom}>
       <Header title="재난 행동요령 AI" />
-      <ScrollView ref={scroll} contentInsetAdjustmentBehavior="automatic" onContentSizeChange={() => scroll.current?.scrollToEnd()} contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <ScrollView ref={scroll} contentInsetAdjustmentBehavior="automatic" onContentSizeChange={() => scroll.current?.scrollToEnd()} contentContainerStyle={[column, { paddingVertical: 16, paddingHorizontal: gutter, gap: 12 }]}>
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.primarySoft, padding: 12, borderRadius: 12 }}>
           <Icon name="information-circle" size={18} color={C.noticeText} />
           <Text style={[s.muted, { color: C.noticeText, flex: 1, marginTop: 0 }]}>행정안전부·소방청·기상청·산림청 공식 자료를 근거로 AI가 안내해요. 위급하면 바로 신고하세요.</Text>
         </View>
-        <Btn title="119 전화 걸기" icon="call" color={C.sign.red} onPress={() => Linking.openURL('tel:119')} />
+        <Btn title="119 전화 걸기" icon="call" color={C.emergency} onPress={() => Linking.openURL('tel:119')} />
         {msgs.length === 0 && (
           <View style={[s.row, { flexWrap: 'wrap' }]}>{SUGGEST.map(x => <Chip key={x} text={x} on={false} onPress={() => ask(x)} />)}</View>
         )}
@@ -71,10 +72,13 @@ export default function ChatScreen() {
         ))}
         {pending && <View style={s.row}><ActivityIndicator color={C.primary} /><Text style={s.muted}>공식 자료를 찾고 있어요…</Text></View>}
       </ScrollView>
-      <View style={[s.row, { padding: 12, paddingBottom: 12 + bottom, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border }]}>
+      <View style={{ paddingTop: 12, paddingHorizontal: Math.max(12, gutter), paddingBottom: 12 + bottom, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border }}>
+        {/* 입력줄도 대화와 같은 폭 칸에 (바 배경은 화면 끝까지) */}
+        <View style={[s.row, column]}>
         <TextInput accessibilityLabel="재난 대응 질문" style={[s.input, { flex: 1, marginVertical: 0 }]} placeholder="재난 대응 방법을 물어보세요" placeholderTextColor={C.sub}
           value={q} onChangeText={setQ} onSubmitEditing={() => ask(q)} returnKeyType="send" />
         <View style={{ width: 64 }}><Btn title="전송" onPress={() => ask(q)} /></View>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );

@@ -1,5 +1,5 @@
 // 재난 표시 공통 부품 (대시보드·목록·상세에서 함께 사용)
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Disaster, LEVEL_ICON, TYPE_ICON, isActive } from '../data/mock';
 import { Badge, Card, Icon, Sign, levelFill, levelInk, signInk, useTheme } from './ui';
 
@@ -27,6 +27,26 @@ export function StaleNote({ d, ink }: { d: Disaster; ink?: string }) {
       <Text style={[s.small, { flex: 1, color, fontWeight: ink ? '700' : '400' }]}>최신 수집 실패 · 마지막 정상 갱신 {d.updatedAt}</Text>
     </View>
   ) : null;
+}
+
+// 한 줄 요약 (홈의 '다른 지역'처럼 멀리 있는 재난): 등급 배지 · 지역 · 상태·갱신 · 화살표. divider = 위 줄과 구분선
+export function DisasterRow({ d, onPress, divider }: { d: Disaster; onPress: () => void; divider?: boolean }) {
+  const { C, s } = useTheme();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${d.region} ${d.type}${d.level ?? ''} ${d.status}`}
+      style={({ pressed }) => [s.row, { gap: 12, minHeight: 64, paddingVertical: 10 },
+        divider && s.divTop, pressed && s.pressed]}>
+      <LevelBadge d={d} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.bold} numberOfLines={1}>{d.region}</Text>
+        <View style={[s.row, { gap: 4 }]}>
+          {d.stale && <Icon name="cloud-offline-outline" size={14} color={C.warning} accessibilityLabel="최신 수집 실패" />}
+          <Text style={s.small} numberOfLines={1}>{d.status} · 갱신 {d.updatedAt}</Text>
+        </View>
+      </View>
+      <Icon name="chevron-forward" size={18} color={C.sub} />
+    </Pressable>
+  );
 }
 
 // 진행 중인 경보·주의보만 표지판으로. 끝난 재난·정보·등급 없음은 중립 카드 (끝난 재난이 위험해 보이지 않게)

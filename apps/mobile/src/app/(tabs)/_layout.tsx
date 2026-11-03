@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router/js-tabs';
 import { getDefaultHeaderHeight } from 'expo-router/react-navigation';
 import { useSafeAreaFrame, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, View } from 'react-native';
-import { Icon, IconName, useTheme, MAX_WIDTH } from '../../components/ui';
+import { Icon, IconName, useLayout, useTheme } from '../../components/ui';
 import { useApp } from '../../store/AppContext';
 
 // 선택된 탭은 채워진 아이콘, 나머지는 외곽선 아이콘
@@ -34,15 +34,18 @@ function HomeTitle() {
 export default function TabLayout() {
   const { C } = useTheme();
   const frame = useSafeAreaFrame();
+  // 본문과 같은 좌우 기준: 화면 크기별 여백 (useLayout)
+  const { gutter } = useLayout();
   const { top } = useSafeAreaInsets();
   return (
     <Tabs screenOptions={{
       tabBarHideOnKeyboard: true,
-      tabBarStyle: { backgroundColor: C.bar, borderTopColor: C.barBorder, borderTopWidth: 1 },
+      // 탭 5개를 본문과 같은 칸에: 넓은 화면(여백 32·48)에서만 좌우 여백, 휴대폰은 0
+      tabBarStyle: { backgroundColor: C.bar, borderTopColor: C.barBorder, borderTopWidth: 1, paddingHorizontal: gutter > 16 ? gutter : 0 },
       tabBarActiveTintColor: C.primary,
       tabBarInactiveTintColor: C.sub,
       headerTitleAlign: 'left', // iOS 기본값(가운데)과 안드로이드를 왼쪽으로 통일
-      headerTitleContainerStyle: { marginLeft: 16 + Math.max(0, (frame.width - MAX_WIDTH) / 2) }, // 넓은 화면: 본문 칸과 제목 시작선 맞춤
+      headerTitleContainerStyle: { marginLeft: gutter }, // 제목 시작선 = 본문 시작선
       headerStyle: { height: getDefaultHeaderHeight(frame, false, top) + 12 }, // 기본 높이에 위아래 6px 씩 여백 추가
       headerTitleStyle: { fontSize: TITLE_SIZE, fontWeight: '800' },
     }}>
