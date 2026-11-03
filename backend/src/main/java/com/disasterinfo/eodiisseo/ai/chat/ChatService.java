@@ -80,7 +80,7 @@ public class ChatService {
         String question = requireQuestion(request);
         ChatAnswerStore store = requireStore();
         ChatRetentionPolicy retentionPolicy = requireRetentionPolicy();
-        Outcome outcome = generate(question, requestedAt.plus(RESPONSE_LIMIT));
+        Outcome outcome = generate(authenticatedMemberId, question, requestedAt.plus(RESPONSE_LIMIT));
         Instant completedAt = clock.instant();
         Instant expiresAt = approvedExpiry(retentionPolicy, requestedAt, completedAt);
         ChatAnswer answer = new ChatAnswer(UUID.randomUUID(), authenticatedMemberId, question,
@@ -128,14 +128,14 @@ public class ChatService {
         }
     }
 
-    private Outcome generate(String question, Instant deadlineAt) {
+    private Outcome generate(UUID memberId, String question, Instant deadlineAt) {
         if (officialSearch.isEmpty() || promptPrivacy.isEmpty()) {
             return fallback(Status.FALLBACK);
         }
         ChatDeadline deadline = new ChatDeadline(clock, deadlineAt);
         Outcome basicGuidance = fallback(Status.FALLBACK);
         try {
-            var prepared = deadline.await(() -> promptPrivacy.orElseThrow().minimizeLocally(question));
+            var prepared = deadline.await(() -> promptPrivacy.orElseThrow().minimizeLocally(memberId, question));
             if (prepared == null || prepared.isEmpty() || !prepared.get().usableForOutbound()) {
                 return basicGuidance;
             }
@@ -149,6 +149,12 @@ public class ChatService {
             if (generation.isEmpty() || !deadline.await(() -> generation.orElseThrow().isConfigured())) {
                 return basicGuidance;
             }
+            var stillApproved=deadline.await(()->promptPrivacy.orElseThrow().minimizeLocally(memberId,question));
+            if(stillApproved==null || stillApproved.isEmpty() || !stillApproved.get().usableForOutbound()
+                    || !safeQuestion.equals(stillApproved.get().safeQuestion()))return basicGuidance;
+            // Recheck current approvals after privacy/consent and immediately before outbound generation.
+            Map<UUID,OfficialResource> currentEvidence=validateEvidence(deadline.await(()->officialSearch.orElseThrow().search(safeQuestion)));
+            if(!currentEvidence.entrySet().containsAll(evidence.entrySet()))return fallback(Status.INSUFFICIENT);
             GeneratedAnswer answer = deadline.await(() -> generation.orElseThrow()
                     .generate(new GenerationRequest(safeQuestion, List.copyOf(evidence.values()), deadlineAt)));
             if (!validGeneratedAnswer(answer, evidence)) {

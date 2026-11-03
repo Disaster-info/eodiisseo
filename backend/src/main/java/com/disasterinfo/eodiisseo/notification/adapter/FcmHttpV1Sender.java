@@ -36,7 +36,7 @@ public final class FcmHttpV1Sender implements FcmSender {
     interface Transport {
         Response post(URI url, String bearer, byte[] body) throws Exception;
     }
-    record Response(int status, byte[] body) {}
+    record Response(int status, byte[] body, String retryAfter) { Response(int status,byte[] body){this(status,body,null);} }
 
     private final ServiceAccountFcmTokens tokens;
     private final Transport transport;
@@ -111,14 +111,24 @@ public final class FcmHttpV1Sender implements FcmSender {
                 // HTTP rejection is still known even if its optional error body cannot be parsed.
             }
         }
-        return failed(switch (response.status()) {
+        PushOutcome outcome=switch (response.status()) {
             case 400 -> PushOutcome.INVALID_REQUEST;
             case 401, 403 -> PushOutcome.AUTHORIZATION_ERROR;
             case 429 -> PushOutcome.RATE_LIMITED;
             case 500, 503 -> PushOutcome.TRANSIENT_FAILURE;
             default -> response.status() >= 400 && response.status() < 500
                     ? PushOutcome.PROVIDER_REJECTED : PushOutcome.ACCEPTANCE_UNKNOWN;
-        });
+        };
+        java.time.Instant retry=null;
+        if(response.retryAfter()!=null && (outcome==PushOutcome.RATE_LIMITED || outcome==PushOutcome.TRANSIENT_FAILURE)) {
+            try {
+                String raw=response.retryAfter().trim();
+                retry=raw.matches("[0-9]+")?java.time.Instant.now().plusSeconds(Long.parseLong(raw))
+                    :java.time.ZonedDateTime.parse(raw,java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+                if(retry.isAfter(java.time.Instant.now().plus(java.time.Duration.ofDays(365))))return failed(PushOutcome.PROVIDER_REJECTED);
+            } catch(RuntimeException invalid) { return failed(PushOutcome.PROVIDER_REJECTED); }
+        }
+        return new PushResult(false,false,null,outcome,retry);
     }
 
     private static boolean explicitUnregistered(JsonNode root) {
@@ -162,7 +172,7 @@ public final class FcmHttpV1Sender implements FcmSender {
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            return new Response(response.statusCode(), response.body());
+            return new Response(response.statusCode(), response.body(),response.headers().firstValue("Retry-After").orElse(null));
         };
     }
 }

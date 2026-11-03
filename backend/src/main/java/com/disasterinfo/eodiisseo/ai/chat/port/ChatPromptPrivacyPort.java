@@ -12,6 +12,7 @@ import java.util.Optional;
 public interface ChatPromptPrivacyPort {
 
     Optional<PreparedQuestion> minimizeLocally(String rawQuestion);
+    default Optional<PreparedQuestion> minimizeLocally(java.util.UUID memberId,String rawQuestion) { return minimizeLocally(rawQuestion); }
 
     record PreparedQuestion(String safeQuestion, boolean approvedForOutbound) {
         public boolean usableForOutbound() {

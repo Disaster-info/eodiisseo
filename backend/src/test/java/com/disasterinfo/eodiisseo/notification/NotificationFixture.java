@@ -101,6 +101,10 @@ final class NotificationFixture {
             if (deliveries.values().stream().anyMatch(old -> old.eventId().equals(d.eventId()) && old.targetOrdinal()==d.targetOrdinal() && old.attemptNo()==d.attemptNo())) return false;
             deliveries.put(d.id(), d); return true;
         }
+        @Override public synchronized boolean authorizeSubmission(Delivery delivery,Device expected,Settings value,Instant now,java.util.function.BooleanSupplier stillEligible) {
+            Device actual=findDevice(expected.deviceId());
+            return actual!=null && actual.active() && actual.equals(expected) && value.equals(findSettings(expected.memberId())) && stillEligible.getAsBoolean();
+        }
         @Override public void finishDelivery(Delivery d) {
             Delivery existing=deliveries.get(d.id());
             if(existing==null || existing.result()!=DeliveryResult.PENDING) return;

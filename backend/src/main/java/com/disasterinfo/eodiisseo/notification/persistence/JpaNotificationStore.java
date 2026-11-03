@@ -118,6 +118,30 @@ public class JpaNotificationStore implements Store {
                 """, "id", d.id(), "event", d.eventId(), "device", d.deviceTokenId(),
                 "ordinal", d.targetOrdinal(), "attempt", d.attemptNo()).executeUpdate() == 1;
     }
+    @Override public boolean authorizeSubmission(Delivery delivery, Device expected, Settings expectedSettings, Instant now, java.util.function.BooleanSupplier stillEligible) {
+        if(!lockActiveMember(expected.memberId()))return false;
+        var event=nativeQuery("SELECT event_id FROM notification_event WHERE event_id=:event AND member_id=:member AND retention_until>:now FOR UPDATE", "event",delivery.eventId(),"member",expected.memberId(),"now",now).getResultList();
+        if(event.isEmpty())return false;
+        var device=nativeQuery("SELECT device_token_id FROM device_token WHERE device_token_id=:id AND member_id=:member AND active=true AND token_hash=:hash AND token_ciphertext=:cipher FOR UPDATE",
+            "id",expected.id(),"member",expected.memberId(),"hash",expected.tokenHash(),"cipher",expected.tokenCiphertext()).getResultList();
+        if(device.isEmpty())return false;
+        Settings actual=findSettings(expected.memberId());
+        if(actual==null || !actual.enabled() || actual.allowAfter22()!=expectedSettings.allowAfter22()
+            || !java.util.Objects.equals(actual.minimumSeverityId(),expectedSettings.minimumSeverityId())
+            || !java.util.Objects.equals(actual.updatedAt(),expectedSettings.updatedAt()))return false;
+        if(!stillEligible.getAsBoolean())return false;
+        return nativeQuery("UPDATE notification_delivery SET submission_authorized_at=:now WHERE delivery_id=:id AND event_id=:event AND device_token_id=:device AND result='PENDING' AND submission_authorized_at IS NULL",
+            "now",now,"id",delivery.id(),"event",delivery.eventId(),"device",expected.id()).executeUpdate()==1;
+    }
+    @Override public void recordRetryNotBefore(UUID id,Instant at) {
+        nativeQuery("UPDATE notification_delivery SET retry_not_before=:at WHERE delivery_id=:id AND result='PENDING'","at",at,"id",id).executeUpdate();
+    }
+    @Override public Instant retryNotBefore(UUID id) {
+        var rows=nativeQuery("SELECT retry_not_before FROM notification_delivery WHERE delivery_id=:id","id",id).getResultList();
+        if(rows.isEmpty() || rows.getFirst()==null)return null;
+        Object value=rows.getFirst();
+        return value instanceof Instant instant?instant:value instanceof java.sql.Timestamp stamp?stamp.toInstant():((java.time.OffsetDateTime)value).toInstant();
+    }
     @Override public void finishDelivery(Delivery d) {
         // Establish the same member -> event -> delivery lock order as withdrawal.
         List<?> owners = nativeQuery("SELECT member_id FROM notification_event WHERE event_id=:event", "event", d.eventId()).getResultList();

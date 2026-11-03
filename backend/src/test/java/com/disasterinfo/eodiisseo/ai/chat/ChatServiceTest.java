@@ -291,8 +291,9 @@ class ChatServiceTest {
 
     @Test
     void searchAndGenerationShareOneTenMinuteBudget() {
+        var retrievals=new AtomicInteger();
         searchAction = question -> {
-            clock.advance(Duration.ofMinutes(9));
+            if(retrievals.getAndIncrement()==0)clock.advance(Duration.ofMinutes(9));
             return searchResult;
         };
         generator.action = request -> {
@@ -301,6 +302,12 @@ class ChatServiceTest {
         };
         assertFallback(Status.TIMEOUT);
         assertThat(generator.request.deadline()).isEqualTo(START.plus(Duration.ofMinutes(10)));
+    }
+
+    @Test void approvalRevalidationCannotExtendTheSameTenMinuteBudget() {
+        searchAction=question->{clock.advance(Duration.ofMinutes(9));return searchResult;};
+        assertFallback(Status.TIMEOUT);
+        assertThat(generator.request).isNull();
     }
 
     @ParameterizedTest

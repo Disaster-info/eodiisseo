@@ -179,6 +179,12 @@ class FcmFailureClassificationTest {
         }
     }
 
+    @Test void retryAfterIsReturnedWithoutResubmittingThePost() {
+        var sender=new FcmHttpV1Sender(tokens(),(uri,bearer,payload)->new FcmHttpV1Sender.Response(429,new byte[0],"120"));
+        var before=java.time.Instant.now();var result=sender.send(DEVICE,PUSH);
+        assertThat(result.outcome()).isEqualTo(PushOutcome.RATE_LIMITED);
+        assertThat(result.retryNotBefore()).isAfterOrEqualTo(before.plusSeconds(120));
+    }
     @Test
     void legacyFailureCarriesNoEvidenceOfProviderRejection() {
         assertThat(new PushResult(false, false, null).outcome()).isEqualTo(PushOutcome.ACCEPTANCE_UNKNOWN);

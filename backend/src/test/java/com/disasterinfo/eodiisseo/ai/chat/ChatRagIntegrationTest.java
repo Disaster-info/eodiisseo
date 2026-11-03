@@ -182,6 +182,7 @@ class ChatRagIntegrationTest {
     }
 
     private void prepare() {
+        doCallRealMethod().when(privacy).minimizeLocally(any(UUID.class),anyString());
         when(resources.isAvailable()).thenReturn(true);
         when(resources.searchCandidates(anyList(), anyInt())).thenReturn(List.of(document));
         when(approvals.findApproval(ID)).thenReturn(Optional.of(new ResourceApprovalPort.Approval(

@@ -58,7 +58,12 @@ public class NotificationDispatchService {
     }
 
     public record DispatchReport(int createdEvents, int successfulDevices, int failedDevices,
-                                 int skippedMembers, int internalFailures, boolean connected) {}
+                                 int skippedMembers, int internalFailures, boolean connected, Map<String,Integer> suppressionReasons) {
+        public DispatchReport { suppressionReasons=Map.copyOf(suppressionReasons); }
+        public DispatchReport(int created,int successful,int failed,int skipped,int errors,boolean connected) {
+            this(created,successful,failed,skipped,errors,connected,Map.of());
+        }
+    }
 
     /**
      * No thrown worker failure may be used to roll back official disaster collection/query.
@@ -71,20 +76,22 @@ public class NotificationDispatchService {
             return new DispatchReport(0, 0, 0, 0, 0, false);
         DispatchTime time = new DispatchTime(now, monotonicNanos);
         int created = 0, success = 0, failed = 0, skipped = 0, errors = 0;
+        Map<String,Integer> suppressed=new LinkedHashMap<>();
         try {
             OfficialDisaster disaster = disasters.get().findOfficial(change.disasterId());
             if (!usable(disaster) || !change.disasterId().equals(disaster.id()))
-                return new DispatchReport(0, 0, 0, 0, 0, true);
+                return new DispatchReport(0, 0, 0, 0, 0, true,Map.of("DISASTER_NOT_SENDABLE",1));
             boolean increase = change.kind() == ChangeKind.CHANGED && disaster.severity() != null
                     && change.previousSeverity() != null
                     && disaster.severity().rank() > change.previousSeverity().rank();
             if (change.kind() != ChangeKind.NEW && !increase)
                 return new DispatchReport(0, 0, 0, 0, 0, true);
-            String key = increase ? "SEVERITY:" + disaster.severity().code() : "INITIAL";
+            String key = increase ? (change.eventKey()==null?"SEVERITY:" + disaster.severity().code():change.eventKey()) : "INITIAL";
             if (key.length() > 80) return new DispatchReport(0, 0, 0, 0, 1, true);
             for (UUID memberId : store.get().findEnabledMembers()) {
                 try {
-                    if (!eligible(memberId, disaster, time)) { skipped++; continue; }
+                    String rejection=suppressionReason(memberId,disaster,time);
+                    if(rejection!=null){suppressed.merge(rejection,1,Integer::sum);skipped++;continue;}
                     Event event = new Event(UUID.randomUUID(), memberId, disaster.id(), key,
                             increase ? EventKind.SEVERITY_INCREASE : EventKind.INITIAL,
                             disaster.severity() == null ? null : disaster.severity().id(), disaster.title(),
@@ -103,9 +110,9 @@ public class NotificationDispatchService {
                     }
                 } catch (RuntimeException safeFailure) { errors++; }
             }
-            return new DispatchReport(created, success, failed, skipped, errors, true);
+            return new DispatchReport(created, success, failed, skipped, errors, true,suppressed);
         } catch (RuntimeException safeFailure) {
-            return new DispatchReport(created, success, failed, skipped, errors + 1, true);
+            return new DispatchReport(created, success, failed, skipped, errors + 1, true,suppressed);
         }
     }
 
@@ -132,6 +139,8 @@ public class NotificationDispatchService {
                 if (previous.result() != DeliveryResult.FAILED || previous.deviceTokenId() == null
                         || acceptanceUnknown(previous) || previous.attemptNo() == Short.MAX_VALUE
                         || !retryPolicy.get().mayRetry(event, previous, time.current())) continue;
+                Instant notBefore=store.get().retryNotBefore(previous.id());
+                if(notBefore!=null && time.current().isBefore(notBefore))continue;
                 Device current = active.stream().filter(d -> d.id().equals(previous.deviceTokenId())).findFirst().orElse(null);
                 if (current == null) continue;
                 DeliveryResult result = attempt(event, current, previous.targetOrdinal(),
@@ -142,20 +151,23 @@ public class NotificationDispatchService {
         } catch (RuntimeException safeFailure) { return new DispatchReport(0, success, failed, 0, 1, true); }
     }
 
-    private boolean eligible(UUID memberId, OfficialDisaster disaster, DispatchTime time) {
-        if (!authentication.orElseThrow().isActiveMember(memberId)) return false;
-        Settings settings = store.orElseThrow().findSettings(memberId);
-        if (settings == null || !settings.enabled()) return false;
-        if (!allowedTime(settings, time.current())) return false;
-        if (settings.minimumSeverityId() != null) {
-            if (disaster.severity() == null || severities.isEmpty()) return false;
-            Severity minimum = severities.get().findById(settings.minimumSeverityId());
-            if (minimum == null || !settings.minimumSeverityId().equals(minimum.id())
-                    || disaster.severity().rank() < minimum.rank()) return false;
+    private boolean eligible(UUID memberId,OfficialDisaster disaster,DispatchTime time) {
+        return suppressionReason(memberId,disaster,time)==null;
+    }
+    private String suppressionReason(UUID memberId,OfficialDisaster disaster,DispatchTime time) {
+        if(!authentication.orElseThrow().isActiveMember(memberId))return "MEMBER_INACTIVE";
+        Settings settings=store.orElseThrow().findSettings(memberId);
+        if(settings==null || !settings.enabled())return "NOTIFICATION_OFF";
+        if(!allowedTime(settings,time.current()))return "NIGHT_BLOCKED";
+        if(settings.minimumSeverityId()!=null) {
+            if(disaster.severity()==null || severities.isEmpty())return "MINIMUM_SEVERITY";
+            Severity minimum=severities.get().findById(settings.minimumSeverityId());
+            if(minimum==null || !settings.minimumSeverityId().equals(minimum.id()) || disaster.severity().rank()<minimum.rank())return "MINIMUM_SEVERITY";
         }
-        boolean related = areas.orElseThrow().findOwned(memberId).stream().filter(InterestArea::notifyEnabled)
-                .anyMatch(area -> areas.orElseThrow().isRelated(disaster.id(), area.id()));
-        return related && allowedTime(settings, time.current());
+        boolean related=areas.orElseThrow().findOwned(memberId).stream().filter(InterestArea::notifyEnabled)
+            .anyMatch(area->areas.orElseThrow().isRelated(disaster.id(),area.id()));
+        if(!related)return "AREA_NOT_RELATED";
+        return allowedTime(settings,time.current())?null:"NIGHT_BLOCKED";
     }
 
     private boolean allowedTime(Settings settings, Instant now) {
@@ -210,10 +222,15 @@ public class NotificationDispatchService {
                             if (!submissionTime.isBefore(event.retentionUntil())) error = "EVENT_EXPIRED";
                             else if (submissionSettings == null || !submissionSettings.enabled()
                                     || !allowedTime(submissionSettings,submissionTime)) error = "NOTIFICATION_SETTINGS_CHANGED";
+                            else if(!data.authorizeSubmission(pending,current,submissionSettings,submissionTime,()->{
+                                OfficialDisaster fresh=disasters.orElseThrow().findOfficial(event.disasterId());
+                                return usable(fresh) && event.disasterId().equals(fresh.id()) && eligible(event.memberId(),fresh,time);
+                            })) error="SUBMISSION_CANCELLED";
                             else {
                                 sentAt = submissionTime;
                                 PushResult result = sender.get().send(token, new Push(disaster.id(), disaster.type(),
                                         disaster.regionName(), disaster.title(), disaster.mainContent()));
+                                if(result!=null && result.retryNotBefore()!=null) data.recordRetryNotBefore(pending.id(),result.retryNotBefore());
                                 success = result != null && result.successful() && !result.invalidToken();
                                 if (result != null && result.outcome() == PushOutcome.UNREGISTERED)
                                     data.deactivateDevice(current.id(), current.tokenHash(), current.tokenCiphertext());
@@ -254,7 +271,7 @@ public class NotificationDispatchService {
     }
 
     private static boolean usable(OfficialDisaster d) {
-        return d != null && d.official() && d.id() != null && !blank(d.type()) && !blank(d.regionName())
+        return d != null && (d.status()==DisasterStatus.OCCURRED || d.status()==DisasterStatus.ONGOING) && d.official() && d.id() != null && !blank(d.type()) && !blank(d.regionName())
                 && !blank(d.title()) && d.title().length() <= 200 && !blank(d.mainContent());
     }
 

@@ -43,9 +43,11 @@ public class DashboardController {
     @GetMapping("/api/v1/disasters")
     public DisasterListResponse disasters(@AuthenticationPrincipal MemberPrincipal principal,
                                           @RequestParam(required = false) String type,
-                                          @RequestParam(required = false) String status) {
+                                          @RequestParam(required = false) String status,
+                                          @RequestParam(defaultValue="0") int page,
+                                          @RequestParam(defaultValue="20") int size) {
         MemberPrincipal member = requirePrincipal(principal);
-        return disasters.getDisasters(member.memberId(), member.sessionId(), new DisasterListQuery(type, status));
+        return disasters.getDisasters(member.memberId(), member.sessionId(), new DisasterListQuery(type, status, page, size));
     }
 
     @GetMapping("/api/v1/disasters/{disasterId}")
