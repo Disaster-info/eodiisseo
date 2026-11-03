@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 대피소 API (Controller 계층) — API 명세서 SHELTER-대피소.
  * 검증 → Service 호출 → 응답 DTO를 그대로 반환한다 (성공 응답은 감싸지 않음, 오류는 GlobalExceptionHandler).
  *
- * TODO 인증: 명세상 "인증 필요"(Bearer). 로그인(AUTH) 구현 후 적용
+ * Bearer 인증은 공통 SecurityFilterChain이 적용한다.
  */
 @RestController
 @RequestMapping("/api/v1/shelters")
@@ -33,8 +33,9 @@ public class ShelterController {
      * GET /api/v1/shelters/nearby?latitude=37.5006&longitude=127.0364
      */
     @GetMapping("/nearby")
-    public NearbyShelterResponse nearby(@Valid @ModelAttribute NearbyShelterRequest request) {
-        return shelterService.findNearby(request);
+    public NearbyShelterResponse nearby(@org.springframework.security.core.annotation.AuthenticationPrincipal com.disasterinfo.eodiisseo.auth.security.MemberPrincipal principal,
+                                       @Valid @ModelAttribute NearbyShelterRequest request) {
+        return request.interestAreaId()==null?shelterService.findNearby(request):shelterService.findNearby(principal==null?null:principal.memberId(),request);
     }
 
     /**

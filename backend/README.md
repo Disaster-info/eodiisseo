@@ -141,3 +141,13 @@ API 키는 `.env`에 `KMA_SERVICE_KEY` 또는 `DATA_GO_KR_SERVICE_KEY`, `GOOGLE_
 체크리스트는 seed와 실제 완료 상태를 확인하고, 그룹은 정원 10명·회원당 3개 동시 가입·관리자 이관·공식 경계점 포함·위치 동의 철회 시 좌표 비공개를 실제 PostGIS에서 검사합니다. 날씨 DB 테스트는 동일 격자 캐시, 제공처 실패 시 제한된 이전 자료 반환, 3시간 경과 자료 거부를 확인합니다. 실제 기상청 호출은 `.env`에 키가 있을 때 `KmaLiveIntegrationTest`가 실행하며 HTTP 디버그 URI에 인증키가 남지 않게 합니다.
 
 Google/Kakao의 실제 로그인 성공은 앱이 제공하는 유효한 사용자 토큰이 추가로 필요합니다. 수집 worker·실제 운영 행정경계 적재·타 담당 HTTP API는 해당 담당과 연결해야 하며 DB 생성이나 테스트 통과를 그 연결 완료로 취급하지 않습니다.
+
+## 대피소·경로 보완
+
+`GET /api/v1/shelters/nearby?interestAreaId=<UUID>`는 인증 회원의 관심지역인지 확인하고 admin_area의 실제 중심 좌표를 사용한다. 타인 소유는 403, 삭제/없는 ID는 404, 실제 중심 좌표가 없거나 비활성 지역이면 503 AREA_LOCATION_UNAVAILABLE다. 좌표를 함께 주면 소유권을 검증한 뒤 좌표를 우선하며, 이 조회로 GPS를 저장하지 않는다.
+
+`GET /api/v1/routes/shelters/{UUID}`는 공통 Bearer 인증 뒤 DB 공유 카운터로 회원당 분당 10회까지 허용한다. 초과 요청은 429 RATE_LIMITED이며, 외부 API 실패도 횟수에 포함한다. 분 경계에서 새 창을 시작하고 다른 회원의 한도와 분리된다. TMAP의 잘못된 좌표·좌표 배열·음수 거리/시간은 500 대신 502로 처리하며, 미사용 대피소는 기존 저장소 정책대로 조회·경로 대상에서 제외한다.
+
+실 TMAP 검증은 `EODIISSEO_LIVE_TMAP_TESTS=true`와 `TMAP_APP_KEY`가 있을 때만 실행된다. 경로는 보행 안내이며 재난 피해범위를 피하는 안전 경로를 보장하지 않는다.
+
+대피소 주변 조회는 기본적으로 worker가 저장한 DB 자료만 읽는다. 화면 조회마다 외부 API를 다시 호출하지 않아 공용 키의 호출 한도를 소진하지 않는다. 이전의 요청 시 갱신 방식이 꼭 필요할 때만 `SHELTER_REFRESH_ON_QUERY=true`로 명시하며, 일반 운영값은 false다. 최초 실행에는 먼저 수집 worker로 자료를 적재해야 한다.

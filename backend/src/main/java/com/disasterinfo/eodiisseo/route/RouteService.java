@@ -62,6 +62,13 @@ public class RouteService {
      * @throws BusinessException ROUTE_NOT_FOUND(502) — 유효한 경로선이 없을 때 (명세: 성공 경로를 만들지 않음)
      */
     ShelterRouteResponse toResponse(GeoPoint origin, Shelter shelter, TmapResponseDto tmap) {
+        try { return parseResponse(origin,shelter,tmap); }
+        catch (IllegalArgumentException | IndexOutOfBoundsException | ClassCastException | NullPointerException malformed) {
+            throw new BusinessException(ErrorCode.EXTERNAL_API_ERROR,"TMAP 경로 응답 형식이 올바르지 않습니다.");
+        }
+    }
+
+    private ShelterRouteResponse parseResponse(GeoPoint origin,Shelter shelter,TmapResponseDto tmap) {
         Integer totalDistance = null;
         Integer totalTime = null;
         List<List<GeoPoint>> segments = new ArrayList<>();
@@ -73,6 +80,8 @@ public class RouteService {
                 continue;
             }
             var p = f.properties();
+            if(p.totalDistance()!=null&&p.totalDistance()<0||p.totalTime()!=null&&p.totalTime()<0)
+                throw new IllegalArgumentException("Negative route totals");
             if (f.geometry().isPoint()) {
                 // 총거리·총시간은 첫 Point(SP)에만 있으므로 처음 발견한 값을 사용
                 if (totalDistance == null && totalTime == null && (p.totalDistance() != null || p.totalTime() != null)) {
@@ -80,9 +89,10 @@ public class RouteService {
                     totalTime = p.totalTime();
                 }
                 double[] xy = f.geometry().point(); // xy[0]=경도, xy[1]=위도
+                validCoordinate(xy);
                 guides.add(new Guide(xy[1], xy[0], p.description(), p.pointType(), p.turnType()));
             } else if (f.geometry().isLineString()) {
-                appendLine(segments, f.geometry().line().stream().map(xy -> new GeoPoint(xy[1], xy[0])).toList());
+                appendLine(segments, f.geometry().line().stream().map(xy -> {validCoordinate(xy);return new GeoPoint(xy[1], xy[0]);}).toList());
             }
         }
         segments.removeIf(s -> s.size() < 2); // 점 하나짜리는 선이 아니다
@@ -100,6 +110,11 @@ public class RouteService {
         return new ShelterRouteResponse(origin,
                 new Destination(shelter.id(), shelter.name(), shelter.latitude(), shelter.longitude()),
                 totalDistance, totalTime, routePath, segments, PROVIDER, COORDINATE_SYSTEM, guides);
+    }
+
+    private static void validCoordinate(double[] xy){
+        if(xy.length<2||!Double.isFinite(xy[0])||!Double.isFinite(xy[1])||xy[0]<-180||xy[0]>180||xy[1]<-90||xy[1]>90)
+            throw new IllegalArgumentException("Invalid route coordinate");
     }
 
     // 앞 구간의 끝점과 이어지면 같은 구간에 붙이고(겹치는 점은 한 번만), 끊어져 있으면 새 구간을 시작한다

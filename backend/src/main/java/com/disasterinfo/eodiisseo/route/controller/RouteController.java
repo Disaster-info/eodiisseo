@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 3. 응답 DTO를 그대로 반환 (성공 응답은 감싸지 않음)
  * 비즈니스 로직·외부 호출·try-catch는 여기 두지 않는다.
  *
- * TODO 인증·호출 제한: 명세상 "인증 필요"(Bearer), 회원당 분당 10회 초과 시 429 RATE_LIMITED. 로그인(AUTH) 구현 후 적용
+ * 공통 Bearer 인증과 RouteRequestConfiguration의 회원당 분당 10회 제한을 적용한다.
  */
 @RestController
 @RequestMapping("/api/v1/routes")
