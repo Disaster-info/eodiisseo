@@ -13,7 +13,7 @@ related_targets: ["src/screens","src/components"]
 - 대피소: 가장 가까운 1곳이 주인공, 각 항목에 경로 바로가기.
 - 유지: 데이터 정직성 로직(stale·AI 상태·등급 없음·오래된 위치), 네이티브 스택·제스처, FS 흐름.
 - 열린 결정: 체크리스트 탭의 표지판 표현 수위, 표지 색 정확값(도로표지 규격 참고, 대비 4.5:1 이상).
-- 선택 스케치: .impeccable/mocks/decision/assigned.html
+- 선택 스케치: 도로표지(assigned) 안 — 시안 HTML 은 정리했고 결정 내용은 DESIGN.md 에 반영
 
 ## Direction contract
 
