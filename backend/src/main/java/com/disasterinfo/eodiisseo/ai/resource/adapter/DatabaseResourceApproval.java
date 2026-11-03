@@ -27,11 +27,17 @@ public class DatabaseResourceApproval implements ResourceApprovalPort {
         if(review==null || review.get("revoked_at")!=null || !Boolean.TRUE.equals(review.get("approved_public_ai_evidence"))
                 || !Boolean.TRUE.equals(review.get("injection_reviewed")))return Optional.empty();
         var doc=document(id); Instant now=clock.instant();
+        if(!importCurrent(id,now))return Optional.empty();
         if(doc==null || doc.getContentText()==null || INJECTION.matcher(doc.getContentText()).find()
                 || !doc.revisionFingerprint().equals(review.get("revision_fingerprint"))
                 || !doc.getAgencyName().equals(review.get("source_organization")) || !doc.getSourceUrl().equals(review.get("source_url"))
                 || now.isBefore(OwnedDatabase.instant(review.get("reviewed_at"))) || !now.isBefore(OwnedDatabase.instant(review.get("valid_until"))))return Optional.empty();
         return Optional.of(new Approval(id,doc.revisionFingerprint(),OwnedDatabase.instant(review.get("reviewed_at")),OwnedDatabase.instant(review.get("valid_until")),true));
+    }
+    private boolean importCurrent(UUID id,Instant now) {
+        if(!db.tableExists("owned_resource_import"))return true;
+        var row=db.one("select superseded_at,expires_at from owned_resource_import where resource_id=?",id);
+        return row==null || (row.get("superseded_at")==null && now.isBefore(OwnedDatabase.instant(row.get("expires_at"))));
     }
     private void requireReviewer(MemberPrincipal member) {
         if(member==null)throw ApiProblem.unauthorized();
@@ -47,7 +53,7 @@ public class DatabaseResourceApproval implements ResourceApprovalPort {
         requireReviewer(reviewer);
         db.one("select resource_id from official_resource where resource_id=? for update",resource);
         var doc=document(resource);
-        if(doc==null || !doc.revisionFingerprint().equals(expectedFingerprint) || validUntil==null || !validUntil.isAfter(clock.instant())
+        if(!importCurrent(resource,clock.instant()) || doc==null || !doc.revisionFingerprint().equals(expectedFingerprint) || validUntil==null || !validUntil.isAfter(clock.instant())
                 || evidenceReference==null || evidenceReference.isBlank() || evidenceReference.length()>500
                 || !rightsAndPublicAiUseConfirmed || !injectionReviewed || doc.getContentText()==null || INJECTION.matcher(doc.getContentText()).find())
             throw new IllegalArgumentException("An exact reviewed publication and explicit evidence are required");

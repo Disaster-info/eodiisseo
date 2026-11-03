@@ -54,7 +54,15 @@ public class OfficialDisasterQueryService {
         return Optional.ofNullable(db.one(projection()+" where d.disaster_id=? and d.data_origin='OFFICIAL' and (d.status not in ('ENDED','LIFTED') or d.ended_at>?)",
                 id,clock.instant().minus(Duration.ofDays(90))));
     }
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader impacts;
     public String region(UUID id) {
+        var type=db.one("select t.code from disaster d join disaster_type t using(disaster_type_id) where d.disaster_id=?",id);
+        if(type!=null && "HEAVY_RAIN".equals(type.get("code"))) {
+            var impact=impacts==null?com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Snapshot.unknown():impacts.find(id,clock.instant());
+            if(impact.knowledge()!=com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.VERIFIED)return null;
+            return impact.exactAdminAreaCodes().stream().sorted().map(code->(String)db.one("select name from admin_area where area_code=? and active",code).get("name")).distinct().collect(java.util.stream.Collectors.joining(", "));
+        }
         var regions=db.rows("""
             select a.name from disaster_area x join admin_area a using(area_code)
             where x.disaster_id=? and x.area_role='IMPACT' and a.active
@@ -110,7 +118,13 @@ public class OfficialDisasterQueryService {
         if(!Boolean.TRUE.equals(source.get("source_active")) || collected==null || collected.isAfter(clock.instant())
                 || collected.isBefore(clock.instant().minus(source.get("collection_interval_minutes") instanceof Number minutes && minutes.longValue()>0
                     ? Duration.ofMinutes(minutes.longValue()).compareTo(freshness)<0?Duration.ofMinutes(minutes.longValue()):freshness : freshness)))return false;
-        var last=db.one("select status from collection_run where source_id=? and mode='LIVE' order by started_at desc,run_id desc limit 1",source.get("source_id"));
+        var last=db.one("select run_id,status from collection_run where source_id=? and mode='LIVE' order by started_at desc,run_id desc limit 1",source.get("source_id"));
+        if(last!=null && db.tableExists("owned_collection_page") && db.count("select count(*) from owned_collection_page where run_id=?",last.get("run_id"))>0){
+            // A completed historical/snapshot fetch is not evidence of current, gap-free coverage.
+            if(!db.tableExists("owned_collection_coverage"))return false;
+            var today=java.sql.Date.valueOf(java.time.LocalDate.ofInstant(clock.instant(),java.time.ZoneId.of("Asia/Seoul")));
+            if(db.count("select count(*) from owned_collection_coverage c join owned_collection_cursor p using(source_id) where c.run_id=? and c.to_day>=? and p.completed_through>=?",last.get("run_id"),today,today)!=1)return false;
+        }
         return last!=null && "SUCCESS".equals(last.get("status"));
     }
     public void requireLatest(Map<String,Object> source) {

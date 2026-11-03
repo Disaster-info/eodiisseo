@@ -27,12 +27,12 @@ public class DisasterOperationalAdapters {
                 return data.find(id).map(row->{
                     var source=data.representative(id).orElseThrow(()->new com.disasterinfo.eodiisseo.dashboard.DashboardException(
                         com.disasterinfo.eodiisseo.dashboard.DashboardException.Reason.DEPENDENCY_UNAVAILABLE,"Official source is unavailable."));
-                    data.requireLatest(source);
+
                     return new DetailSnapshot(new DisasterDetailResponse(id,(String)row.get("type_code"),(String)row.get("title"),
                         data.region(id),OwnedDatabase.instant(row.get("occurred_at")),(String)row.get("severity_code"),
                         DisasterStatus.valueOf((String)row.get("status")),(String)source.get("revision_text"),
                         new DisasterDetailResponse.Source((String)source.get("organization")),
-                        OwnedDatabase.instant(row.get("updated_at")),"LATEST"),DashboardDisasterReader.DataOrigin.OFFICIAL);
+                        OwnedDatabase.instant(row.get("updated_at")),data.latest(source)?"LATEST":"STALE"),DashboardDisasterReader.DataOrigin.OFFICIAL);
                 });
             }
         };

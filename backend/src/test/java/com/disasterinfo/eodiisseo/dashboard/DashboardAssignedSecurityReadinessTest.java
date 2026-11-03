@@ -92,6 +92,12 @@ class DashboardAssignedSecurityReadinessTest {
         @Bean OwnedDatabase database() { return mock(OwnedDatabase.class); }
         @Bean AuthRepository authRepository(OwnedDatabase database) { return new AuthRepository(database); }
         @Bean AuthService authService() { return mock(AuthService.class); }
+        // This HTTP slice uses a mocked AuthService. Its inherited @Scheduled retention method
+        // must not race verifyNoInteractions; production token/session filters remain real.
+        // Real retention execution is covered separately by the disposable database integration tests.
+        @Bean org.springframework.scheduling.TaskScheduler taskScheduler() {
+            return mock(org.springframework.scheduling.TaskScheduler.class, RETURNS_MOCKS);
+        }
         @Bean WeatherService weatherService() { return mock(WeatherService.class); }
         @Bean DashboardService dashboardService() { return mock(DashboardService.class); }
         @Bean DashboardDisasterQueryService disasterQueries() { return mock(DashboardDisasterQueryService.class); }
