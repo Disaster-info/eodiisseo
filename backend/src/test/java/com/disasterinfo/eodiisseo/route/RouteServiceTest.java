@@ -89,6 +89,16 @@ class RouteServiceTest {
         assertThat(ErrorCode.ROUTE_NOT_FOUND.getStatus().value()).isEqualTo(502);
     }
 
+    @Test void malformedProviderCoordinatesAre502InsteadOfInternalError() {
+        for(var coords:List.of(List.of(List.of(Double.NaN,37.0),List.of(127.0,37.1)),
+                                List.of(List.of(127.0),List.of(127.1,37.1)),
+                                List.of(List.of(200.0,37.0),List.of(127.0,37.1)))) {
+            assertThatThrownBy(()->service.toResponse(ORIGIN,SHELTER,new TmapResponseDto("FeatureCollection",List.of(line(coords)))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e->((BusinessException)e).getErrorCode()).isEqualTo(ErrorCode.EXTERNAL_API_ERROR);
+        }
+    }
+
     // 테스트용 TMAP 응답 조각을 만드는 헬퍼
     private static Feature point(double x, double y, Integer totalDistance, Integer totalTime,
                                  String pointType, Integer turnType, String description) {

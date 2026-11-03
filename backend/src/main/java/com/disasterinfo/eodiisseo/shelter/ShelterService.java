@@ -48,11 +48,21 @@ public class ShelterService {
     private final SafetydataClient safetydataClient;
     private final ShelterRepository shelterRepository;
     private final ShelterSearchProperties radius;
+    private final boolean refreshOnQuery;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private com.disasterinfo.eodiisseo.shelter.repository.InterestAreaLocationRepository interestAreas;
 
     public ShelterService(SafetydataClient safetydataClient, ShelterRepository shelterRepository, ShelterSearchProperties radius) {
+        this(safetydataClient,shelterRepository,radius,false);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ShelterService(SafetydataClient safetydataClient,ShelterRepository shelterRepository,ShelterSearchProperties radius,
+                          @org.springframework.beans.factory.annotation.Value("${SHELTER_REFRESH_ON_QUERY:false}") boolean refreshOnQuery) {
         this.safetydataClient = safetydataClient;
         this.shelterRepository = shelterRepository;
         this.radius = radius;
+        this.refreshOnQuery=refreshOnQuery;
     }
 
     /** API-SHELTER-001 주변 대피소 조회 */
@@ -64,7 +74,7 @@ public class ShelterService {
         }
         BusinessException refreshFailure = null;
         try {
-            refresh(base);
+            if(refreshOnQuery)refresh(base);
         } catch (BusinessException e) {
             refreshFailure = e;
         }
@@ -78,6 +88,19 @@ public class ShelterService {
             log.warn("Shelter refresh failed ({}); answering from stored shelters", refreshFailure.getErrorCode());
         }
         return pickNearest(base, shelters);
+    }
+
+    public NearbyShelterResponse findNearby(UUID member,NearbyShelterRequest request) {
+        // Check ownership even when the caller also supplied explicit coordinates.
+        if(request.interestAreaId()!=null){
+            if(interestAreas==null)throw new com.disasterinfo.eodiisseo.auth.exception.ApiProblem(503,"AREA_LOCATION_UNAVAILABLE","관심지역 조회 연결이 필요합니다.");
+            if(request.latitude()==null&&request.longitude()==null){
+                GeoPoint center=interestAreas.resolve(member,request.interestAreaId());
+                return findNearby(new NearbyShelterRequest(center.latitude(),center.longitude(),null));
+            }
+            interestAreas.verifyOwned(member,request.interestAreaId());
+        }
+        return findNearby(request);
     }
 
     /** API-SHELTER-002 대피소 상세 조회 */

@@ -103,7 +103,7 @@ class ShelterServiceTest {
         SafetydataClient client = mock(SafetydataClient.class);
         when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
                 .thenReturn(List.of(item("1168000000", 1L, "충현공원", "37.5047", "127.0364", "1")));
-        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5), true);
 
         NearbyShelterResponse res = live.findNearby(new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null));
 
@@ -118,7 +118,7 @@ class ShelterServiceTest {
         SafetydataClient client = mock(SafetydataClient.class);
         when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
                 .thenThrow(new BusinessException(ErrorCode.EXTERNAL_API_TIMEOUT));
-        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5), true);
 
         NearbyShelterResponse res = live.findNearby(new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null));
 
@@ -130,7 +130,7 @@ class ShelterServiceTest {
         SafetydataClient client = mock(SafetydataClient.class);
         when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
                 .thenThrow(new BusinessException(ErrorCode.EXTERNAL_API_TIMEOUT));
-        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5), true);
 
         // 빈 목록을 주면 "주변에 대피소 없음"으로 오인하므로 504를 그대로 낸다
         assertThatThrownBy(() -> live.findNearby(new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null)))
@@ -143,7 +143,7 @@ class ShelterServiceTest {
         when(client.earthquakeShelters(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
                 .thenReturn(List.of(item("1168000000", 1L, "충현공원", "37.5047", "127.0364", "1")))
                 .thenReturn(List.of(item("1168000000", 1L, "충현공원", "37.5047", "127.0364", "0")));
-        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5));
+        ShelterService live = new ShelterService(client, repository, new ShelterSearchProperties(1, 1, 5), true);
         NearbyShelterRequest request = new NearbyShelterRequest(BASE.latitude(), BASE.longitude(), null);
         UUID id = live.findNearby(request).shelters().get(0).shelterId();
 
@@ -152,6 +152,14 @@ class ShelterServiceTest {
         assertThat(after.shelters()).isEmpty();
         assertThatThrownBy(() -> live.getShelter(id))
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.SHELTER_NOT_FOUND);
+    }
+
+    @Test void defaultNearbyReadsStoredSnapshotWithoutCallingProvider(){
+        SafetydataClient client=mock(SafetydataClient.class);
+        repository.saveAll(List.of(shelter("stored",BASE.latitude(),BASE.longitude())));
+        var stored=new ShelterService(client,repository,new ShelterSearchProperties(1,1,5));
+        assertThat(stored.findNearby(new NearbyShelterRequest(BASE.latitude(),BASE.longitude(),null)).shelters()).hasSize(1);
+        org.mockito.Mockito.verifyNoInteractions(client);
     }
 
     private static EarthquakeShelterItem item(String arcd, Long sn, String name, String lat, String lng, String use) {

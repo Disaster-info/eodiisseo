@@ -13,7 +13,7 @@ import java.util.UUID;
  *
  * @param latitude       기준 위치 위도 (선택, longitude와 함께)
  * @param longitude      기준 위치 경도 (선택, latitude와 함께)
- * @param interestAreaId 기준으로 쓸 관심지역 ID (선택) — 관심지역(AREA) API가 아직 없어 현재는 미지원
+ * @param interestAreaId 인증 회원이 소유한 관심지역 ID (선택), 실제 행정지역 중심 좌표 사용
  */
 public record NearbyShelterRequest(
         @DecimalMin("-90.0") @DecimalMax("90.0") Double latitude,
