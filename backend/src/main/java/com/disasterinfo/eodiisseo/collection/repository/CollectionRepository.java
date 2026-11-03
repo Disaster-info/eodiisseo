@@ -12,7 +12,7 @@ public class CollectionRepository {
     public CollectionRepository(OwnedDatabase db){this.db=db;}
     public OwnedDatabase database(){return db;}
     public void gate(){db.rows("select pg_advisory_xact_lock(78161108)");}
-    public List<Map<String,Object>> sources(String key,boolean shelter){return db.rows("select * from data_source where active and (?::text is null or endpoint_key=?) and (not ? or source_kind='SHELTER') order by endpoint_key",key,key,shelter);}
+    public List<Map<String,Object>> sources(String key,boolean shelter){return db.rows("select * from data_source where active and source_kind in ('DISASTER','SHELTER') and (?::text is null or endpoint_key=?) and (not ? or source_kind='SHELTER') order by endpoint_key",key,key,shelter);}
     public Map<String,Object> pending(){return db.one("select r.*,s.endpoint_key from collection_run r join data_source s using(source_id) where r.status='RUNNING' and r.heartbeat_at is null order by r.started_at,r.run_id limit 1 for update of r skip locked");}
     public void expire(Instant now){
         db.update("update collection_run r set status='FAILED',finished_at=?,error_code='COLLECTION_LEASE_EXPIRED',error_message='수집 실행이 중단되었습니다.' from collection_job_lock l where l.run_id=r.run_id and l.lease_until<=? and r.status='RUNNING'",now,now);

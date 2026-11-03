@@ -17,6 +17,10 @@ import org.springframework.context.annotation.*;
 @AutoConfiguration @Profile("!test")
 @ConditionalOnBean(OwnedDatabase.class)
 public class DomainReadAutoConfiguration {
+    @Bean @ConditionalOnMissingBean(com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterQueryReader.class)
+    public com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterQueryReader domainDisasterQueries(OwnedDatabase db,Clock clock){
+        return new com.disasterinfo.eodiisseo.disaster.adapter.JdbcDisasterQueryReader(db,clock);
+    }
     @Bean @ConditionalOnMissingBean(InterestAreas.class)
     public InterestAreas domainInterestAreas(OwnedDatabase db){return new AreaNotificationInterestAreas(db);}
     private NormalizedDisasterReader reader(OwnedDatabase db,GroupRepository groups,Clock clock,long stale){

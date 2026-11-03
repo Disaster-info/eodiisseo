@@ -14,6 +14,9 @@ import org.springframework.web.bind.annotation.*;
 public class LocationController {
     private final LocationService service;private final OwnedRateLimiter limits;
     public LocationController(LocationService service,OwnedRateLimiter limits){this.service=service;this.limits=limits;}
+    @GetMapping("/location-consent") public Map<String,Object> consent(@AuthenticationPrincipal MemberPrincipal p) {
+        return service.consentStatus(p.memberId());
+    }
     @PatchMapping("/location-consent") public Map<String,Object> consent(@AuthenticationPrincipal MemberPrincipal p,@Valid @RequestBody Consent body) {
         return service.consent(p.memberId(),body.consented());
     }

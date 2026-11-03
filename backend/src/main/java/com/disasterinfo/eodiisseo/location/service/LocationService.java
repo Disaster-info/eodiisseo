@@ -13,6 +13,9 @@ public class LocationService {
     private final LocationRepository repository;
     private final Clock clock;
     public LocationService(LocationRepository repository, Clock clock) { this.repository=repository;this.clock=clock; }
+    @Transactional(readOnly=true) public Map<String,Object> consentStatus(UUID member) {
+        return Map.of("consented",repository.consented(member));
+    }
     @Transactional public Map<String,Object> consent(UUID member, boolean consented) {
         repository.lock(member);
         repository.consent(member,consented,clock.instant());

@@ -35,6 +35,7 @@ class DomainDatabaseIntegrationTest {
 
     @Test void locationRequiresConsentAndRevocationClearsAllGroups(){
         UUID actor=member(),group=UUID.randomUUID();var service=locations();
+        assertEquals(false,service.consentStatus(actor).get("consented"));
         assertEquals(403,assertThrows(ApiProblem.class,()->tx.execute(s->service.update(actor,37,127))).status());
         db.update("insert into safety_group values(?,'test','OTHER',? ,?,?)",group,actor,UUID.randomUUID().toString().substring(0,20),clock.instant());
         db.update("insert into group_member values(?,?,'ADMIN',true,?)",group,actor,clock.instant());
@@ -42,6 +43,7 @@ class DomainDatabaseIntegrationTest {
         assertEquals(1,db.count("select count(*) from member_location where member_id=?",actor));
         assertEquals(128.0,((Number)db.one("select ST_X(point::geometry) x from member_location where member_id=?",actor).get("x")).doubleValue());
         tx.execute(s->service.consent(actor,false));
+        assertEquals(false,service.consentStatus(actor).get("consented"));
         assertEquals(0,db.count("select count(*) from member_location where member_id=?",actor));
         assertEquals(0,db.count("select count(*) from group_member where member_id=? and location_sharing_enabled",actor));
         tx.execute(s->service.consent(actor,true));
@@ -123,7 +125,7 @@ class DomainDatabaseIntegrationTest {
         assertNotEquals(first.refreshRequestId(),second.refreshRequestId());
         assertEquals("FAILED",db.one("select status from collection_run where run_id=?",first.refreshRequestId()).get("status"));
         // Leave no pending test job for another test method.
-        when(client.fetch(anyString(),any())).thenReturn(List.of());service.workOne();
+        doReturn(List.of()).when(client).fetch(anyString(),any());service.workOne();
     }
     @Test void disasterAdapterUsesOfficialImpactPriorityAndKeepsUnknownSeverity(){
         UUID actor=member();tx.execute(s->locations().consent(actor,true));tx.execute(s->locations().update(actor,37.5,126.5));
@@ -157,4 +159,56 @@ class DomainDatabaseIntegrationTest {
         assertEquals(0,db.count("select count(*) from shelter where shelter_id=? and active",id));
     }
     private static javax.sql.DataSource source(){return CanonicalDatabaseIntegrationTest.source;}
+
+    @Test void disasterQueryUsesPersistedOfficialRecordsAndCollectionHealth(){
+        String key=UUID.randomUUID().toString();
+        var record=new CollectedRecord(key,Map.of("tmEqk","20261030120000","lat",37.5,"lon",127.0,"loc","[TEST] first"));
+        CollectionClient client=mock(CollectionClient.class);when(client.configuredSources()).thenReturn(Set.of("KMA_EARTHQUAKE"));
+        when(client.fetch(anyString(),any())).thenReturn(List.of(record));
+        var service=collections(client);service.request(member(),"KMA_EARTHQUAKE","LIVE",false);service.workOne();
+        UUID id=(UUID)db.one("select disaster_id from source_disaster where source_id=? and source_record_key=?",QUAKE,key).get("disaster_id");
+        var reader=new com.disasterinfo.eodiisseo.disaster.adapter.JdbcDisasterQueryReader(db,clock);
+        var criteria=new com.disasterinfo.eodiisseo.dashboard.dto.DisasterListQuery(null,null).validate();
+        assertTrue(reader.existsType("EARTHQUAKE"));assertFalse(reader.existsType("NOT_A_TYPE"));
+        assertTrue(reader.findDisasters(criteria).entries().stream().anyMatch(e->e.disaster().disasterId().equals(id)));
+        var detail=reader.findDisaster(id).orElseThrow().response();
+        assertEquals("LATEST",detail.dataStatus());assertNull(detail.severity());assertTrue(detail.officialContent().contains("[TEST] first"));
+        tx.execute(s->writer().save(QUAKE,"KMA_EARTHQUAKE",List.of(new CollectedRecord(key,Map.of("tmEqk","20261030120000","lat",37.5,"lon",127.0,"loc","[TEST] corrected"))),clock.instant()));
+        assertTrue(reader.findDisaster(id).orElseThrow().response().title().contains("corrected"));
+        when(client.fetch(anyString(),any())).thenThrow(new IllegalStateException("test failure"));
+        service.request(member(),"KMA_EARTHQUAKE","LIVE",false);service.workOne();
+        assertEquals("STALE",reader.findDisaster(id).orElseThrow().response().dataStatus());
+        assertFalse(reader.findDisasters(criteria).freshnessRepresentable());
+        db.update("update disaster set status='ENDED',ended_at=? where disaster_id=?",clock.instant(),id);
+        assertFalse(reader.findDisasters(criteria).entries().stream().anyMatch(e->e.disaster().disasterId().equals(id)));
+        var ended=new com.disasterinfo.eodiisseo.dashboard.dto.DisasterListQuery("EARTHQUAKE","ENDED").validate();
+        assertTrue(reader.findDisasters(ended).entries().stream().anyMatch(e->e.disaster().disasterId().equals(id)));
+        assertTrue(reader.findDisaster(UUID.randomUUID()).isEmpty());
+    }
+
+    @Test void collectionBatchExcludesOnDemandWeatherAndReportsWorkerState(){
+        CollectionClient client=mock(CollectionClient.class);
+        when(client.configuredSources()).thenReturn(Set.of("KMA_EARTHQUAKE","KMA_WARNING","SAFETYDATA_DISASTER_MESSAGE","SAFETYDATA_EARTHQUAKE_SHELTER"));
+        when(client.fetch(anyString(),any())).thenReturn(List.of());
+        var service=collections(client);var batch=service.request(member(),null,"LIVE",false);
+        assertEquals(4,db.count("select count(*) from collection_run where batch_id=?",batch.refreshRequestId()));
+        for(int i=0;i<4;i++)service.workOne();
+        assertEquals("SUCCESS",db.one("select status from collection_batch where batch_id=?",batch.refreshRequestId()).get("status"));
+        assertEquals(4,service.sources().size());assertEquals(true,service.sources().getFirst().get("workerEnabled"));
+    }
+    @Test void scheduledQuotaFailureWaitsBeforeRetrying(){
+        CollectionClient client=mock(CollectionClient.class);String endpoint="SAFETYDATA_EARTHQUAKE_SHELTER";
+        when(client.configuredSources()).thenReturn(Set.of(endpoint));
+        when(client.fetch(anyString(),any())).thenThrow(new ApiProblem(502,"COLLECTION_PROVIDER_RATE_LIMITED","test quota"));
+        var now=clock.instant().plusSeconds(86400);var testClock=Clock.fixed(now,ZoneOffset.UTC);
+        var service=new CollectionService(new CollectionRepository(db),client,writer(),manager,testClock,true);
+        var failed=service.request(member(),endpoint,"LIVE",false);service.workOne();
+        db.update("update collection_run set started_at=?,finished_at=? where run_id=?",now.minusSeconds(7200),now.minusSeconds(30),failed.refreshRequestId());
+        service.enqueueDue();
+        assertEquals(0,db.count("select count(*) from collection_job_lock"));
+        db.update("update collection_run set finished_at=? where run_id=?",now.minusSeconds(3601),failed.refreshRequestId());
+        service.enqueueDue();
+        assertEquals(1,db.count("select count(*) from collection_job_lock"));
+        doReturn(List.of()).when(client).fetch(anyString(),any());service.workOne();
+    }
 }

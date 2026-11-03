@@ -37,4 +37,8 @@ class PublicCollectionClientTest {
         server.expect(anything()).andRespond(withSuccess("{\"response\":{\"header\":{\"resultCode\":\"03\"}}}",MediaType.APPLICATION_JSON));
         assertTrue(client.fetch("KMA_EARTHQUAKE",()->{}).isEmpty());server.verify();
     }
+    @Test void providerQuotaIsDistinguishedFromEmptyData(){
+        server.expect(anything()).andRespond(withSuccess("{\"header\":{\"resultCode\":\"22\"}}",MediaType.APPLICATION_JSON));
+        assertEquals("COLLECTION_PROVIDER_RATE_LIMITED",assertThrows(ApiProblem.class,()->client.fetch("SAFETYDATA_DISASTER_MESSAGE",()->{})).code());server.verify();
+    }
 }

@@ -44,18 +44,23 @@ public class PublicCollectionClient implements CollectionClient {
                 raw=http.get().uri(endpoint.url() + (endpoint.safety()?"?serviceKey={key}&returnType=json":"?serviceKey={key}&dataType=JSON")
                     +"&pageNo="+currentPage+"&numOfRows=100"
                     +(source.equals("SAFETYDATA_DISASTER_MESSAGE")?"&crtDt="+start:!endpoint.safety()?"&fromTmFc="+start+"&toTmFc="+today:""),endpoint.key()).retrieve().body(String.class);
+            }catch(org.springframework.web.client.RestClientResponseException e){
+                if(e.getStatusCode().value()==429)throw rateLimited();
+                throw new ApiProblem(502,"COLLECTION_PROVIDER_FAILED","외부 API 조회에 실패했습니다.");
             }catch(RuntimeException e){throw new ApiProblem(502,"COLLECTION_PROVIDER_FAILED","외부 API 조회에 실패했습니다.");}
             JsonNode root;try{root=json.readTree(raw);}catch(RuntimeException e){throw invalid();}
             var envelope=endpoint.safety()?root:root.path("response");
             String code=envelope.path("header").path("resultCode").asText();
             // KMA explicitly represents no matching data with resultCode 03.
             if(!endpoint.safety()&&code.equals("03")){if(page==1)return List.of();throw invalid();}
-            if(!code.equals("00"))throw invalid();
+            if(code.equals("22"))throw rateLimited();
+            if(!code.equals("00"))throw new ApiProblem(502,"COLLECTION_PROVIDER_REJECTED","제공처가 수집 요청을 거절했습니다.");
             var body=endpoint.safety()?envelope:envelope.path("body");
             JsonNode total=body.path("totalCount");
             if(!total.isIntegralNumber()&&!total.isTextual())throw invalid();
             int count;try{count=Integer.parseInt(total.asText());}catch(Exception e){throw invalid();}
-            if(count<0||(expected!=null&&expected!=count))throw invalid();expected=count;
+            if(count<0)throw invalid();
+            if(expected!=null&&expected!=count)throw new ApiProblem(502,"COLLECTION_SNAPSHOT_CHANGED","페이지 수집 중 제공처 자료 건수가 변경되었습니다.");expected=count;
             var items=endpoint.safety()?envelope.path("body"):body.path("items").path("item");
             if(count==0){if(page!=1)throw invalid();return List.of();}
             if(!items.isArray()||items.isEmpty())throw invalid();
@@ -63,7 +68,7 @@ public class PublicCollectionClient implements CollectionClient {
                 if(!item.isObject())throw invalid();
                 @SuppressWarnings("unchecked") Map<String,Object> payload=json.convertValue(item,Map.class);
                 String key=recordKey(source,payload);var record=new CollectedRecord(key,payload);
-                var old=records.putIfAbsent(key,record);if(old!=null)throw invalid();
+                var old=records.putIfAbsent(key,record);if(old!=null)throw new ApiProblem(502,"COLLECTION_DUPLICATE_RECORD","제공처 페이지에 같은 원본 키가 중복되었습니다.");
             }
             received+=items.size();if(received>=count){if(received!=count)throw invalid();return List.copyOf(records.values());}
         }
@@ -80,4 +85,5 @@ public class PublicCollectionClient implements CollectionClient {
     }
     private String required(Map<String,Object> row,String key){var v=row.get(key);if(v==null||v.toString().isBlank())throw invalid();return v.toString();}
     private ApiProblem invalid(){return new ApiProblem(502,"COLLECTION_INVALID_RESPONSE","제공처 응답 규격을 확인하세요.");}
+    private ApiProblem rateLimited(){return new ApiProblem(502,"COLLECTION_PROVIDER_RATE_LIMITED","외부 API 호출 한도를 초과했습니다.");}
 }

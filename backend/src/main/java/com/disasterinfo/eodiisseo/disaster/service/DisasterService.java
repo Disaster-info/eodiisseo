@@ -36,7 +36,7 @@ public class DisasterService {
             db.update("insert into source_disaster(source_disaster_id,disaster_id,source_id,external_id,source_record_key,source_address,source_url,original_text,collected_at,content_hash,occurrence_point) values(?,?,?,?,?,?,'https://www.weather.go.kr',?,?,?,ST_SetSRID(ST_MakePoint(?,?),4326)::geography)",record,disaster,source,key,key,address,original,collectedAt,hash,lon,lat);
         }else{
             db.update("update source_disaster set original_text=?,source_address=?,collected_at=?,content_hash=?,occurrence_point=ST_SetSRID(ST_MakePoint(?,?),4326)::geography where source_disaster_id=?",original,address,collectedAt,hash,lon,lat,record);
-            db.update("update disaster set occurred_at=?,updated_at=? where disaster_id=?",occurredAt,collectedAt,disaster);
+            db.update("update disaster set title=?,occurred_at=?,updated_at=? where disaster_id=?",address==null?"기상청 지진정보":"기상청 지진정보: "+address,occurredAt,collectedAt,disaster);
         }
         int revision=(int)db.count("select count(*) from source_disaster_revision where source_disaster_id=?",record)+1;
         db.update("insert into source_disaster_revision(revision_id,source_disaster_id,revision_no,original_text,source_address,content_hash,observed_at) values(?,?,?,?,?,?,?)",UUID.randomUUID(),record,revision,original,address,hash,collectedAt);
