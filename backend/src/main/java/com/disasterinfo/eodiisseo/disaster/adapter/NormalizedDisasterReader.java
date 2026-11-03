@@ -14,7 +14,6 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /** Read-only domain adapters; unknown impact/severity remains unknown. */
-@Component @Profile("!test")
 public class NormalizedDisasterReader implements DashboardDisasterReader,NotificationContracts.DisasterReader,NotificationContracts.SeverityReader {
     private final OwnedDatabase db;private final GroupRepository groups;private final AreaNotificationInterestAreas areas;private final Clock clock;private final long staleSeconds;
     public NormalizedDisasterReader(OwnedDatabase db,GroupRepository groups,AreaNotificationInterestAreas areas,Clock clock,@Value("${LOCATION_STALE_AFTER_SECONDS:300}") long staleSeconds){this.db=db;this.groups=groups;this.areas=areas;this.clock=clock;this.staleSeconds=staleSeconds;}
