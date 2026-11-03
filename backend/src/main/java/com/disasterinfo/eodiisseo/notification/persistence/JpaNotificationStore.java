@@ -35,6 +35,10 @@ public class JpaNotificationStore implements Store {
         em.clear();
     }
     @Override public Settings findSettings(UUID memberId) { return settings.findById(memberId).map(NotificationEntities.SettingRecord::value).orElse(null); }
+    @Override public Settings findSettingsForUpdate(UUID memberId) {
+        requireActiveMemberLock(memberId);
+        return findSettings(memberId);
+    }
     @Override public void saveSettings(UUID memberId, Settings value) {
         requireActiveMemberLock(memberId);
         settings.saveAndFlush(new NotificationEntities.SettingRecord(memberId, value));

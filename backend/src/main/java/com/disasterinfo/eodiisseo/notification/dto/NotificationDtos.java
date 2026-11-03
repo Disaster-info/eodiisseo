@@ -9,7 +9,7 @@ public final class NotificationDtos {
                                    String minimumSeverity, boolean nightNotificationEnabled) {
         public SettingsResponse { interestAreaIds = List.copyOf(interestAreaIds); }
     }
-    /** Complete internal update command; partial PATCH/explicit-null decoding awaits HTTP contract agreement. */
+    /** Complete internal update command; partial HTTP updates supply presence separately. */
     public record SettingsRequest(Boolean enabled, List<String> interestAreaIds,
                                   String minimumSeverity, Boolean nightNotificationEnabled) {}
     public record DeviceRequest(String fcmToken, String platform) {

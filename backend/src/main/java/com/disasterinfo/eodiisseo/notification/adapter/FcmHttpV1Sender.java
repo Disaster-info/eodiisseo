@@ -2,6 +2,7 @@ package com.disasterinfo.eodiisseo.notification.adapter;
 
 import com.disasterinfo.eodiisseo.notification.NotificationContracts.FcmSender;
 import com.disasterinfo.eodiisseo.notification.NotificationContracts.Push;
+import com.disasterinfo.eodiisseo.notification.NotificationContracts.PushOutcome;
 import com.disasterinfo.eodiisseo.notification.NotificationContracts.PushResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -13,15 +14,17 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
+import java.net.http.HttpTimeoutException;
+import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 
 /**
  * Real FCM HTTP v1 sender. Disabled by default; requires eodiisseo.fcm.enabled=true and a
- * valid service account. This adapter never retries POST, logs secrets, or marks a message sent
- * without a provider-issued message name. Caller owns deduplication and token-rotation fencing.
+ * valid service account. This adapter never retries POST, logs secrets, or marks a message accepted
+ * without a provider-issued message name. Acceptance does not prove display on a device.
+ * Caller owns deduplication and token-rotation fencing.
  */
 @Component
 @ConditionalOnProperty(name = "eodiisseo.fcm.enabled", havingValue = "true")
@@ -51,12 +54,15 @@ public final class FcmHttpV1Sender implements FcmSender {
     @Override public boolean isConfigured() { return tokens.isConfigured(); }
 
     @Override public PushResult send(String rawToken, Push push) {
-        if (!isConfigured() || unsafeToken(rawToken, 4096) || push == null || push.disasterId() == null
+        if (!isConfigured()) return failed(PushOutcome.UNAVAILABLE);
+        if (unsafeToken(rawToken, 4096) || push == null || push.disasterId() == null
                 || unsafeText(push.title(), 4096) || unsafeText(push.content(), 8192)
-                || unsafeText(push.disasterType(), 100) || unsafeText(push.regionName(), 500)) return failed();
+                || unsafeText(push.disasterType(), 100) || unsafeText(push.regionName(), 500))
+            return failed(PushOutcome.INVALID_REQUEST);
+        boolean submitted = false;
         try {
             String bearer = tokens.accessToken();
-            if (unsafeToken(bearer, 8192)) return failed();
+            if (unsafeToken(bearer, 8192)) return failed(PushOutcome.AUTHENTICATION_UNAVAILABLE);
             String projectId = tokens.projectId(); // derived only from validated service-account JSON
             URI endpoint = URI.create("https://fcm.googleapis.com/v1/projects/" + projectId + "/messages:send");
             Map<String, Object> payload = Map.of("message", Map.of(
@@ -65,30 +71,54 @@ public final class FcmHttpV1Sender implements FcmSender {
                             "body", truncate(normalize(push.content()), 500)),
                     "data", Map.of("disasterId", push.disasterId().toString(),
                             "disasterType", normalize(push.disasterType()), "regionName", normalize(push.regionName()))));
-            Response response = transport.post(endpoint, bearer, JSON.writeValueAsBytes(payload));
-            if (response == null || response.body() == null || response.body().length > MAX_PROVIDER_BODY)
-                return failed();
+            byte[] body = JSON.writeValueAsBytes(payload);
+            submitted = true;
+            Response response = transport.post(endpoint, bearer, body);
+            if (response == null) return failed(PushOutcome.ACCEPTANCE_UNKNOWN);
+            if (response.status() != 200) return rejected(response);
+            if (response.body() == null || response.body().length > MAX_PROVIDER_BODY)
+                return failed(PushOutcome.ACCEPTANCE_UNKNOWN);
             JsonNode data = JSON.readTree(response.body());
-            if (data == null || !data.isObject()) return failed();
-            if (response.status() == 200) {
-                JsonNode messageName = data.get("name");
-                String prefix = "projects/" + projectId + "/messages/";
-                if (messageName == null || !messageName.isString()) return failed();
-                String name = messageName.asString();
-                if (!name.startsWith(prefix) || name.length() <= prefix.length() || name.length() > 255
-                        || name.contains(rawToken) || name.contains("\r") || name.contains("\n")) return failed();
-                return new PushResult(true, false, name);
-            }
-            // A plain HTTP 404 is ambiguous. Only explicit FCM UNREGISTERED may deactivate a token.
-            if (response.status() == 404 && explicitUnregistered(data))
-                return new PushResult(false, true, null);
-            return failed();
+            if (data == null || !data.isObject()) return failed(PushOutcome.ACCEPTANCE_UNKNOWN);
+            JsonNode messageName = data.get("name");
+            String prefix = "projects/" + projectId + "/messages/";
+            if (messageName == null || !messageName.isString()) return failed(PushOutcome.ACCEPTANCE_UNKNOWN);
+            String name = messageName.asString();
+            if (!name.startsWith(prefix) || name.length() <= prefix.length() || name.length() > 255
+                    || name.contains(rawToken) || name.contains("\r") || name.contains("\n"))
+                return failed(PushOutcome.ACCEPTANCE_UNKNOWN);
+            return new PushResult(true, false, name, PushOutcome.ACCEPTED);
+        } catch (HttpTimeoutException | SocketTimeoutException timeout) {
+            // The POST might have reached FCM. A timeout is not evidence of non-acceptance.
+            return failed(PushOutcome.NETWORK_TIMEOUT);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            return failed();
+            return failed(submitted ? PushOutcome.ACCEPTANCE_UNKNOWN : PushOutcome.AUTHENTICATION_UNAVAILABLE);
         } catch (Exception ignored) {
-            return failed();
+            return failed(submitted ? PushOutcome.ACCEPTANCE_UNKNOWN : PushOutcome.AUTHENTICATION_UNAVAILABLE);
         }
+    }
+
+    private static PushResult rejected(Response response) {
+        // A plain HTTP 404 is ambiguous about token validity. Only typed FCM UNREGISTERED
+        // may deactivate a token; provider prose and similarly named fields are not evidence.
+        if (response.status() == 404 && response.body() != null && response.body().length <= MAX_PROVIDER_BODY) {
+            try {
+                JsonNode data = JSON.readTree(response.body());
+                if (data != null && data.isObject() && explicitUnregistered(data))
+                    return new PushResult(false, true, null, PushOutcome.UNREGISTERED);
+            } catch (Exception ignored) {
+                // HTTP rejection is still known even if its optional error body cannot be parsed.
+            }
+        }
+        return failed(switch (response.status()) {
+            case 400 -> PushOutcome.INVALID_REQUEST;
+            case 401, 403 -> PushOutcome.AUTHORIZATION_ERROR;
+            case 429 -> PushOutcome.RATE_LIMITED;
+            case 500, 503 -> PushOutcome.TRANSIENT_FAILURE;
+            default -> response.status() >= 400 && response.status() < 500
+                    ? PushOutcome.PROVIDER_REJECTED : PushOutcome.ACCEPTANCE_UNKNOWN;
+        });
     }
 
     private static boolean explicitUnregistered(JsonNode root) {
@@ -111,7 +141,8 @@ public final class FcmHttpV1Sender implements FcmSender {
         return unsafeText(value, max) || value.contains("\r") || value.contains("\n");
     }
     private static boolean unsafeText(String value, int max) {
-        return value == null || value.isBlank() || value.length() > max;
+        return value == null || value.length() > max
+                || value.codePoints().allMatch(code -> Character.isWhitespace(code) || Character.isSpaceChar(code));
     }
     private static String normalize(String text) {
         return text.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ');
@@ -120,7 +151,7 @@ public final class FcmHttpV1Sender implements FcmSender {
         return value.codePointCount(0, value.length()) <= maxCodePoints
                 ? value : value.substring(0, value.offsetByCodePoints(0, maxCodePoints));
     }
-    private static PushResult failed() { return new PushResult(false, false, null); }
+    private static PushResult failed(PushOutcome outcome) { return new PushResult(false, false, null, outcome); }
 
     private static Transport defaultTransport() {
         HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER)

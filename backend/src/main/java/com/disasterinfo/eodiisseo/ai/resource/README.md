@@ -18,7 +18,7 @@
 
 공식 호스트만으로 자료를 승인하지 않는다. `ResourceApprovalPort`의 명시적 승인에는 자료 UUID, 전체 저장 속성의 SHA-256 fingerprint, 검토 시각, 재확인 기한, 공개 자료 외부 AI 전달 승인이 필요하다. 검토자는 기관·원문·이용허락범위·프롬프트 인젝션 여부를 확인해야 한다. 승인 또는 정책 구현이 없거나 기한이 지났거나 자료가 변경되면 근거를 제공하지 않는다. 이 작업에서 운영 기본 만료일이나 자동 갱신 주기를 임의로 정하지 않는다.
 
-승인 공급자는 현재 발행본만 반환하고 대체된 ID의 승인을 철회해야 한다. 한 URL에 서로 다른 승인 ID가 함께 검색되면 최신 버전을 추정하지 않고 FALLBACK한다. 운영 승인 공급자가 없는 현 상태의 FALLBACK은 의도된 제한이다. 실제 원천 조사 결과는 [공식자료 원천 검토](OFFICIAL_SOURCE_REVIEW.md)에 기록한다.
+승인 공급자는 현재 발행본만 반환하고 대체된 ID의 승인을 철회해야 한다. 한 URL에 서로 다른 승인 ID가 함께 검색되면 최신 버전을 추정하지 않고 FALLBACK한다. 운영 승인 공급자가 없는 현 상태의 FALLBACK은 의도된 제한이다. 실제 원문 확보와 운영 승인 공급자는 미완료다. 필요한 계약은 [HTTP 연동 선행조건](../../dashboard/http/README.md#공식-자료와-미확정-정책)에 정리했다.
 
 초기 출처 허용 범위는 기관명 `행정안전부`와 정확히 일치하는 국민안전24·국민재난안전포털·행정안전부·재난안전데이터공유플랫폼 HTTPS 호스트다. 사용자정보·임의 포트·fragment·유사 도메인은 허용하지 않는다. 다른 공식기관 확장은 승인된 출처 정책과 검증 후 진행한다.
 
@@ -28,9 +28,9 @@
 
 Spring이 `ResourceService`를 기존 검색 Port로 주입하며 `ChatService → ChatOfficialResourceSearchPort → OllamaChatAnswerGenerator` 흐름을 재사용한다. 생성기에는 검색한 문단과 자료 UUID만 제공한다. 모델이 반환한 UUID와 인용문은 실제 전달한 자료와 완전한 원문 문단에 대응해야 한다. API-CHAT-001의 응답 DTO, 기존 요약 생성 구조와 Ollama 전송 구현은 변경하지 않았다. 정적 행동요령으로 현재 재난 발생, 위치별 위험, 대피소 가용성, 안전 경로를 판단할 수 없다는 생성 지침을 추가했다.
 
-현재 소스에는 `ChatAuthenticationPort`, `ChatPromptPrivacyPort`, `ChatRetentionPolicy`의 운영 구현이 없다. 이 작업에서 그 절차를 대체하거나 우회하지 않았다. 운영 채팅을 열려면 기존 인증·로컬 개인정보 최소화 및 외부 전달 승인·보존정책 공급자를 연결하고, 이용조건과 원문 검토를 마친 현재 발행본의 `ResourceApprovalPort`를 제공해야 한다. DataSource와 ERD의 기존 테이블도 준비되어야 한다. 테스트에서 사용하는 인증·개인정보 승인·보존정책은 테스트 전용이다.
+인증은 `AUTH_BRIDGES_ENABLED=true`에서 기존 공통 브리지와 `SessionAccessService`를 재사용한다. `ChatPromptPrivacyPort`와 `ChatRetentionPolicy`의 운영 구현은 아직 없다. 이 작업에서 그 절차를 대체하거나 우회하지 않았다. 운영 채팅을 열려면 기존 인증·로컬 개인정보 최소화 및 외부 전달 승인·보존정책 공급자를 연결하고, 이용조건과 원문 검토를 마친 현재 발행본의 `ResourceApprovalPort`를 제공해야 한다. DataSource와 ERD의 기존 테이블도 준비되어야 한다. 테스트에서 사용하는 인증·개인정보 승인·보존정책은 테스트 전용이다.
 
-다른 API의 실제 Client와 응답 DTO는 현재 골격이다. API별 실제 URL, 키 환경변수 차이, 파라미터, DTO, 주기, 오류, 최신성, 팀원 Port 및 이벤트 제안은 [외부 API 계약 점검](EXTERNAL_API_CONTRACT_REVIEW.md)에 기록했다. 타 도메인의 수집·서비스·Repository·설정은 변경하지 않았다.
+재난·위치·관심지역·수집 Service의 운영 조회와 이벤트 연결은 아직 골격이다. 필요한 제공 메서드·DTO·권한·실행 계약은 [HTTP 연동 선행조건](../../dashboard/http/README.md#운영-원문과-데이터-선행조건)에 정리했다. 다른 담당자의 수집·Service·Repository는 변경하지 않았다.
 
 ## 별도 변경 제안과 잔여 한계
 

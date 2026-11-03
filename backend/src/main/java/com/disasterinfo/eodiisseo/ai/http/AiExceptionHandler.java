@@ -9,6 +9,7 @@ import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -16,6 +17,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice(basePackages = "com.disasterinfo.eodiisseo.ai")
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AiExceptionHandler {
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorBody> invalidBody(HttpMessageNotReadableException failure) {
+        // Parser failures may include the raw question. Only the existing safe input error is sent.
+        return common(ErrorCode.INVALID_INPUT);
+    }
 
     @ExceptionHandler(ChatException.class)
     public ResponseEntity<ErrorBody> chat(ChatException failure) {

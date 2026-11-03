@@ -67,7 +67,29 @@ public final class NotificationContracts {
                            String providerMessageId, String errorCode) {}
     public record Push(UUID disasterId, String disasterType, String regionName,
                        String title, String content) {}
-    public record PushResult(boolean successful, boolean invalidToken, String providerMessageId) {}
+    public enum PushOutcome {
+        ACCEPTED(null), UNREGISTERED("FCM_UNREGISTERED"), AUTHORIZATION_ERROR("FCM_AUTHORIZATION_ERROR"),
+        INVALID_REQUEST("FCM_INVALID_REQUEST"), RATE_LIMITED("FCM_RATE_LIMITED"),
+        TRANSIENT_FAILURE("FCM_TRANSIENT_FAILURE"), NETWORK_TIMEOUT("FCM_NETWORK_TIMEOUT"),
+        ACCEPTANCE_UNKNOWN("FCM_ACCEPTANCE_UNKNOWN"), AUTHENTICATION_UNAVAILABLE("FCM_AUTHENTICATION_UNAVAILABLE"),
+        UNAVAILABLE("FCM_UNAVAILABLE"), PROVIDER_REJECTED("FCM_PROVIDER_REJECTED");
+        private final String errorCode;
+        PushOutcome(String errorCode) { this.errorCode = errorCode; }
+        public String errorCode() { return errorCode; }
+    }
+    /** ACCEPTED means provider acceptance, not confirmed device display. */
+    public record PushResult(boolean successful, boolean invalidToken, String providerMessageId, PushOutcome outcome) {
+        public PushResult {
+            if (outcome == null || successful != (outcome == PushOutcome.ACCEPTED)
+                    || invalidToken != (outcome == PushOutcome.UNREGISTERED))
+                throw new IllegalArgumentException("Inconsistent push outcome.");
+        }
+        /** Legacy failures carry no acceptance evidence and must not be automatically retried. */
+        public PushResult(boolean successful, boolean invalidToken, String providerMessageId) {
+            this(successful, invalidToken, providerMessageId,
+                    invalidToken ? PushOutcome.UNREGISTERED : successful ? PushOutcome.ACCEPTED : PushOutcome.ACCEPTANCE_UNKNOWN);
+        }
+    }
     public interface FcmSender {
         boolean isConfigured();
         /** The real adapter/lifecycle must fence withdrawal and registration changes during submission. */
@@ -86,6 +108,10 @@ public final class NotificationContracts {
         /** Signup lifecycle only; confirmed ERD defaults, atomic insert without overwriting existing settings. */
         void initializeSettings(UUID memberId, Instant now);
         Settings findSettings(UUID memberId);
+        /** Acquire the ACTIVE member lock before reading; must join the caller's settings transaction. */
+        default Settings findSettingsForUpdate(UUID memberId) {
+            throw new UnsupportedOperationException("Atomic notification setting updates are unavailable.");
+        }
         void saveSettings(UUID memberId, Settings settings);
         List<UUID> findEnabledMembers();
         Device findDevice(String deviceId);
