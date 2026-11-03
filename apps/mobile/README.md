@@ -9,6 +9,20 @@ npm install
 npx expo start      # 휴대폰 Expo Go 로 QR 스캔 / i: iOS 시뮬레이터 / a: 안드로이드 / w: 웹
 ```
 
+## 앱 식별자 (Android·iOS)
+
+`app.json` 에 설정된 앱 고유 ID입니다. Firebase(FCM 푸시 알림) 앱 등록과 스토어 등록에 같은 값을 씁니다.
+
+| 플랫폼 | 항목 (`app.json`) | 값 |
+|---|---|---|
+| Android | `expo.android.package` | `com.disasterinfo.eodiisseo` |
+| iOS | `expo.ios.bundleIdentifier` | `com.disasterinfo.eodiisseo` |
+| 딥링크 | `expo.scheme` | `eodiisseo` |
+
+- 스토어에 출시한 뒤에는 바꿀 수 없으므로 임의로 변경하지 않습니다.
+- `ios/`·`android/` 폴더는 빌드할 때 `app.json` 으로 자동 생성되므로(CNG) 직접 만들거나 고치지 않습니다.
+- Firebase 앱 등록 후 받은 `google-services.json`(Android)·`GoogleService-Info.plist`(iOS)는 `app.json` 의 `android.googleServicesFile`·`ios.googleServicesFile` 로 연결합니다.
+
 ## 폴더 구조
 
 ```
