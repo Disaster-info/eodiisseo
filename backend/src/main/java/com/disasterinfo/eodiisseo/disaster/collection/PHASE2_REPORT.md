@@ -1,3 +1,5 @@
+> 3차 정정(2026-11-03): MOIS 공개 API 설명서 탭에서 crtDt(조회시작일자, YYYYMMDD)를 확인했습니다. 아래 “날짜 필터 미확인/없음”은 당시 확인 부족에 따른 기록이며 현재 판정은 PHASE3_CONTRACT_REPORT.md를 따릅니다. 날짜 경계·수정 자료 재조회·안정된 페이지 계약은 여전히 미확인이라 자동 증분 차단은 유지합니다.
+
 # 재난 데이터·RAG 2차 보완 결과
 
 2026-11-03. 작업 경로: C:/Users/dkemf/source/eodiisseo-integration-ops-latest

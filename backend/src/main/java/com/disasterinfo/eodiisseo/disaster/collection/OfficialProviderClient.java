@@ -34,13 +34,16 @@ public final class OfficialProviderClient {
     private long nextRequestNanos;
     public synchronized Page page(String decodedKey,LocalDate from,LocalDate to,int page) {
         if(decodedKey==null||decodedKey.isBlank()||decodedKey.length()>1024)throw new CollectionFailure("KEY_REQUIRED");
-        if(from==null||to==null||to.isBefore(from)||to.isAfter(from.plusDays(2))||page<1||page>100)
+        if(from==null||to==null||from.getYear()<1||to.getYear()>9999||to.isBefore(from)||to.isAfter(from.plusDays(2))||page<1||page>100)
             throw new CollectionFailure("WINDOW_LIMIT");
         var parameters=new LinkedHashMap<String,String>();
         parameters.put("serviceKey",decodedKey);parameters.put("pageNo",""+page);parameters.put("numOfRows","100");
         if(provider==Provider.WILDFIRE_MESSAGES){
             parameters.put("returnType","json");
-            // Official contract has no documented date filter. Fetch full bounded pages; local window filtering is explicit.
+            // MOIS public apiDataTable?dataSn=228, checked 2026-11-03: crtDt STRING, YYYYMMDD start date.
+            // Inclusivity, upper bound, stable ordering and modification replay are NOT documented guarantees.
+            if(!from.equals(to))throw new CollectionFailure("UNSUPPORTED_END_DATE");
+            parameters.put("crtDt",from.format(DateTimeFormatter.BASIC_ISO_DATE));
         }else{
             parameters.put("dataType","JSON");parameters.put("fromTmFc",from.format(DateTimeFormatter.BASIC_ISO_DATE));
             parameters.put("toTmFc",to.format(DateTimeFormatter.BASIC_ISO_DATE));
@@ -63,7 +66,10 @@ public final class OfficialProviderClient {
             Map<String,Object> envelope=map(root.getOrDefault("response",root));
             Map<String,Object> header=map(envelope.get("header"));
             String code=Objects.toString(header.get("resultCode"),"");
-            if(!"00".equals(code))throw new CollectionFailure(Set.of("20","30","31","32","33","34").contains(code)?"AUTH_REJECTED":
+            // Portal table: 00; official KMA guide example: 0 + NORMAL_SERVICE. Do not relax MOIS errors.
+            boolean normal="00".equals(code)||(provider!=Provider.WILDFIRE_MESSAGES && "0".equals(code)
+                && "NORMAL_SERVICE".equals(header.get("resultMsg")));
+            if(!normal)throw new CollectionFailure(Set.of("20","30","31","32","33","34").contains(code)?"AUTH_REJECTED":
                 Set.of("22","23").contains(code)?"RATE_LIMIT":"PROVIDER_CODE");
             Map<String,Object> body;Object rows;Object total;
             if(provider==Provider.WILDFIRE_MESSAGES){

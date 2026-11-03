@@ -30,6 +30,7 @@ public class OfficialCollectionScheduler implements AutoCloseable {
             String prefix="eodiisseo.disaster.collection."+provider.name().toLowerCase(Locale.ROOT).replace('_','-');
             if(!env.getProperty(prefix+".enabled",Boolean.class,false))continue;
             try{
+                // crtDt is documented; snapshot/order/modification guarantees are still unverified.
                 if(provider==OfficialProviderClient.Provider.WILDFIRE_MESSAGES)throw new CollectionFailure("INCREMENTAL_CONTRACT_REQUIRED");
                 UUID source=UUID.fromString(env.getRequiredProperty(prefix+".source-id"));
                 var cursor=db.one("select completed_through from owned_collection_cursor where source_id=?",source);

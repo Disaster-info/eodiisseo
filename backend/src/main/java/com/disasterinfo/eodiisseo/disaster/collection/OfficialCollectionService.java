@@ -63,7 +63,7 @@ public class OfficialCollectionService {
                 Instant finished=clock.instant();
                 if(lock==null||!run.equals(lock.get("run_id"))||!OwnedDatabase.instant(lock.get("lease_until")).isAfter(finished))throw new CollectionFailure("LEASE_LOST");
                 int saved=0;
-                List<Map<String,Object>> rows=new ArrayList<>();Set<String> pageIdentities=new HashSet<>();
+                List<Map<String,Object>> rows=new ArrayList<>();Set<String> pageIdentities=new HashSet<>();Set<String> messageIds=new HashSet<>();
                 for(var page:pages){
                     db.update("insert into owned_collection_page(page_id,run_id,page_no,raw_body,body_sha256,fetched_at) values(?,?,?,?,?,?)",
                         UUID.randomUUID(),run,page.number(),page.raw(),java.util.HexFormat.of().formatHex(digest(page.raw())),finished);
@@ -79,6 +79,8 @@ public class OfficialCollectionService {
                     }
                     String original=OfficialProviderClient.canonical(row),hash=AuthService.hash(original),identity;
                     try{identity=OfficialRecordNormalizer.identity(client.provider(),row);}catch(IllegalArgumentException e){identity="INVALID:"+hash;}
+                    // Even a different MDFCN_YMD for the same SN makes this finite message snapshot unstable.
+                    if(client.provider()==OfficialProviderClient.Provider.WILDFIRE_MESSAGES && !messageIds.add(identity))throw new CollectionFailure("PAGING_CHANGED");
                     if(!pageIdentities.add(identity+":"+hash))throw new CollectionFailure("PAGING_CHANGED");
                     // An identical historical announcement is not replayed over a more recent state.
                     var previous=db.one("select source_disaster_id from owned_collection_item where source_id=? and provider_record_key=? and content_sha256=?",source,identity,hash);

@@ -51,7 +51,7 @@ public class OfficialRecordNormalizer {
         String zone=bounded(row.get("areaCode")),strength=Objects.toString(row.get("warnStress"));
         if(!zone.matches("[A-Za-z0-9_-]{1,64}"))return new Result("INVALID_WARNING_ZONE",null);
         String command=Objects.toString(row.get("command"));
-        if(!Set.of("0","1").contains(strength)||!Set.of("1","2","3","6","7","8").contains(command))return new Result("UNKNOWN_WARNING_CODE",null);
+        if(!Set.of("0","1","2").contains(strength)||!Set.of("1","2","3","6","7","8").contains(command))return new Result("UNKNOWN_WARNING_CODE",null);
         db.rows("select pg_advisory_xact_lock(hashtextextended(?,0))",source+":"+zone);
         // Exact official warning zone only. Never map by district names or substring similarity.
         var old=db.one("""
@@ -79,19 +79,23 @@ public class OfficialRecordNormalizer {
         }
         UUID disaster=old==null?UUID.randomUUID():(UUID)old.get("disaster_id");
         UUID record=old==null?UUID.randomUUID():(UUID)old.get("source_disaster_id");
-        String status=lift?"LIFTED":"ONGOING",sourceStatus=(strength.equals("1")?"WARNING":"WATCH")+":"+command;
+        String status=lift?"LIFTED":"ONGOING";
+        // KMA guide 2026-06-01 adds 2=major warning. This is a source level, not a common severity mapping.
+        String sourceStatus=switch(strength){case "0"->"WATCH";case "1"->"WARNING";case "2"->"MAJOR_WARNING";default->throw new IllegalArgumentException();};
+        sourceStatus+=":"+command;
+        String title="기상청 호우"+switch(strength){case "0"->"주의보";case "1"->"경보";case "2"->"중대경보";default->throw new IllegalArgumentException();}+" "+zone;
         if(old==null){
             var type=db.one("select disaster_type_id from disaster_type where code='HEAVY_RAIN' and active");
             if(type==null)throw new CollectionFailure("CATALOG_MISSING");
             db.update("insert into disaster(disaster_id,disaster_type_id,title,occurred_at,status,data_origin,updated_at,ended_at) values(?,?,?,?,?,'OFFICIAL',?,?)",
-                disaster,type.get("disaster_type_id"),"기상청 호우"+(strength.equals("1")?"경보":"주의보")+" "+zone,start,status,now,ended);
+                disaster,type.get("disaster_type_id"),title,start,status,now,ended);
             db.update("""
                 insert into source_disaster(source_disaster_id,disaster_id,source_id,external_id,source_record_key,source_address,source_url,
                     original_text,source_status,source_updated_at,collected_at,content_hash) values(?,?,?,?,?,?,?,?,?,?,?,?)
                 """,record,disaster,source,announcement,zone+":"+start,Objects.toString(row.get("areaName"),null),HEAVY_RAIN.endpoint.toString(),
                 original,sourceStatus,issued,now,hash);
         }else{
-            db.update("update disaster set status=?,ended_at=?,updated_at=? where disaster_id=?",status,ended,now,disaster);
+            db.update("update disaster set title=?,status=?,ended_at=?,updated_at=? where disaster_id=?",title,status,ended,now,disaster);
             db.update("update source_disaster set original_text=?,content_hash=?,source_status=?,source_updated_at=?,collected_at=? where source_disaster_id=?",
                 original,hash,sourceStatus,issued,now,record);
         }

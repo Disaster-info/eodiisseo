@@ -730,6 +730,122 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(sql.queryForObject("select collected_at from source_disaster where source_id=? and source_record_key='incident:fixture-quake-10'",Timestamp.class,SOURCE).toInstant()).isEqualTo(stale);
     }
 
+
+    @Test @Order(21) void documentedCrtDtPreservesCreatedRegisteredModifiedRawWithoutClaimingIncidentOrCoverage(){
+        UUID source=source("MOIS_DISASTER_MESSAGES");
+        var provider=com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.WILDFIRE_MESSAGES;
+        var row=new LinkedHashMap<String,Object>(Map.of("SN","0000000000000000000301","CRT_DT","2026-10-31 23:59:59",
+            "REG_YMD","20261101","MDFCN_YMD","20261102","DST_SE_NM","산불","MSG_CN","SYNTHETIC ONLY 진화 안내","RCPTN_RGN_NM","TEST"));
+        var request=new java.util.concurrent.atomic.AtomicReference<URI>();
+        var fixture=fixtureClient(provider,()->List.of(row));
+        var client=new com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient(provider,(uri,timeout)->{
+            request.set(uri);
+            return new com.disasterinfo.eodiisseo.disaster.collection.OfficialHttp.Reply(200,fixture.page("TEST",LocalDate.of(2026,11,1),LocalDate.of(2026,11,1),1).raw());
+        });
+        long disasters=sql.queryForObject("select count(*) from disaster",Long.class),events=sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class);
+        assertThat(collect(source,client)).isEqualTo("SUCCESS");
+        assertThat(request.get().getRawQuery()).contains("crtDt=20261101").doesNotContain("toTmFc","sort");
+        row.put("MDFCN_YMD","20261103");row.put("MSG_CN","SYNTHETIC ONLY 수정 안내");
+        assertThat(collect(source,client)).isEqualTo("SUCCESS");
+        assertThat(collect(source,client)).isEqualTo("SUCCESS");
+        assertThat(sql.queryForObject("select count(*) from owned_collection_item where source_id=? and provider_record_key=?",Long.class,source,row.get("SN"))).isEqualTo(2);
+        assertThat(sql.queryForObject("select count(*) from owned_collection_item where source_id=? and provider_record_key=? and classification='WILDFIRE_MESSAGE_UNLINKED' and source_disaster_id is null",Long.class,source,row.get("SN"))).isEqualTo(2);
+        assertThat(sql.queryForObject("select count(*) from disaster",Long.class)).isEqualTo(disasters);
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class)).isEqualTo(events);
+        assertThat(sql.queryForObject("select completed_through from owned_collection_cursor where source_id=?",java.sql.Date.class,source)).isNull();
+        assertThat(sql.queryForObject("select count(*) from owned_collection_coverage where source_id=?",Long.class,source)).isZero();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"REORDER","DUPLICATE","MODIFIED_DURING_PAGING","TOTAL_CHANGED","INTERRUPTED"})
+    @Order(22)
+    void messagePageInstabilityCannotAdvanceCoverageOrPartiallyPersist(String mode){
+        UUID source=source("MOIS_DISASTER_MESSAGES");
+        var provider=com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.WILDFIRE_MESSAGES;
+        var counter=new java.util.concurrent.atomic.AtomicInteger();
+        var first=Map.<String,Object>of("SN","phase3-"+mode+"-A","CRT_DT","2026-11-01 10:00:00","MDFCN_YMD","20261101","DST_SE_NM","산불","MSG_CN","SYNTHETIC");
+        var second=new LinkedHashMap<String,Object>(first);second.put("SN","phase3-"+mode+"-B");
+        long pages=sql.queryForObject("select count(*) from owned_collection_page",Long.class),items=sql.queryForObject("select count(*) from owned_collection_item",Long.class);
+        var client=new com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient(provider,(uri,timeout)->{
+            int page=counter.incrementAndGet();
+            if(page==2&&mode.equals("INTERRUPTED"))throw new com.disasterinfo.eodiisseo.disaster.collection.CollectionFailure("TIMEOUT");
+            Map<String,Object> current=page==1?first:second;
+            if(page==2&&mode.equals("DUPLICATE"))current=first;
+            if(page==2&&mode.equals("MODIFIED_DURING_PAGING")){second.put("SN",first.get("SN"));second.put("MDFCN_YMD","20261102");current=second;}
+            return new com.disasterinfo.eodiisseo.disaster.collection.OfficialHttp.Reply(200,tools.jackson.databind.json.JsonMapper.builder().build()
+                .writeValueAsBytes(Map.of("header",Map.of("resultCode","00"),"totalCount",page==2&&mode.equals("TOTAL_CHANGED")?3:2,
+                    "pageNo",page,"body",List.of(current))));
+        });
+        String result=collect(source,client);
+        if(mode.equals("REORDER")){
+            assertThat(result).isEqualTo("SUCCESS");
+            var reverse=fixtureClient(provider,()->List.of(second,first));
+            assertThat(collect(source,reverse)).isEqualTo("SUCCESS");
+            assertThat(sql.queryForObject("select count(*) from owned_collection_item",Long.class)).isEqualTo(items+2);
+        }else{
+            assertThat(result).isEqualTo(mode.equals("INTERRUPTED")?"TIMEOUT":"PAGING_CHANGED");
+            assertThat(sql.queryForObject("select count(*) from owned_collection_page",Long.class)).isEqualTo(pages);
+            assertThat(sql.queryForObject("select count(*) from owned_collection_item",Long.class)).isEqualTo(items);
+        }
+        assertThat(sql.queryForObject("select completed_through from owned_collection_cursor where source_id=?",java.sql.Date.class,source)).isNull();
+        assertThat(sql.queryForObject("select count(*) from owned_collection_coverage where source_id=?",Long.class,source)).isZero();
+    }
+
+    @Test @Order(23) void liftedWarningKeepsHistoricalImpactWhileExpiredOrIncompleteCrosswalkIsUnknown(){
+        UUID source=source("KMA_HEAVY_RAIN");
+        UUID disaster=sql.queryForObject("select disaster_id from source_disaster where source_id=? and source_record_key like 'L_PHASE2:%'",UUID.class,source);
+        var reader=app.getBean(com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.class);
+        var mappings=app.getBean(FixtureMappings.class).mappings;
+        Instant issued=sql.queryForObject("select source_updated_at from source_disaster where disaster_id=?",Timestamp.class,disaster).toInstant();
+        Instant end=Instant.now().minusSeconds(1);
+        var old=new com.disasterinfo.eodiisseo.disaster.port.OfficialWarningAreaMappingPort.Mapping("L_PHASE2",Set.of("TEST_EXACT"),
+            URI.create("https://www.weather.go.kr/test-only-not-real-crosswalk"),"SYNTHETIC-V1",issued,end,true);
+        mappings.put("L_PHASE2",old);
+        assertThat(reader.find(disaster,issued).exactAdminAreaCodes()).containsExactly("TEST_EXACT");
+        assertThat(reader.find(disaster,end.minusNanos(1)).activeIncident()).isFalse();
+        assertThat(reader.find(disaster,end.minusNanos(1)).exactAdminAreaCodes()).containsExactly("TEST_EXACT");
+        assertThat(reader.find(disaster,end).knowledge()).isEqualTo(com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.UNKNOWN);
+        sql.update("insert into admin_area(area_code,name,level,active) values('TEST_SPLIT','SYNTHETIC SPLIT','SIGUNGU',true)");
+        mappings.put("L_PHASE2",new com.disasterinfo.eodiisseo.disaster.port.OfficialWarningAreaMappingPort.Mapping("L_PHASE2",
+            Set.of("TEST_EXACT","TEST_SPLIT"),old.evidenceUrl(),"SYNTHETIC-V2",issued,Instant.now().plusSeconds(600),false));
+        assertThat(reader.find(disaster,Instant.now()).knowledge()).isEqualTo(com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.UNKNOWN);
+        mappings.put("L_PHASE2",new com.disasterinfo.eodiisseo.disaster.port.OfficialWarningAreaMappingPort.Mapping("L_PHASE2",
+            Set.of("TEST_EXACT","TEST_SPLIT"),old.evidenceUrl(),"SYNTHETIC-V2",issued,Instant.now().plusSeconds(600),true));
+        assertThat(reader.find(disaster,Instant.now()).exactAdminAreaCodes()).containsExactlyInAnyOrder("TEST_EXACT","TEST_SPLIT");
+        mappings.remove("L_PHASE2");
+        assertThat(reader.find(disaster,Instant.now()).knowledge()).isEqualTo(com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.UNKNOWN);
+    }
+
+
+    @Test @Order(24) void officialReannouncementTypeAndReferenceAloneDoNotMergeEarthquakes(){
+        var provider=com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.EARTHQUAKE;
+        var first=Map.<String,Object>of("stnId","108","tmFc","202611011200","tmSeq","81","cnt","1","fcTp","3",
+            "tmEqk","20261101115900","lat","37.1","lon","127.1","loc","SYNTHETIC");
+        var followup=new LinkedHashMap<String,Object>(first);followup.put("fcTp","5");followup.put("tmSeq","82");followup.put("tmFc","202611011300");
+        long count=sql.queryForObject("select count(*) from disaster",Long.class);
+        assertThat(collect(SOURCE,fixtureClient(provider,()->List.of(first,followup)))).isEqualTo("SUCCESS");
+        assertThat(sql.queryForObject("select count(*) from disaster",Long.class)).isEqualTo(count);
+        assertThat(sql.queryForObject("select count(*) from owned_collection_item where source_id=? and provider_record_key in('108:202611011200:81','108:202611011300:82') and classification='EARTHQUAKE_UNLINKED'",Long.class,SOURCE)).isEqualTo(2);
+    }
+    @Test @Order(25) void officialMajorRainWarningStaysSourceLevelWithoutInventedCommonSeverity(){
+        UUID source=source("KMA_HEAVY_RAIN");
+        var provider=com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.HEAVY_RAIN;
+        var row=new LinkedHashMap<String,Object>(Map.of("stnId","108","tmFc","202611011000","tmSeq","90","areaCode","L_MAJOR","areaName","SYNTHETIC",
+            "warnVar","2","warnStress","0","command","1","startTime","202611011000","cancel","0"));
+        var client=fixtureClient(provider,()->List.of(row));
+        assertThat(collect(source,client)).isEqualTo("SUCCESS");
+        UUID disaster=sql.queryForObject("select disaster_id from source_disaster where source_id=? and source_record_key like 'L_MAJOR:%'",UUID.class,source);
+        row.put("warnStress","2");row.put("command","7");row.put("tmFc","202611011100");
+        assertThat(collect(source,client)).isEqualTo("SUCCESS");
+        assertThat(sql.queryForObject("select source_status from source_disaster where disaster_id=?",String.class,disaster)).isEqualTo("MAJOR_WARNING:7");
+        assertThat(sql.queryForObject("select title from disaster where disaster_id=?",String.class,disaster)).contains("중대경보").doesNotContain("주의보");
+        assertThat(sql.queryForObject("select official_severity_id from disaster where disaster_id=?",UUID.class,disaster)).isNull();
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and event_kind='SEVERITY_INCREASE'",Long.class,disaster)).isZero();
+        assertThat(sql.queryForObject("select count(*) from source_disaster_revision r join source_disaster s using(source_disaster_id) where disaster_id=?",Long.class,disaster)).isEqualTo(2);
+        assertThat(collect(source,client)).isEqualTo("SUCCESS");
+        assertThat(sql.queryForObject("select count(*) from source_disaster_revision r join source_disaster s using(source_disaster_id) where disaster_id=?",Long.class,disaster)).isEqualTo(2);
+    }
+
     @TestConfiguration(proxyBeanMethods=false)
     static class Providers {
         @Bean @Primary SocialIdentityVerifier fixtureSocial() {
