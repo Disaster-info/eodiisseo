@@ -23,7 +23,7 @@ import javax.swing.text.html.parser.ParserDelegator;
 /** Explicit OPS import tool. No endpoint, startup import, credentials, approval or external AI transmission. */
 @Service @Profile("!test")
 public class OfficialGuidanceImporter {
-    private static final Set<String> HOSTS=Set.of("www.mois.go.kr","www.safekorea.go.kr","www.safety24.go.kr");
+    private static final Set<String> HOSTS=Set.of("www.mois.go.kr","mois.go.kr","www.safekorea.go.kr","www.safety24.go.kr");
     private final OwnedDatabase db;private final OfficialResourceStore store;private final SessionAccessService sessions;
     private final AuthService auth;private final Clock clock;private final TransactionTemplate tx;
     public OfficialGuidanceImporter(OwnedDatabase db,OfficialResourceStore store,SessionAccessService sessions,AuthService auth,
@@ -115,7 +115,14 @@ public class OfficialGuidanceImporter {
                         if(--depth[0]==0)paragraph();
                     }
                 }
-                public void handleSimpleTag(HTML.Tag tag,MutableAttributeSet attributes,int pos){if(depth[0]>0&&tag==HTML.Tag.BR)paragraph();}
+                public void handleSimpleTag(HTML.Tag tag,MutableAttributeSet attributes,int pos){
+                    if(depth[0]>0&&tag==HTML.Tag.BR)paragraph();
+                    // Official poster pages provide accessible original text in ALT. No OCR or remote image fetch.
+                    if(depth[0]>0&&ignored[0]==0&&tag==HTML.Tag.IMG){
+                        Object alt=attributes.getAttribute(HTML.Attribute.ALT);
+                        if(alt instanceof String text&&!text.isBlank()){paragraph();line.append(text);paragraph();}
+                    }
+                }
                 public void handleText(char[] text,int position){if(depth[0]>0&&ignored[0]==0)line.append(text).append(' ');}
             };
             new ParserDelegator().parse(new StringReader(html),callback,true);

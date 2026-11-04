@@ -62,7 +62,9 @@ class OfficialDevelopmentLiveValidationTest {
         sql.update("insert into data_source(source_id,name,source_kind,endpoint_key,collection_interval_minutes,active) values(?,?,'DISASTER',?,5,true)",
             source,"DEVELOPMENT PARTIAL PROBE",provider.endpointKey);
         LocalDate day=LocalDate.parse(System.getenv("EODIISSEO_DEV_"+provider.name()+"_DATE"));
-        assertTrue(day.isBefore(LocalDate.now(ZoneId.of("Asia/Seoul"))),"Historical query required");
+        LocalDate today=LocalDate.now(ZoneId.of("Asia/Seoul"));
+        assertTrue(day.isBefore(today),"Historical query required");
+        if(provider==OfficialProviderClient.Provider.HEAVY_RAIN)assertFalse(day.isBefore(today.minusDays(60)),"Confirmed getPwnCd retention: choose a date within 60 days before any GET");
         List<Sample> samples=new ArrayList<>();observed.put(provider,samples);
         int limit=Integer.parseInt(Objects.toString(System.getenv("EODIISSEO_DEV_PROBE_REQUESTS"),"2"));
         assertTrue(limit==1||limit==2,"Finite observation request bound");
@@ -111,7 +113,29 @@ class OfficialDevelopmentLiveValidationTest {
         assertTrue(samples(provider).stream().anyMatch(s->s.page()!=null&&!s.page().items().isEmpty()),
             "No actual publication rows were obtained; NO_DATA does not pass existence verification");
     }
-    @ParameterizedTest @EnumSource(OfficialProviderClient.Provider.class) @Order(3)
+    @ParameterizedTest @EnumSource(value=OfficialProviderClient.Provider.class,names="HEAVY_RAIN") @Order(2)
+    void actualRainFieldCompatibilityWithoutIncidentRegistration(OfficialProviderClient.Provider provider){
+        var rows=samples(provider).stream().filter(s->s.page()!=null).flatMap(s->s.page().items().stream()).toList();
+        Assumptions.assumeTrue(!rows.isEmpty(),"No actual warning rows for compatibility verification");
+        int candidateMatches=0;
+        for(var row:rows){
+            assertDoesNotThrow(()->OfficialRecordNormalizer.identity(provider,row),"Official publication identity compatibility");
+            Instant issued=assertDoesNotThrow(()->OfficialRecordNormalizer.time(row.get("tmFc")),"Official issue timestamp compatibility");
+            assertFalse(issued.isAfter(Instant.now()),"Publication timestamp is not in the future");
+            assertEquals(LocalDate.parse(System.getenv("EODIISSEO_DEV_HEAVY_RAIN_DATE")),LocalDate.ofInstant(issued,ZoneId.of("Asia/Seoul")),"Returned publication day matches request");
+            assertEquals("2",Objects.toString(row.get("warnVar"),""),"Requested rain filter must match returned hazard");
+            assertTrue(Set.of("0","1","2").contains(Objects.toString(row.get("warnStress"),"")),"Unknown official warning level");
+            assertTrue(Set.of("1","2","3","6","7","8").contains(Objects.toString(row.get("command"),"")),"Unknown warning command");
+            assertTrue(Set.of("0","1").contains(Objects.toString(row.get("cancel"),"")),"Unknown cancellation code");
+            for(String field:List.of("startTime","endTime","allEndTime")){
+                String value=Objects.toString(row.get(field),"");
+                assertDoesNotThrow(()->OfficialRecordNormalizer.warningTime(value),"Conditional warning timestamp compatibility; zero remains unavailable");
+            }
+            if("202609260340".equals(Objects.toString(row.get("tmFc")))&&"111".equals(Objects.toString(row.get("tmSeq"))))candidateMatches++;
+        }
+        System.out.println("DEV_RAIN_COMPATIBILITY rows="+rows.size()+" candidate_publication_matches="+candidateMatches+" field_contract=COMPATIBLE full_collection_count_consistent="+samples(provider).stream().filter(s->s.page()!=null).allMatch(s->s.page().total()>=s.page().items().size())+" incident=UNCONFIRMED impact=UNKNOWN");
+        assertNoIncidentWrites();
+    }    @ParameterizedTest @EnumSource(OfficialProviderClient.Provider.class) @Order(3)
     void cExactOriginalStorageAndRollback(OfficialProviderClient.Provider provider){
         for(var sample:samples(provider)){
             assertNotNull(sample.raw(),"Original response unavailable");

@@ -23,7 +23,12 @@ public class OfficialRecordNormalizer {
         try { return LocalDateTime.parse(text,DateTimeFormatter.ofPattern(text.length()==12?"uuuuMMddHHmm":"uuuuMMddHHmmss")
             .withResolverStyle(ResolverStyle.STRICT)).atZone(ZoneId.of("Asia/Seoul")).toInstant(); } catch(DateTimeException e){throw new IllegalArgumentException("Invalid KST timestamp");}
     }
-    public static String identity(OfficialProviderClient.Provider provider,Map<String,Object> row){
+    /** Conditional KMA warning fields: observed zero is missing, never epoch or an inferred time. */
+    public static Optional<Instant> warningTime(Object value){
+        String text=Objects.toString(value,"");
+        if(text.isBlank()||"0".equals(text))return Optional.empty();
+        return Optional.of(time(value));
+    }    public static String identity(OfficialProviderClient.Provider provider,Map<String,Object> row){
         if(provider==WILDFIRE_MESSAGES)return bounded(row.get("SN"));
         if(!bounded(row.get("stnId")).matches("[0-9]{1,5}")||!bounded(row.get("tmSeq")).matches("[0-9]{1,4}"))throw new IllegalArgumentException("Invalid announcement identity");
         return bounded(row.get("stnId"))+":"+bounded(row.get("tmFc"))+":"+bounded(row.get("tmSeq"))+
@@ -59,7 +64,7 @@ public class OfficialRecordNormalizer {
             where s.source_id=? and split_part(s.source_record_key,':' ,1)=? and d.data_origin='OFFICIAL'
             order by s.source_updated_at desc nulls last limit 1 for update of s,d
             """,source,zone);
-        Instant start=null;try{start=time(row.get("startTime"));}catch(IllegalArgumentException ignored){}
+        Instant start=warningTime(row.get("startTime")).orElse(null);
         boolean lift=Set.of("2","8").contains(command);
         if(old!=null&&OwnedDatabase.instant(old.get("source_updated_at"))!=null&&issued.isBefore(OwnedDatabase.instant(old.get("source_updated_at"))))
             return new Result("OUT_OF_ORDER_WARNING",null);
@@ -70,7 +75,7 @@ public class OfficialRecordNormalizer {
         if(old!=null&&Set.of("LIFTED","ENDED").contains(old.get("status"))&&!lift)return new Result("WARNING_PREDECESSOR_MISSING",null);
         if(start==null&&old!=null)start=OwnedDatabase.instant(old.get("occurred_at"));
         if(start==null||start.isAfter(now))return new Result("WARNING_NOT_YET_EFFECTIVE",null);
-        Instant ended=lift?time(row.get("endTime")):null;
+        Instant ended=lift?warningTime(row.get("endTime")).orElseThrow(()->new IllegalArgumentException("Missing official lift time")):null;
         if(ended!=null&&(ended.isBefore(start)||ended.isAfter(now)))return new Result("INVALID_LIFT_TIME",null);
         String hash=AuthService.hash(original);
         if(old!=null&&hash.equals(old.get("content_hash"))){

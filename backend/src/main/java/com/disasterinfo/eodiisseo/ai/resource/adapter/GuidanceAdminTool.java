@@ -39,6 +39,7 @@ public class GuidanceAdminTool {
             String action=string(request,"operation");
             Object result;
             switch(action){
+                case "PLAN" -> result=GuidanceSourcePlan.inspect(request);
                 case "IMPORT" -> {
                     if(!Set.of("EARTHQUAKE","HEAVY_RAIN","WILDFIRE").contains(string(request,"hazard")))throw new IllegalArgumentException();
                     var document=importer.publish(actor,string(request,"sourceUrl"),string(request,"title"),string(request,"bodyElementId"),

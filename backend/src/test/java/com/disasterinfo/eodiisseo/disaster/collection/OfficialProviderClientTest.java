@@ -113,4 +113,10 @@ class OfficialProviderClientTest {
                 .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("NO_DATA"));
         }
     }
+    @Test void conditionalWarningZeroIsUnavailableButMandatoryIssueTimeRemainsStrict(){
+        for(Object value:Arrays.asList(null,"",0,0L,"0"))assertThat(OfficialRecordNormalizer.warningTime(value)).isEmpty();
+        assertThat(OfficialRecordNormalizer.warningTime(202609260340L)).contains(Instant.parse("2026-09-25T18:40:00Z"));
+        assertThatThrownBy(()->OfficialRecordNormalizer.time(0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->OfficialRecordNormalizer.warningTime("202602300100")).isInstanceOf(IllegalArgumentException.class);
+    }
 }

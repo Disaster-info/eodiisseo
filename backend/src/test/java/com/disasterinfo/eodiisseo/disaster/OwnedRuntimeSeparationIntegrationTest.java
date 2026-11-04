@@ -864,6 +864,69 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(sql.queryForObject("select completed_through from owned_collection_cursor where source_id=?",java.sql.Date.class,source)).isEqualTo(completedBefore);
         assertThat(sql.queryForObject("select count(*) from source_disaster where source_id=?",Long.class,source)).isEqualTo(recordsBefore);
     }
+
+    @Test @Order(27) void inconsistentOfficialTotalNeverInventsPaginationOrCoverage(){
+        var source=SOURCE;ready(source);
+        long pages=sql.queryForObject("select count(*) from owned_collection_page",Long.class);
+        long coverage=sql.queryForObject("select count(*) from owned_collection_coverage",Long.class);
+        long events=sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class);
+        var provider=com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.EARTHQUAKE;
+        var client=new com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient(provider,(uri,timeout)->
+            new com.disasterinfo.eodiisseo.disaster.collection.OfficialHttp.Reply(200,
+            "{\"response\":{\"header\":{\"resultCode\":\"00\"},\"body\":{\"pageNo\":1,\"totalCount\":0,\"items\":{\"item\":[{\"fixture\":\"SYNTHETIC\"}]}}}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        var day=LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1);
+        var outcome=app.getBean(com.disasterinfo.eodiisseo.disaster.collection.OfficialCollectionService.class)
+            .collect(source,client,"synthetic-key",day,day,"owned-disaster-development");
+        assertThat(outcome.status()).isEqualTo("PAGE_TOTAL_INCONSISTENT");
+        assertThat(sql.queryForObject("select count(*) from owned_collection_page",Long.class)).isEqualTo(pages);
+        assertThat(sql.queryForObject("select count(*) from owned_collection_coverage",Long.class)).isEqualTo(coverage);
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class)).isEqualTo(events);
+    }
+    @Test @Order(28) void realSourceMetadataPlansRequireOpsButNeverCreateOrApproveDocuments() throws Exception {
+        var tool=app.getBean(com.disasterinfo.eodiisseo.ai.resource.adapter.GuidanceAdminTool.class);
+        var reviewer=actor();var ordinary=actor();
+        sql.update("insert into member_role values(?,'OPS',?)",reviewer.memberId(),Timestamp.from(Instant.now()));
+        long documents=sql.queryForObject("select count(*) from official_resource",Long.class);
+        long reviews=sql.queryForObject("select count(*) from ai_resource_review",Long.class);
+        var root=tools.jackson.databind.json.JsonMapper.builder().build().readValue(java.nio.file.Files.readString(java.nio.file.Path.of(
+            "src/main/java/com/disasterinfo/eodiisseo/ai/resource/PHASE6_SOURCE_CATALOG.json")),Map.class);
+        for(var source:(List<Map<String,Object>>)root.get("sources")){
+            assertThat(toolCall(tool,ordinary,source).get("status")).isEqualTo("REJECTED");
+            var response=toolCall(tool,reviewer,source);assertThat(response.get("status")).isEqualTo("OK");
+            var metadata=(Map<String,Object>)response.get("result");
+            assertThat(metadata.get("approvalState")).isEqualTo("PENDING");
+            assertThat(metadata.get("runtimeSearchEligible")).isEqualTo(false);
+            assertThat(metadata.get("contentFingerprint")).isNull();
+        }
+        assertThat(sql.queryForObject("select count(*) from official_resource",Long.class)).isEqualTo(documents);
+        assertThat(sql.queryForObject("select count(*) from ai_resource_review",Long.class)).isEqualTo(reviews);
+    }
+    @Test @Order(29) void syntheticAccessiblePosterRetainsExactReviewAndRevokesAfterAltChanges() throws Exception {
+        var tool=app.getBean(com.disasterinfo.eodiisseo.ai.resource.adapter.GuidanceAdminTool.class);
+        var reviewer=actor();sql.update("insert into member_role values(?,'OPS',?)",reviewer.memberId(),Timestamp.from(Instant.now()));
+        String paragraph="TEST ONLY 산불 대피 방법은 테스트 안내를 확인합니다.";
+        var input=new LinkedHashMap<String,Object>(Map.of("operation","IMPORT","hazard","WILDFIRE",
+            "sourceUrl","https://www.mois.go.kr/phase6-synthetic-accessible-poster","title","TEST ONLY 산불 대피 행동요령",
+            "bodyElementId","guide","html","<div id='guide'><img alt='"+paragraph+"'></div>",
+            "expiresAt",Instant.now().plusSeconds(600).toString()));
+        var imported=(Map<String,Object>)toolCall(tool,reviewer,input).get("result");
+        UUID id=UUID.fromString(imported.get("resourceId").toString());
+        assertThat(imported.get("approved")).isEqualTo(false);
+        var search=app.getBean(com.disasterinfo.eodiisseo.ai.resource.ResourceService.class);
+        assertThat(search.search("산불 대피 방법").resources()).noneMatch(r->r.resourceId().equals(id));
+        var command=Map.<String,Object>of("operation","APPROVE","resourceId",id.toString(),"expectedFingerprint",imported.get("fingerprint"),
+            "validUntil",Instant.now().plusSeconds(300).toString(),"evidenceReference","SYNTHETIC HUMAN REVIEW ONLY; NOT AN OPERATIONAL APPROVAL",
+            "rightsAndExternalAiUseConfirmed",true,"injectionReviewed",true);
+        assertThat(toolCall(tool,reviewer,command).get("status")).isEqualTo("OK");
+        assertThat(search.search("산불 대피 방법").resources()).anySatisfy(r->{
+            assertThat(r.resourceId()).isEqualTo(id);assertThat(r.content()).isEqualTo(paragraph);
+        });
+        input.put("html","<div id='guide'><img alt='"+paragraph+" TEST CHANGED'></div>");
+        var changed=(Map<String,Object>)toolCall(tool,reviewer,input).get("result");
+        assertThat(changed.get("resourceId")).isNotEqualTo(id.toString());
+        assertThat(changed.get("approved")).isEqualTo(false);
+        assertThat(search.search("산불 대피 방법").resources()).noneMatch(r->r.resourceId().equals(id));
+    }
     @TestConfiguration(proxyBeanMethods=false)
     static class Providers {
         @Bean @Primary SocialIdentityVerifier fixtureSocial() {

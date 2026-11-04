@@ -52,6 +52,7 @@ public class OfficialCollectionService {
                     db.update("update owned_collection_cursor set budget_day=?,requests_today=? where source_id=?",java.sql.Date.valueOf(day),used+1,source);
                 });
                 var page=client.page(key,from,to,pages.size()+1);
+                if(page.items().size()>page.total())throw new CollectionFailure("PAGE_TOTAL_INCONSISTENT");
                 if(total<0)total=page.total();else if(total!=page.total())throw new CollectionFailure("PAGING_CHANGED");
                 pages.add(page);received+=page.items().size();
                 if(received>total||pages.size()>100)throw new CollectionFailure("PAGE_INCOMPLETE");
