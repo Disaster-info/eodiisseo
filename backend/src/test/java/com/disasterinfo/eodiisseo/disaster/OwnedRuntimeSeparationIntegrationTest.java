@@ -846,6 +846,24 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(sql.queryForObject("select count(*) from source_disaster_revision r join source_disaster s using(source_disaster_id) where disaster_id=?",Long.class,disaster)).isEqualTo(2);
     }
 
+    @Test @Order(26) void noDataObservationIsDistinctAndNeverAdvancesCoverage(){
+        UUID source=SOURCE;ready(source);
+        long coverageBefore=sql.queryForObject("select count(*) from owned_collection_coverage where source_id=?",Long.class,source);
+        long recordsBefore=sql.queryForObject("select count(*) from source_disaster where source_id=?",Long.class,source);
+        java.sql.Date completedBefore=sql.queryForObject("select completed_through from owned_collection_cursor where source_id=?",java.sql.Date.class,source);
+        var client=new com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient(
+            com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.EARTHQUAKE,
+            (uri,timeout)->new com.disasterinfo.eodiisseo.disaster.collection.OfficialHttp.Reply(200,
+                "{\"response\":{\"header\":{\"resultCode\":\"03\",\"resultMsg\":\"NODATA_ERROR\"}}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        var day=LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1);
+        var result=app.getBean(com.disasterinfo.eodiisseo.disaster.collection.OfficialCollectionService.class)
+            .collect(source,client,"synthetic-key",day,day,"owned-disaster-development");
+        assertThat(result.status()).isEqualTo("NO_DATA");assertThat(result.received()).isZero();assertThat(result.normalized()).isZero();
+        assertThat(sql.queryForObject("select error_code from collection_run where source_id=? and error_code='NO_DATA'",String.class,source)).isEqualTo("NO_DATA");
+        assertThat(sql.queryForObject("select count(*) from owned_collection_coverage where source_id=?",Long.class,source)).isEqualTo(coverageBefore);
+        assertThat(sql.queryForObject("select completed_through from owned_collection_cursor where source_id=?",java.sql.Date.class,source)).isEqualTo(completedBefore);
+        assertThat(sql.queryForObject("select count(*) from source_disaster where source_id=?",Long.class,source)).isEqualTo(recordsBefore);
+    }
     @TestConfiguration(proxyBeanMethods=false)
     static class Providers {
         @Bean @Primary SocialIdentityVerifier fixtureSocial() {

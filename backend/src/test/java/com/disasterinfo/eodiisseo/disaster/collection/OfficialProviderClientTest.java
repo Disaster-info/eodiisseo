@@ -87,4 +87,30 @@ class OfficialProviderClientTest {
             assertThatThrownBy(()->client(EARTHQUAKE,body).page("test",DAY,DAY,1)).isInstanceOf(CollectionFailure.class);
         }
     }
+    @Test void explicitProbeRowsAreBoundedAndDefaultContractRemainsOneHundred(){
+        for(int rows:new int[]{5,100}){
+            AtomicReference<URI> request=new AtomicReference<>();
+            var client=new OfficialProviderClient(EARTHQUAKE,(uri,timeout)->{request.set(uri);return new OfficialHttp.Reply(200,"{\"response\":{\"header\":{\"resultCode\":\"00\"},\"body\":{\"totalCount\":0,\"items\":\"\"}}}".getBytes(StandardCharsets.UTF_8));});
+            if(rows==100)client.page("synthetic-key",DAY,DAY,1);else client.page("synthetic-key",DAY,DAY,1,rows);
+            assertThat(request.get().getRawQuery()).contains("numOfRows="+rows);
+        }
+    }
+    @ParameterizedTest @ValueSource(ints={-1,0,101,Integer.MAX_VALUE})
+    void invalidProbeSizeNeverSends(int rows){
+        var client=new OfficialProviderClient(EARTHQUAKE,(uri,timeout)->{throw new AssertionError("No request allowed");});
+        assertThatThrownBy(()->client.page("synthetic-key",DAY,DAY,1,rows))
+            .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("ROW_LIMIT"));
+    }
+    @Test void providerCannotReturnMoreRowsThanTheExplicitProbeBound(){
+        String body="{\"response\":{\"header\":{\"resultCode\":\"00\"},\"body\":{\"totalCount\":2,\"items\":{\"item\":[{},{}]}}}}";
+        assertThatThrownBy(()->client(EARTHQUAKE,body).page("synthetic-key",DAY,DAY,1,1))
+            .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("ROW_LIMIT"));
+    }
+    @Test void noDataCodeDoesNotBecomeSuccessfulCoverageOrAnIncident(){
+        String body="{\"response\":{\"header\":{\"resultCode\":\"03\",\"resultMsg\":\"NODATA_ERROR\"}}}";
+        for(var provider:new OfficialProviderClient.Provider[]{EARTHQUAKE,HEAVY_RAIN}){
+            assertThatThrownBy(()->client(provider,body).page("synthetic-key",DAY,DAY,1,5))
+                .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("NO_DATA"));
+        }
+    }
 }

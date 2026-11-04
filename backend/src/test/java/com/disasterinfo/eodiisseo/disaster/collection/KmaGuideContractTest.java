@@ -21,4 +21,31 @@ class KmaGuideContractTest {
             assertThatThrownBy(()->client.decode(body.getBytes(StandardCharsets.UTF_8),1)).isInstanceOf(CollectionFailure.class);
         }
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"03","3"})
+    void officialKmaNoDataIsDistinctFromAuthenticationAndInvalidSchemas(String code){
+        String body="{\"response\":{\"header\":{\"resultCode\":\""+code+"\",\"resultMsg\":\"NODATA_ERROR\"}}}";
+        for(var provider:new OfficialProviderClient.Provider[]{EARTHQUAKE,HEAVY_RAIN}){
+            var client=new OfficialProviderClient(provider,(uri,timeout)->{throw new AssertionError("No transport");});
+            assertThatThrownBy(()->client.decode(body.getBytes(StandardCharsets.UTF_8),1))
+                .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("NO_DATA"));
+        }
+        var messages=new OfficialProviderClient(WILDFIRE_MESSAGES,(uri,timeout)->{throw new AssertionError("No transport");});
+        assertThatThrownBy(()->messages.decode(body.getBytes(StandardCharsets.UTF_8),1))
+            .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("PROVIDER_CODE"));
+    }
+    @Test void unknownMessageWithNoDataNumberIsNotTrusted(){
+        var client=new OfficialProviderClient(EARTHQUAKE,(uri,timeout)->{throw new AssertionError("No transport");});
+        assertThatThrownBy(()->client.decode("{\"response\":{\"header\":{\"resultCode\":\"03\",\"resultMsg\":\"UNKNOWN\"}}}".getBytes(StandardCharsets.UTF_8),1))
+            .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("PROVIDER_CODE"));
+    }
+    @Test void explicitHubUsesDocumentedFixedEndpointAndOnlyAuthKey(){
+        java.util.concurrent.atomic.AtomicReference<java.net.URI> request=new java.util.concurrent.atomic.AtomicReference<>();
+        var hub=OfficialProviderClient.earthquakeHub((uri,timeout)->{request.set(uri);return new OfficialHttp.Reply(200,
+            "{\"response\":{\"header\":{\"resultCode\":\"00\"},\"body\":{\"totalCount\":0,\"items\":\"\"}}}".getBytes(StandardCharsets.UTF_8));});
+        var date=java.time.LocalDate.of(2024,6,12);hub.page("synthetic+/=",date,date,1,5);
+        assertThat(request.get().getHost()).isEqualTo("apihub.kma.go.kr");
+        assertThat(request.get().getPath()).isEqualTo("/api/typ02/openApi/EqkInfoService/getEqkMsg");
+        assertThat(request.get().getRawQuery()).contains("authKey=synthetic%2B%2F%3D","numOfRows=5").doesNotContain("serviceKey=");
+    }
 }

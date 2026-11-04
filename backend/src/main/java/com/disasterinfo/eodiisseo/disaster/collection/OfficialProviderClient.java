@@ -28,16 +28,29 @@ public final class OfficialProviderClient {
         @Override public String toString(){return "OfficialPage[number="+number+", total="+total+", raw=redacted]";}
     }
     private static final JsonMapper JSON=JsonMapper.builder().build();
-    private final Provider provider; private final Transport transport;
-    public OfficialProviderClient(Provider provider,Transport transport){this.provider=Objects.requireNonNull(provider);this.transport=Objects.requireNonNull(transport);}
+    private final Provider provider; private final Transport transport; private final URI endpoint; private final String keyParameter;
+    public OfficialProviderClient(Provider provider,Transport transport){this(provider,transport,Objects.requireNonNull(provider).endpoint,"serviceKey");}
+    private OfficialProviderClient(Provider provider,Transport transport,URI endpoint,String keyParameter){
+        this.provider=Objects.requireNonNull(provider);this.transport=Objects.requireNonNull(transport);this.endpoint=endpoint;this.keyParameter=keyParameter;
+    }
+    /** Explicit approved Hub contract; never an automatic credential/endpoint fallback in production. */
+    public static OfficialProviderClient earthquakeHub(Transport transport){
+        return new OfficialProviderClient(Provider.EARTHQUAKE,transport,
+            URI.create("https://apihub.kma.go.kr/api/typ02/openApi/EqkInfoService/getEqkMsg"),"authKey");
+    }
     public Provider provider(){return provider;}
     private long nextRequestNanos;
-    public synchronized Page page(String decodedKey,LocalDate from,LocalDate to,int page) {
+    public Page page(String decodedKey,LocalDate from,LocalDate to,int page) {
+        return page(decodedKey,from,to,page,100);
+    }
+    /** Explicit small development probes reuse the same transport, schema validation and rate limit. */
+    public synchronized Page page(String decodedKey,LocalDate from,LocalDate to,int page,int rows) {
+        if(rows<1||rows>100)throw new CollectionFailure("ROW_LIMIT");
         if(decodedKey==null||decodedKey.isBlank()||decodedKey.length()>1024)throw new CollectionFailure("KEY_REQUIRED");
         if(from==null||to==null||from.getYear()<1||to.getYear()>9999||to.isBefore(from)||to.isAfter(from.plusDays(2))||page<1||page>100)
             throw new CollectionFailure("WINDOW_LIMIT");
         var parameters=new LinkedHashMap<String,String>();
-        parameters.put("serviceKey",decodedKey);parameters.put("pageNo",""+page);parameters.put("numOfRows","100");
+        parameters.put(keyParameter,decodedKey);parameters.put("pageNo",""+page);parameters.put("numOfRows",Integer.toString(rows));
         if(provider==Provider.WILDFIRE_MESSAGES){
             parameters.put("returnType","json");
             // MOIS public apiDataTable?dataSn=228, checked 2026-11-03: crtDt STRING, YYYYMMDD start date.
@@ -53,9 +66,11 @@ public final class OfficialProviderClient {
         long wait=nextRequestNanos-System.nanoTime();
         if(wait>0)try{java.util.concurrent.TimeUnit.NANOSECONDS.sleep(wait);}catch(InterruptedException e){Thread.currentThread().interrupt();throw new CollectionFailure("INTERRUPTED");}
         nextRequestNanos=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(1);
-        OfficialHttp.Reply reply=transport.get(URI.create(provider.endpoint+"?"+query),Duration.ofSeconds(15));
+        OfficialHttp.Reply reply=transport.get(URI.create(endpoint+"?"+query),Duration.ofSeconds(15));
         if(reply.status()!=200)throw new CollectionFailure(reply.status()==429?"RATE_LIMIT":reply.status()>=500?"PROVIDER_UNAVAILABLE":"HTTP_REJECTED");
-        return decode(reply.body(),page);
+        var decoded=decode(reply.body(),page);
+        if(decoded.items().size()>rows)throw new CollectionFailure("ROW_LIMIT");
+        return decoded;
     }
     public Page decode(byte[] bytes,int expectedPage) {
         if(bytes==null||bytes.length==0||bytes.length>2_097_152)throw new CollectionFailure("EMPTY_OR_OVERSIZED");
@@ -69,6 +84,9 @@ public final class OfficialProviderClient {
             // Portal table: 00; official KMA guide example: 0 + NORMAL_SERVICE. Do not relax MOIS errors.
             boolean normal="00".equals(code)||(provider!=Provider.WILDFIRE_MESSAGES && "0".equals(code)
                 && "NORMAL_SERVICE".equals(header.get("resultMsg")));
+            // Official KMA guides define 03/3 + NODATA_ERROR. It is an observation, not coverage proof.
+            if(provider!=Provider.WILDFIRE_MESSAGES && Set.of("03","3").contains(code)
+                && "NODATA_ERROR".equals(header.get("resultMsg")))throw new CollectionFailure("NO_DATA");
             if(!normal)throw new CollectionFailure(Set.of("20","30","31","32","33","34").contains(code)?"AUTH_REJECTED":
                 Set.of("22","23").contains(code)?"RATE_LIMIT":"PROVIDER_CODE");
             Map<String,Object> body;Object rows;Object total;
