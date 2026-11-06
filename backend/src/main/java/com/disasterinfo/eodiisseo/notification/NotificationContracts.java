@@ -56,7 +56,9 @@ public final class NotificationContracts {
                                    boolean official) {}
     public interface DisasterReader { OfficialDisaster findOfficial(UUID disasterId); }
     public enum ChangeKind { NEW, CHANGED }
-    public record DisasterChange(UUID disasterId, ChangeKind kind, Severity previousSeverity) {}
+    public record DisasterChange(UUID disasterId, ChangeKind kind, Severity previousSeverity, String eventKey) {
+        public DisasterChange(UUID disasterId,ChangeKind kind,Severity previousSeverity){this(disasterId,kind,previousSeverity,null);}
+    }
     public enum EventKind { INITIAL, SEVERITY_INCREASE }
     public record Event(UUID id, UUID memberId, UUID disasterId, String eventKey, EventKind kind,
                         UUID severityId, String titleSnapshot, Instant createdAt,
@@ -78,7 +80,8 @@ public final class NotificationContracts {
         public String errorCode() { return errorCode; }
     }
     /** ACCEPTED means provider acceptance, not confirmed device display. */
-    public record PushResult(boolean successful, boolean invalidToken, String providerMessageId, PushOutcome outcome) {
+    public record PushResult(boolean successful, boolean invalidToken, String providerMessageId, PushOutcome outcome, Instant retryNotBefore) {
+        public PushResult(boolean successful,boolean invalidToken,String providerMessageId,PushOutcome outcome){this(successful,invalidToken,providerMessageId,outcome,null);}
         public PushResult {
             if (outcome == null || successful != (outcome == PushOutcome.ACCEPTED)
                     || invalidToken != (outcome == PushOutcome.UNREGISTERED))
@@ -87,7 +90,7 @@ public final class NotificationContracts {
         /** Legacy failures carry no acceptance evidence and must not be automatically retried. */
         public PushResult(boolean successful, boolean invalidToken, String providerMessageId) {
             this(successful, invalidToken, providerMessageId,
-                    invalidToken ? PushOutcome.UNREGISTERED : successful ? PushOutcome.ACCEPTED : PushOutcome.ACCEPTANCE_UNKNOWN);
+                    invalidToken ? PushOutcome.UNREGISTERED : successful ? PushOutcome.ACCEPTED : PushOutcome.ACCEPTANCE_UNKNOWN,null);
         }
     }
     public interface FcmSender {
@@ -127,6 +130,10 @@ public final class NotificationContracts {
         /** Atomic unique (event, ordinal, attempt), false if already claimed. */
         boolean beginDelivery(Delivery delivery);
         void finishDelivery(Delivery delivery);
+        /** Commit the submission boundary under member -> event -> device locking; no network inside. */
+        default boolean authorizeSubmission(Delivery delivery, Device expected, Settings settings, Instant now, java.util.function.BooleanSupplier stillEligible) { return false; }
+        default void recordRetryNotBefore(UUID deliveryId, Instant at) { throw new UnsupportedOperationException("Retry metadata unavailable"); }
+        default Instant retryNotBefore(UUID deliveryId) { return null; }
         void withdrawMember(UUID memberId, Instant now);
         int deleteExpiredEvents(Instant now);
         void deleteSettings(UUID memberId);

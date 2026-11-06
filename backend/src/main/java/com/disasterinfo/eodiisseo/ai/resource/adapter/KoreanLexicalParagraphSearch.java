@@ -19,18 +19,19 @@ public class KoreanLexicalParagraphSearch implements ResourceParagraphSearch {
     private static final Pattern BOUNDARY = Pattern.compile(BREAK + "[\\p{Zs}\\t]*" + BREAK + "(?:[\\p{Zs}\\t]*" + BREAK + ")*");
     private static final List<Topic> TOPICS = List.of(
             new Topic("EARTHQUAKE", List.of("지진", "흔들", "진동"), List.of("지진", "땅이흔들", "바닥이흔들", "집이흔들", "건물이흔들", "흔들림")),
-            new Topic("HEAVY_RAIN", List.of("호우", "침수", "폭우"), List.of("호우", "폭우", "침수", "홍수", "비가많이", "비가너무", "도로가잠", "물이차")),
+            new Topic("HEAVY_RAIN", List.of("호우", "침수", "폭우"), List.of("호우", "집중호우", "폭우", "침수", "홍수", "비가많이", "비가너무", "도로가잠", "물이차")),
             new Topic("WILDFIRE", List.of("산불", "산림", "산에서불"), List.of("산불", "산에불", "산에서불", "산림화재")));
     private static final List<List<String>> FACETS = List.of(
             List.of("탁자", "책상", "실내", "집안", "집에서", "건물안"),
             List.of("실외", "밖에서", "야외", "건물밖"),
             List.of("차량", "자동차", "운전", "차안"),
             List.of("도로", "지하차도", "침수된길", "물에잠긴길"),
+            List.of("지하공간", "지하실", "지하주차장"),
             List.of("대피", "피난", "피하"));
-    private static final List<String> ACTION = List.of("해야", "행동", "대처", "대응", "안전", "어떻게", "대피", "피하", "요령", "방법", "어디");
+    private static final List<String> ACTION = List.of("해야", "행동", "대처", "대응", "안전", "어떻게", "대피", "피하", "요령", "방법", "어디", "이동해도", "진입해도");
     private static final List<String> GUIDANCE = List.of("하세요", "하십시오", "합니다", "한다", "마세요", "않", "대피", "보호", "피하", "이동", "멈추", "기다", "숙이", "확인", "진입", "행동");
     private static final List<String> DYNAMIC = List.of("실시간", "지금", "현재", "오늘", "우리동네", "우리집", "내집", "내위치", "근처", "여기", "이곳", "위험한가", "위험이있", "위험여부", "안전한지", "안전한가", "안전할까", "안전여부", "발생했", "발생여부", "피해액", "발생시각", "예상피해", "경로", "좌표", "확률");
-    private static final Set<String> QUESTION_WORDS = Set.of("나", "나면", "날", "났을", "일어나면", "때", "시", "동안", "발생", "발생시", "경우", "상황", "안전", "요령", "행동", "행동요령", "대처", "대응", "방법", "어떻게", "어디", "무엇", "뭐", "왜", "많이", "너무", "와서", "하", "해", "해야", "하나", "하나요", "해요", "하는", "하면", "할", "있", "있나", "좋", "알려줘", "알려주세요", "주세요", "해줘", "해주세요");
+    private static final Set<String> QUESTION_WORDS = Set.of("나", "나면", "날", "났을", "일어나면", "때", "시", "동안", "발생", "발생시", "경우", "상황", "안전", "요령", "행동", "행동요령", "대처", "대응", "방법", "어떻게", "어디", "무엇", "뭐", "왜", "많이", "너무", "와서", "하", "해", "해야", "하나", "하나요", "해요", "하는", "하면", "할", "있", "있나", "좋", "알려줘", "알려주세요", "주세요", "해줘", "해주세요", "심한데", "있다면", "이동해", "진입해", "돼");
     private static final List<String> SUFFIXES = List.of("에서는", "으로는", "에게는", "하려면", "하세요", "하는", "하나요", "해야", "하면", "에서", "으로", "에게", "에는", "에선", "일까요", "할까요", "인가요", "나요", "은", "는", "이", "가", "을", "를", "의", "에", "도", "로", "와", "과");
     private static final List<String> INJECTION = List.of("ignoreprevious", "ignoresystem", "systemprompt", "system:", "developer:", "assistant:",
             "[inst]", "<|system", "지시를무시", "지시무시", "명령을무시", "시스템명령", "시스템프롬프트", "개발자지시", "이전지침을무시");
@@ -38,14 +39,16 @@ public class KoreanLexicalParagraphSearch implements ResourceParagraphSearch {
     @Override
     public Optional<Query> prepare(String question) {
         if (question == null || question.isBlank() || question.length() > 10_000 || suspicious(question)) return Optional.empty();
-        String text = normalized(question);
+        // Only explicit conditional grammar is treated as static guidance. Current/local-risk markers remain blocked.
+        String retrievalQuestion = question.replaceAll("발생했을\\s*때", "발생 시").replaceAll("지하\\s+공간", "지하공간");
+        String text = normalized(retrievalQuestion);
         if (containsAny(text, DYNAMIC) || !containsAny(text, ACTION)) return Optional.empty();
         List<Topic> matches = TOPICS.stream().filter(topic -> containsAny(text, topic.aliases())).toList();
         if (matches.size() != 1) return Optional.empty();
         // Every requested situation must be supported by a complete matching paragraph.
         List<String> facets = FACETS.stream().filter(group -> containsAny(text, group)).flatMap(List::stream).distinct().toList();
         Topic topic = matches.getFirst();
-        List<String> required = meaningfulTerms(question, topic);
+        List<String> required = meaningfulTerms(retrievalQuestion, topic);
         if (required.size() > 12) return Optional.empty();
         return Optional.of(new Query(topic.code(), topic.terms(), facets, required));
     }

@@ -152,6 +152,7 @@ class AiHttpControllersTest {
         when(repository.listCurrentRoles(MEMBER)).thenReturn(List.of(Map.of("role", "USER")));
         when(answers.isAvailable()).thenReturn(true);
         when(privacy.minimizeLocally(any())).thenReturn(Optional.empty());
+        doCallRealMethod().when(privacy).minimizeLocally(any(UUID.class),anyString());
         var revision = new OfficialRevision(DISASTER, UUID.randomUUID(), REVISION, 1, "HEAVY_RAIN", "Fixture region",
                 OfficialRevision.DisasterStatus.ONGOING, null, "Synthetic test source", NOW, OfficialRevision.Origin.OFFICIAL);
         when(sources.findDisaster(DISASTER)).thenReturn(Optional.of(new SummarySourceReader.Source(

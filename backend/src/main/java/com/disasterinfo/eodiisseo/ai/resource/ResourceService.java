@@ -22,9 +22,6 @@ import java.util.UUID;
 /** CHAT-001 retrieval only. No automatic collection, approvals, dynamic-risk claims or fixture loading. */
 @Service
 public class ResourceService implements ChatOfficialResourceSearchPort {
-    private static final Set<String> MOIS_HOSTS = Set.of("www.safety24.go.kr", "safety24.go.kr",
-            "www.safekorea.go.kr", "safekorea.go.kr", "www.mois.go.kr", "mois.go.kr",
-            "www.safetydata.go.kr", "safetydata.go.kr");
     private final OfficialResourceStore store;
     private final ResourceParagraphSearch paragraphs;
     private final Optional<ResourceApprovalPort> approvals;
@@ -81,11 +78,11 @@ public class ResourceService implements ChatOfficialResourceSearchPort {
     }
 
     private boolean approved(OfficialResourceDocument document, Instant now) {
-        if (!"행정안전부".equals(document.getAgencyName()) || document.getCheckedAt() == null
+        if (document.getCheckedAt() == null
                 || document.getCheckedAt().isAfter(now) || document.getContentText() == null || document.getContentText().isBlank()) return false;
         URI source = URI.create(document.getSourceUrl());
         if (!"https".equalsIgnoreCase(source.getScheme()) || source.getHost() == null
-                || !MOIS_HOSTS.contains(source.getHost().toLowerCase(java.util.Locale.ROOT))
+                || !com.disasterinfo.eodiisseo.ai.resource.adapter.OfficialGuidanceImporter.publisherMatches(document.getAgencyName(),source)
                 || source.getRawUserInfo() != null || source.getPort() != -1 || source.getFragment() != null) return false;
         var review = approvals.orElseThrow().findApproval(document.getResourceId());
         if (review == null || review.isEmpty()) return false;

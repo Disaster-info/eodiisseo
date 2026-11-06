@@ -15,6 +15,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class DashboardHttpErrors {
 
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorBody> invalidQueryType(){return common(ErrorCode.INVALID_INPUT);}
+
     @ExceptionHandler(DashboardException.class)
     public ResponseEntity<ErrorBody> dashboard(DashboardException failure) {
         return switch (failure.reason()) {

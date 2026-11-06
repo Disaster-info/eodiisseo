@@ -49,6 +49,26 @@ public class OllamaChatClient implements AutoCloseable {
 
     public boolean isConfigured() { return !closed.get() && !http.isTerminated(); }
     public String modelName() { return settings.model(); }
+    /** Explicit readiness probe only; never called during startup or automatically pulls a model. */
+    public boolean verifyInstalledModel() {
+        if(!isConfigured())throw new OllamaException(CONFIGURATION_INVALID);
+        var future=http.sendAsync(HttpRequest.newBuilder(settings.baseUrl().resolve("/api/tags"))
+            .timeout(settings.requestTimeout()).GET().build(),info->new BoundedBody());
+        try {
+            var response=future.get(settings.requestTimeout().toNanos(),TimeUnit.NANOSECONDS);
+            if(response.statusCode()!=200)throw statusFailure(response.statusCode(),response.body());
+            var models=OllamaJson.readObject(decode(response.body())).path("models");
+            if(!models.isArray()||models.size()>1000)throw new OllamaException(INVALID_RESPONSE);
+            for(var model:models)if(settings.model().equals(model.path("name").asString()))return true;
+            throw new OllamaException(MODEL_NOT_FOUND);
+        } catch(InterruptedException e){Thread.currentThread().interrupt();throw new OllamaException(INTERRUPTED);}
+          catch(TimeoutException e){throw new OllamaException(REQUEST_TIMEOUT);}
+          catch(OllamaException e){throw e;}
+          catch(Exception e){throw new OllamaException(CONNECTION_FAILED);}
+        finally{if(!future.isDone())future.cancel(true);}
+    }
+
+
 
     public record Response(String content, String modelName, Duration elapsed) {
         @Override public String toString() { return "OllamaResponse[content=<redacted>, model=" + modelName + ", elapsed=" + elapsed + "]"; }

@@ -167,7 +167,7 @@ public final class PostgresAuditSupport implements AutoCloseable {
             CREATE TABLE notification_delivery(delivery_id uuid PRIMARY KEY,
               event_id uuid NOT NULL REFERENCES notification_event, device_token_id uuid REFERENCES device_token,
               target_ordinal smallint NOT NULL, attempt_no smallint NOT NULL, sent_at timestamptz,
-              result varchar(12) NOT NULL, provider_message_id varchar(255), error_code varchar(80),
+              result varchar(12) NOT NULL, provider_message_id varchar(255), error_code varchar(80), retry_not_before timestamptz, submission_authorized_at timestamptz,
               UNIQUE(event_id,target_ordinal,attempt_no));
             """;
 }
