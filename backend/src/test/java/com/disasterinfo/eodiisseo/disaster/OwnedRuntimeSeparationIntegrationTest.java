@@ -927,6 +927,188 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(changed.get("approved")).isEqualTo(false);
         assertThat(search.search("산불 대피 방법").resources()).noneMatch(r->r.resourceId().equals(id));
     }
+
+    @Test @Order(30)
+    @EnabledIfEnvironmentVariable(named="EODIISSEO_RAG_REAL_DATA_VALIDATION",matches="true")
+    void realOfficialSourcesImportInspectAndRemainUnapproved() throws Exception {
+        var directory=java.nio.file.Path.of(System.getenv("EODIISSEO_RAG_REAL_EXPORT_DIRECTORY")).toAbsolutePath().normalize();
+        if(!directory.toString().equals("C:\\Users\\dkemf\\AppData\\Local\\Temp\\eodiisseo-phase7-docs-20261104"))
+            throw new IllegalArgumentException("Only the inspected temporary export directory is allowed");
+        var mapper=tools.jackson.databind.json.JsonMapper.builder().build();
+        var manifest=mapper.readValue(java.nio.file.Files.readString(directory.resolve("manifest.json")),Map.class);
+        var tool=app.getBean(com.disasterinfo.eodiisseo.ai.resource.adapter.GuidanceAdminTool.class);
+        var reviewer=actor();sql.update("insert into member_role values(?,'OPS',?)",reviewer.memberId(),Timestamp.from(Instant.now()));
+        var store=app.getBean(com.disasterinfo.eodiisseo.ai.resource.port.OfficialResourceStore.class);
+        var approval=app.getBean(com.disasterinfo.eodiisseo.ai.resource.adapter.DatabaseResourceApproval.class);
+        var search=app.getBean(com.disasterinfo.eodiisseo.ai.resource.ResourceService.class);
+        var paragraphs=app.getBean(com.disasterinfo.eodiisseo.ai.resource.port.ResourceParagraphSearch.class);
+        var reviewNotes=new StringBuilder("\n\n## 개발 DB IMPORT/INSPECT 결과\n실제 APPROVE는 수행하지 않았습니다. 아래 ID는 종료 후 폐기되는 DB의 검수 식별자이며 운영 승인에는 새 INSPECT가 필요합니다.\n");
+        int registered=0;
+        for(var source:(List<Map<String,Object>>)manifest.get("sources")){
+            String filename=source.get("exportFile").toString();
+            if(!filename.matches("(rain|wildfire)-export\\.html"))throw new IllegalArgumentException("Only inspected exports");
+            byte[] raw=java.nio.file.Files.readAllBytes(directory.resolve(filename));
+            String sha=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(raw));
+            assertThat(sha).isEqualTo(source.get("exportSha256"));
+            assertThat(source.get("rightsState")).isEqualTo("TYPE1_SCOPED_VERIFIED");
+            var plans=mapper.readValue(java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/disasterinfo/eodiisseo/ai/resource/PHASE7_SOURCE_CATALOG.json")),Map.class);
+            var plan=((List<Map<String,Object>>)plans.get("sources")).stream().filter(v->v.get("sourceUrl").equals(source.get("sourceUrl"))).findFirst().orElseThrow();
+            var planned=toolCall(tool,reviewer,plan);assertThat(planned.get("status")).isEqualTo("OK");
+            assertThat(((Map<?,?>)planned.get("result")).get("runtimeSearchEligible")).isEqualTo(false);
+            var request=Map.<String,Object>of("operation","IMPORT","hazard",source.get("hazard"),"sourceUrl",source.get("sourceUrl"),
+                "title",source.get("title"),"bodyElementId","guide","html",new String(raw,java.nio.charset.StandardCharsets.UTF_8),
+                "expiresAt",Instant.now().plusSeconds(3600).toString());
+            var imported=toolCall(tool,reviewer,request);assertThat(imported.get("status")).isEqualTo("OK");
+            var inspected=(Map<String,Object>)imported.get("result");
+            UUID id=UUID.fromString(inspected.get("resourceId").toString());
+            var doc=store.findById(id).orElseThrow();
+            String expected=((List<String>)source.get("paragraphs")).stream().map(t->t.replaceAll("\\s+"," ").strip()).collect(java.util.stream.Collectors.joining("\n\n"));
+            assertThat(doc.getContentText().equals(expected)).as("Inspected complete source paragraphs are preserved").isTrue();
+            assertThat(doc.getAgencyName()).isEqualTo(source.get("publisher"));
+            assertThat(approval.findApproval(id)).isEmpty();
+            assertThat(inspected.get("approved")).isEqualTo(false);
+            byte[] stored=sql.queryForObject("select raw_body from owned_resource_import where resource_id=?",byte[].class,id);
+            assertThat(Arrays.equals(raw,stored)).as("Exact inspected export bytes persisted").isTrue();
+            String canonical=source.get("hazard").equals("HEAVY_RAIN")?"호우 지하차도 대피 방법":"산불 대피 방법";
+            var query=paragraphs.prepare(canonical).orElseThrow();
+            int preview=paragraphs.select(query,doc).size();
+            assertThat(preview).as("Offline suitability, without approval bypass").isGreaterThan(0);
+            assertThat(search.search(canonical).resources()).isEmpty();
+            List<String> questions=source.get("hazard").equals("HEAVY_RAIN")?
+                List.of("호우가 심한데 지하차도로 이동해도 돼?","집중호우가 발생했을 때 지하 공간에 있다면 어떻게 해야 해?"):
+                List.of("산불 대피 안내가 내려오면 무엇을 준비해야 해?","산불이 가까워졌는데 어느 방향으로 이동해야 해?");
+            List<Integer> counts=new ArrayList<>();
+            for(String question:questions){
+                var prepared=paragraphs.prepare(question);
+                counts.add(prepared.map(q->paragraphs.select(q,doc).size()).orElse(0));
+                assertThat(search.search(question).resources()).isEmpty();
+            }
+            long before=sql.queryForObject("select count(*) from official_resource",Long.class);
+            var importer=app.getBean(com.disasterinfo.eodiisseo.ai.resource.adapter.OfficialGuidanceImporter.class);
+            tx.executeWithoutResult(status->{
+                importer.publish(reviewer,source.get("sourceUrl").toString(),source.get("title").toString(),"guide",
+                    (new String(raw,java.nio.charset.StandardCharsets.UTF_8)+"\n").getBytes(java.nio.charset.StandardCharsets.UTF_8),Instant.now().plusSeconds(3600));
+                status.setRollbackOnly();
+            });
+            assertThat(sql.queryForObject("select count(*) from official_resource",Long.class)).isEqualTo(before);
+            assertThat(store.findById(id).orElseThrow().revisionFingerprint()).isEqualTo(doc.revisionFingerprint());
+            System.out.println("RAG_REAL_REVIEW hazard="+source.get("hazard")+" publisher="+source.get("publisher")+
+                " stored=1 paragraphs="+((List<?>)source.get("paragraphs")).size()+" canonical_preview="+preview+" example_previews="+counts+" approved=0 runtime_results=0 rollback=OK");
+            reviewNotes.append("\n### ").append(source.get("hazard")).append("\nresourceId: ").append(id)
+                .append("\nrevisionFingerprint: ").append(doc.revisionFingerprint()).append("\nexport SHA256: ").append(sha)
+                .append("\npreview count: ").append(preview).append("\nprovided question previews: ").append(counts)
+                .append("\nstatus: PENDING / approved corpus search not performed\n");
+            registered++;
+        }
+        assertThat(registered).isEqualTo(2);
+        assertThat(sql.queryForObject("select count(*) from ai_resource_review",Long.class)).isZero();
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class)).isZero();
+        java.nio.file.Files.writeString(directory.resolve("PHASE7_RAG_REVIEW_PACKET.md"),reviewNotes.toString(),
+            java.nio.file.StandardOpenOption.APPEND);
+    }
+
+    @Test @Order(31)
+    @EnabledIfEnvironmentVariable(named="EODIISSEO_RAG_HUMAN_REVIEW_SCOPE",matches="2026-11-06-two-reviewed-exports-dev-search-only")
+    void humanReviewedRealExportsApproveSearchAndRevokeOnlyInDisposableDatabase() throws Exception {
+        // Human authorisation: 2026-11-06 user reply. Search in this disposable DB only; no model transmission.
+        Path directory=Path.of("C:\\Users\\dkemf\\AppData\\Local\\Temp\\eodiisseo-phase7-docs-20261104");
+        var mapper=tools.jackson.databind.json.JsonMapper.builder().build();
+        var manifest=mapper.readValue(Files.readString(directory.resolve("manifest.json")),Map.class);
+        var sources=(List<Map<String,Object>>)manifest.get("sources");
+        assertThat(sources).hasSize(2);
+        var expected=Map.of(
+            "HEAVY_RAIN",List.of("rain-export.html","4f207f9218c419ec844b50261d53abffe2aa8eb39b20efb038537ad817a6c17b",
+                "https://nonsan.go.kr/kor/html/sub05/050610.html?mode=V&no=b3a79c4a1274bdfe06e9cd3418efd51f",
+                "논산시","여름철 자연재난(호우·태풍 등) 행동요령 (행정안전부 표기·논산시 게시)"),
+            "WILDFIRE",List.of("wildfire-export.html","96d2f4fe1f39a006cc36f66ec30417ca8215649dd4d81e0ac15c8f0d9d4f99fa",
+                "https://www.rda.go.kr/board/board.do?dataNo=100000801828&mode=view&prgId=con_cardnews",
+                "농촌진흥청","산불 국민행동요령 (산림청 표기·농촌진흥청 게시)"));
+        var seen=new HashSet<String>();
+        // Validate BOTH approved exports and metadata before importing or granting any review.
+        for(var source:sources){
+            String hazard=source.get("hazard").toString();
+            assertThat(seen.add(hazard)).isTrue();
+            assertThat(expected).containsKey(hazard);
+            var pin=expected.get(hazard);
+            assertThat(List.of(source.get("exportFile"),source.get("exportSha256"),source.get("sourceUrl"),
+                source.get("publisher"),source.get("title"))).isEqualTo(pin);
+            String hash=HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(Files.readAllBytes(directory.resolve(pin.get(0)))));
+            assertThat(hash).isEqualTo(pin.get(1));
+        }
+        var tool=app.getBean(GuidanceAdminTool.class);
+        var reviewer=actor();var ordinary=actor();
+        sql.update("insert into member_role values(?,'OPS',?)",reviewer.memberId(),Timestamp.from(Instant.now()));
+        var store=app.getBean(com.disasterinfo.eodiisseo.ai.resource.port.OfficialResourceStore.class);
+        var search=app.getBean(com.disasterinfo.eodiisseo.ai.resource.ResourceService.class);
+        long reviewsBefore=sql.queryForObject("select count(*) from ai_resource_review",Long.class);
+        long outboxBefore=sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class);
+        var notes=new StringBuilder("\n\n## 2026-11-06 명시적 사용자 승인 후 개발 DB 검색\n운영 승인/외부 AI 전송 없음. 동일 export만 재등록. 검증 후 승인 철회 및 DB 폐기.\n");
+        for(var source:sources){
+            var pin=expected.get(source.get("hazard"));
+            byte[] raw=Files.readAllBytes(directory.resolve(pin.get(0)));
+            var imported=toolCall(tool,reviewer,Map.of("operation","IMPORT","hazard",source.get("hazard"),
+                "sourceUrl",pin.get(2),"title",pin.get(4),"bodyElementId","guide",
+                "html",new String(raw,java.nio.charset.StandardCharsets.UTF_8),
+                "expiresAt",Instant.now().plusSeconds(1800).toString()));
+            assertThat(imported.get("status")).isEqualTo("OK");
+            var initial=(Map<String,Object>)imported.get("result");
+            UUID id=UUID.fromString(initial.get("resourceId").toString());
+            var inspectedResponse=toolCall(tool,reviewer,Map.of("operation","INSPECT","resourceId",id.toString()));
+            assertThat(inspectedResponse.get("status")).isEqualTo("OK");
+            var inspected=(Map<String,Object>)inspectedResponse.get("result");
+            var doc=store.findById(id).orElseThrow();
+            assertThat(inspected.get("fingerprint")).isEqualTo(doc.revisionFingerprint());
+            assertThat(inspected.get("approved")).isEqualTo(false);
+            String canonical=source.get("hazard").equals("HEAVY_RAIN")?"호우 지하차도 대피 방법":"산불 대피 방법";
+            assertThat(search.search(canonical).resources()).noneMatch(r->r.resourceId().equals(id));
+            var command=new LinkedHashMap<String,Object>(Map.of("operation","APPROVE","resourceId",id.toString(),
+                "expectedFingerprint",inspected.get("fingerprint"),"validUntil",Instant.now().plusSeconds(600).toString(),
+                "evidenceReference","USER REVIEW 2026-11-06; TEMP DEVELOPMENT SEARCH ONLY; export SHA256="+pin.get(1),
+                "rightsAndExternalAiUseConfirmed",true,"injectionReviewed",true));
+            assertThat(toolCall(tool,ordinary,command).get("status")).isEqualTo("REJECTED");
+            command.put("expectedFingerprint","unreviewed-revision");
+            assertThat(toolCall(tool,reviewer,command).get("status")).isEqualTo("REJECTED");
+            command.put("expectedFingerprint",inspected.get("fingerprint"));
+            var approved=toolCall(tool,reviewer,command);
+            assertThat(approved.get("status")).isEqualTo("OK");
+            assertThat(((Map<?,?>)approved.get("result")).get("approved")).isEqualTo(true);
+            List<String> questions=source.get("hazard").equals("HEAVY_RAIN")?
+                List.of(canonical,"호우가 심한데 지하차도로 이동해도 돼?","집중호우가 발생했을 때 지하 공간에 있다면 어떻게 해야 해?"):
+                List.of(canonical);
+            var counts=new ArrayList<Integer>();
+            for(String question:questions){
+                var result=search.search(question);
+                assertThat(result.sufficientEvidence()).isTrue();
+                assertThat(result.resources()).hasSize(1);
+                var resource=result.resources().getFirst();
+                assertThat(resource.resourceId()).isEqualTo(id);
+                assertThat(resource.organization()).isEqualTo(pin.get(3));
+                assertThat(resource.title()).isEqualTo(pin.get(4));
+                assertThat(resource.sourceUrl().toString()).isEqualTo(pin.get(2));
+                assertThat(resource.usableAsEvidence()).isTrue();
+                var complete=List.of(doc.getContentText().split("\\n\\n"));
+                var selected=List.of(resource.content().split("\\n\\n"));
+                assertThat(complete.containsAll(selected)).as("Only complete verbatim inspected paragraphs").isTrue();
+                counts.add(selected.size());
+            }
+            for(String unsupported:List.of("산불 대피 안내가 내려오면 무엇을 준비해야 해?","산불이 가까워졌는데 어느 방향으로 이동해야 해?",
+                "지진이 발생해서 건물이 흔들리는 동안 어떻게 해야 해?","엘리베이터 안에서 지진이 발생하면 어떻게 해야 해?")){
+                assertThat(search.search(unsupported).resources()).isEmpty();
+                assertThat(search.search(unsupported).sufficientEvidence()).isFalse();
+            }
+            assertThat(toolCall(tool,reviewer,Map.of("operation","REVOKE","resourceId",id.toString())).get("status")).isEqualTo("OK");
+            for(String question:questions)assertThat(search.search(question).resources()).noneMatch(r->r.resourceId().equals(id));
+            notes.append("\n").append(source.get("hazard")).append(": export=").append(pin.get(1))
+                .append("; resourceId=").append(id).append("; revision=").append(doc.revisionFingerprint())
+                .append("; approved search paragraph counts=").append(counts).append("; revoked=OK\n");
+            System.out.println("RAG_HUMAN_REVIEW hazard="+source.get("hazard")+" approved_search_paragraphs="+counts+" source_exact=true unapproved_blocked=true wrong_revision_blocked=true unauthorized_blocked=true revoked=OK");
+        }
+        assertThat(sql.queryForObject("select count(*) from ai_resource_review",Long.class)).isEqualTo(reviewsBefore+2);
+        assertThat(sql.queryForObject("select count(*) from ai_resource_review where revoked_at is null",Long.class)).isZero();
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class)).isEqualTo(outboxBefore);
+        Files.writeString(directory.resolve("PHASE7_RAG_REVIEW_PACKET.md"),notes.toString(),StandardOpenOption.APPEND);
+    }
     @TestConfiguration(proxyBeanMethods=false)
     static class Providers {
         @Bean @Primary SocialIdentityVerifier fixtureSocial() {

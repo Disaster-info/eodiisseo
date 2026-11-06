@@ -217,7 +217,24 @@ class ResourceServiceTest {
                 .singleElement().extracting(value -> value.content()).isEqualTo(original);
     }
 
-    private ResourceService service() { return new ResourceService(store, engine, Optional.of(reviews), CLOCK); }
+    @ParameterizedTest
+    @ValueSource(strings={"호우가 심한데 지하차도로 이동해도 돼?","집중호우가 발생했을 때 지하 공간에 있다면 어떻게 해야 해?"})
+    void staticRainPermissionAndExplicitConditionalQuestionsKeepSpecificPlaceContext(String question){
+        var doc=document("TEST ONLY 호우 행동요령","TEST ONLY 호우 지하차도 행동요령은 테스트 기준을 확인합니다.\n\nTEST ONLY 호우 지하공간 행동요령은 테스트 기준을 확인합니다.");
+        approved(doc);
+        assertThat(service().search(question).resources()).singleElement().extracting(r->r.resourceId()).isEqualTo(doc.getResourceId());
+    }
+    @ParameterizedTest
+    @ValueSource(strings={"현재 집중호우가 발생했을 때 지하 공간은 안전한가요?","지금 산불이 가까워졌는데 어느 방향으로 이동해야 해?"})
+    void conditionalGrammarNeverOverridesCurrentRiskOrRouteRestrictions(String question){
+        assertThat(service().search(question).resources()).isEmpty();verifyNoInteractions(store,reviews);
+    }
+    @Test void reviewedPublishingAgencyCannotBeSubstitutedAcrossOfficialDomains(){
+        var doc=new OfficialResourceDocument(UUID.randomUUID(),"농촌진흥청","TEST ONLY 산불 행동요령","https://www.rda.go.kr/synthetic","synthetic-v1","TEST ONLY 산불 대피 방법을 확인하세요.",NOW.minusSeconds(60));
+        approved(doc);assertThat(service().search("산불 대피 방법").resources()).hasSize(1);
+        var forged=new OfficialResourceDocument(doc.getResourceId(),"행정안전부",doc.getTitle(),doc.getSourceUrl(),doc.getVersionLabel(),doc.getContentText(),doc.getCheckedAt());
+        approved(forged);assertThat(service().search("산불 대피 방법").resources()).isEmpty();
+    }    private ResourceService service() { return new ResourceService(store, engine, Optional.of(reviews), CLOCK); }
     private static OfficialResourceDocument document(String title, String content) {
         return new OfficialResourceDocument(UUID.randomUUID(), "행정안전부", title, "https://www.safety24.go.kr/fixture",
                 "fixture-v1", content, NOW.minusSeconds(60));

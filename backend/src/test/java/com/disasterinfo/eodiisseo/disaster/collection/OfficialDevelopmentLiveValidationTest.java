@@ -27,7 +27,7 @@ class OfficialDevelopmentLiveValidationTest {
     private JdbcTemplate admin,sql; private String database; private TransactionTemplate tx;
     private final Map<OfficialProviderClient.Provider,List<Sample>> observed=new EnumMap<>(OfficialProviderClient.Provider.class);
     private final Map<OfficialProviderClient.Provider,UUID> sources=new EnumMap<>(OfficialProviderClient.Provider.class);
-    private record Sample(String route,LocalDate day,int status,String result,byte[] raw,OfficialProviderClient.Page page,UUID run) {
+    private record Sample(String route,LocalDate day,int requestedPage,int status,String result,byte[] raw,OfficialProviderClient.Page page,UUID run) {
         @Override public String toString(){return "DevelopmentSample[redacted]";}
     }
     @BeforeAll void open(){
@@ -68,6 +68,8 @@ class OfficialDevelopmentLiveValidationTest {
         List<Sample> samples=new ArrayList<>();observed.put(provider,samples);
         int limit=Integer.parseInt(Objects.toString(System.getenv("EODIISSEO_DEV_PROBE_REQUESTS"),"2"));
         assertTrue(limit==1||limit==2,"Finite observation request bound");
+        String sequence=Objects.toString(System.getenv("EODIISSEO_DEV_RAIN_PAGE_SEQUENCE"),"1");
+        assertTrue(sequence.equals("1")||(provider==OfficialProviderClient.Provider.HEAVY_RAIN&&limit==2&&sequence.equals("1,2")),"Only an explicit finite rain page pair is allowed");
         int[] calls={0};
         try(var http=new OfficialHttp()){
             for(int index=0;index<limit;index++){
@@ -80,6 +82,7 @@ class OfficialDevelopmentLiveValidationTest {
                     Assumptions.assumeTrue(actualKey!=null&&!actualKey.isBlank(),"Hub development key unavailable");
                 }
                 LocalDate selected=provider==OfficialProviderClient.Provider.WILDFIRE_MESSAGES&&index==0&&limit==2?day.minusDays(1):day;
+                int requestedPage=sequence.equals("1,2")?index+1:1;
                 int[] status={0};byte[][] raw={null};
                 OfficialProviderClient.Transport transport=(uri,timeout)->{
                     if(++calls[0]>limit)throw new CollectionFailure("PROBE_CALL_LIMIT");
@@ -87,7 +90,7 @@ class OfficialDevelopmentLiveValidationTest {
                 };
                 var client=hub?OfficialProviderClient.earthquakeHub(transport):new OfficialProviderClient(provider,transport);
                 OfficialProviderClient.Page page=null;String result="OK";
-                try{page=client.page(actualKey,selected,selected,1,5);}catch(CollectionFailure failure){result=failure.code();}
+                try{page=client.page(actualKey,selected,selected,requestedPage,5);}catch(CollectionFailure failure){result=failure.code();}
                 catch(RuntimeException failure){result="UNEXPECTED_RESPONSE";}
                 if(raw[0]!=null){
                     String text=new String(raw[0],StandardCharsets.UTF_8);
@@ -95,8 +98,8 @@ class OfficialDevelopmentLiveValidationTest {
                         raw[0]=null;page=null;result="CREDENTIAL_ECHO_REJECTED";
                     }
                 }
-                UUID run=archive(source,raw[0],page);
-                var sample=new Sample(provider==OfficialProviderClient.Provider.WILDFIRE_MESSAGES?"MOIS_V2":hub?"KMA_HUB":"PUBLIC_PORTAL",selected,status[0],result,raw[0],page,run);
+                UUID run=archive(source,raw[0],page,requestedPage);
+                var sample=new Sample(provider==OfficialProviderClient.Provider.WILDFIRE_MESSAGES?"MOIS_V2":hub?"KMA_HUB":"PUBLIC_PORTAL",selected,requestedPage,status[0],result,raw[0],page,run);
                 samples.add(sample);diagnostics(provider,sample,samples);
                 // Do not spend the next request on auth, transport or malformed responses.
                 if(!Set.of("OK","NO_DATA").contains(result))break;
@@ -139,13 +142,14 @@ class OfficialDevelopmentLiveValidationTest {
     void cExactOriginalStorageAndRollback(OfficialProviderClient.Provider provider){
         for(var sample:samples(provider)){
             assertNotNull(sample.raw(),"Original response unavailable");
+            assertEquals(sample.requestedPage(),sql.queryForObject("select page_no from owned_collection_page where run_id=?",Integer.class,sample.run()),"Stored page corresponds to requested page");
             byte[] stored=sql.queryForObject("select raw_body from owned_collection_page where run_id=?",byte[].class,sample.run());
             assertTrue(Arrays.equals(sample.raw(),stored),"Exact wire bytes round trip");
             assertEquals("FAILED",sql.queryForObject("select status from collection_run where run_id=?",String.class,sample.run()),
                 "A finite partial probe is not complete collection coverage");
             long before=sql.queryForObject("select count(*) from owned_collection_page",Long.class);
             tx.executeWithoutResult(status->{
-                UUID rolledBack=archive(sources.get(provider),sample.raw(),sample.page());
+                UUID rolledBack=archive(sources.get(provider),sample.raw(),sample.page(),sample.requestedPage());
                 assertNotNull(rolledBack,"Rollback exercise stored a temporary original");
                 status.setRollbackOnly();
             });
@@ -185,13 +189,13 @@ class OfficialDevelopmentLiveValidationTest {
         assertEquals(0L,sql.queryForObject("select count(*) from owned_collection_coverage",Long.class),"No partial probe coverage");
         assertEquals(0L,sql.queryForObject("select count(*) from owned_collection_cursor",Long.class),"No cursor advancement");
     }
-    private UUID archive(UUID source,byte[] raw,OfficialProviderClient.Page page){
+    private UUID archive(UUID source,byte[] raw,OfficialProviderClient.Page page,int requestedPage){
         if(raw==null)return null;
         UUID run=UUID.randomUUID();
         sql.update("insert into collection_run(run_id,source_id,mode,started_at,finished_at,status,records_received,records_saved,error_code,trigger_type) values(?,?,'LIVE',?,?,'FAILED',?,0,'DEVELOPMENT_PARTIAL_PROBE','MANUAL')",
             run,source,java.sql.Timestamp.from(Instant.now()),java.sql.Timestamp.from(Instant.now()),page==null?0:page.items().size());
-        sql.update("insert into owned_collection_page(page_id,run_id,page_no,raw_body,body_sha256,fetched_at) values(?,?,1,?,?,?)",
-            UUID.randomUUID(),run,raw,sha(raw),java.sql.Timestamp.from(Instant.now()));
+        sql.update("insert into owned_collection_page(page_id,run_id,page_no,raw_body,body_sha256,fetched_at) values(?,?,?,?,?,?)",
+            UUID.randomUUID(),run,requestedPage,raw,sha(raw),java.sql.Timestamp.from(Instant.now()));
         return run;
     }
     private static void diagnostics(OfficialProviderClient.Provider provider,Sample sample,List<Sample> previous){
@@ -238,11 +242,20 @@ class OfficialDevelopmentLiveValidationTest {
                 }
             }catch(RuntimeException unsupported){ /* No provider text in exception output. */ }
         }
-        System.out.println("DEV_DISASTER_PROBE provider="+provider+" route="+sample.route()+" day="+sample.day()+" http="+sample.status()+
+        Set<String> priorPublications=new HashSet<>();int repeatedPublications=0;
+        if(provider!=OfficialProviderClient.Provider.WILDFIRE_MESSAGES){
+            for(int i=0;i<previous.size()-1;i++)if(previous.get(i).page()!=null)for(var row:previous.get(i).page().items()){
+                try{priorPublications.add(OfficialRecordNormalizer.identity(provider,row));}catch(IllegalArgumentException ignored){}
+            }
+            if(sample.page()!=null)for(var row:sample.page().items()){
+                try{if(priorPublications.contains(OfficialRecordNormalizer.identity(provider,row)))repeatedPublications++;}catch(IllegalArgumentException ignored){}
+            }
+        }
+        System.out.println("DEV_DISASTER_PROBE provider="+provider+" route="+sample.route()+" day="+sample.day()+" page="+sample.requestedPage()+" http="+sample.status()+
             " result="+sample.result()+" code="+headerCode+" message="+headerMessage+" wire="+wire+
             " rows="+(sample.page()==null?0:sample.page().items().size())+" total="+(sample.page()==null?-1:sample.page().total())+
             " stored_pages="+(sample.run()==null?0:1)+" fields="+fields+" types="+types+" shapes="+shapes+" codes="+codes+
-            " created_before="+createdBefore+" created_on="+createdOn+" created_after="+createdAfter+" created_unknown="+createdUnknown+" repeated_SN="+sameId+" changed_same_SN="+changedId+" timezone=UNVERIFIED incident=UNLINKED");
+            " created_before="+createdBefore+" created_on="+createdOn+" created_after="+createdAfter+" created_unknown="+createdUnknown+" repeated_SN="+sameId+" changed_same_SN="+changedId+" repeated_publications="+repeatedPublications+" timezone=UNVERIFIED incident=UNLINKED");
     }
     private static String shape(Object value){
         if(value==null)return "NULL";String text=value.toString();if(text.isEmpty())return "EMPTY";

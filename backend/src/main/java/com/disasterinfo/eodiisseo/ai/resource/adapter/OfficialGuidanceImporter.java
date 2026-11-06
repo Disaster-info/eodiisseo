@@ -23,7 +23,7 @@ import javax.swing.text.html.parser.ParserDelegator;
 /** Explicit OPS import tool. No endpoint, startup import, credentials, approval or external AI transmission. */
 @Service @Profile("!test")
 public class OfficialGuidanceImporter {
-    private static final Set<String> HOSTS=Set.of("www.mois.go.kr","mois.go.kr","www.safekorea.go.kr","www.safety24.go.kr");
+    private static final Set<String> HOSTS=Set.of("www.mois.go.kr","mois.go.kr","www.safekorea.go.kr","www.safety24.go.kr","nonsan.go.kr","www.nonsan.go.kr","www.rda.go.kr","rda.go.kr");
     private final OwnedDatabase db;private final OfficialResourceStore store;private final SessionAccessService sessions;
     private final AuthService auth;private final Clock clock;private final TransactionTemplate tx;
     public OfficialGuidanceImporter(OwnedDatabase db,OfficialResourceStore store,SessionAccessService sessions,AuthService auth,
@@ -43,6 +43,19 @@ public class OfficialGuidanceImporter {
             throw new IllegalArgumentException("A public official HTTPS document is required");
         return uri;
     }
+    /** Exact publisher/host binding, not a wildcard government-domain trust rule or a rights grant. */
+    public static String publisherFor(URI uri){
+        String host=Objects.toString(uri.getHost(),"").toLowerCase(Locale.ROOT);
+        return switch(host){
+            case "www.mois.go.kr","mois.go.kr","www.safekorea.go.kr","safekorea.go.kr",
+                "www.safety24.go.kr","safety24.go.kr","www.safetydata.go.kr","safetydata.go.kr" -> "행정안전부";
+            case "nonsan.go.kr","www.nonsan.go.kr" -> "논산시";
+            case "www.rda.go.kr","rda.go.kr" -> "농촌진흥청";
+            default -> throw new IllegalArgumentException("Unverified official publisher");
+        };
+    }    public static boolean publisherMatches(String publisher,URI uri){
+        try{return publisherFor(uri).equals(publisher);}catch(IllegalArgumentException invalid){return false;}
+    }
     /** Caller must explicitly attest a development network environment; acquisition is never implicit. */
     public OfficialResourceDocument fetch(MemberPrincipal actor,String url,String title,String bodyElementId,Instant expires,String environment){
         requireOps(actor);
@@ -56,7 +69,7 @@ public class OfficialGuidanceImporter {
     }
     /** Also supports audited offline HTML exports. Source bytes are preserved; reviewer checks authenticity before approval. */
     public OfficialResourceDocument publish(MemberPrincipal actor,String url,String title,String bodyElementId,byte[] raw,Instant expires){
-        requireOps(actor);officialUri(url);
+        requireOps(actor);URI source=officialUri(url);
         Instant now=clock.instant();
         if(expires==null||!expires.isAfter(now)||expires.isAfter(now.plus(Duration.ofDays(90))))throw new IllegalArgumentException("Finite review expiry required");
         String body=extract(raw,bodyElementId),hash=sha(raw);
@@ -73,7 +86,7 @@ public class OfficialGuidanceImporter {
                     db.update("update ai_resource_review set revoked_at=? where resource_id=?",now,row.get("resource_id"));
                     db.update("update owned_resource_import set superseded_at=coalesce(superseded_at,?) where resource_id=?",now,row.get("resource_id"));
                 }
-                var doc=new OfficialResourceDocument(UUID.randomUUID(),"행정안전부",title,url,"sha256:"+hash,body,now);
+                var doc=new OfficialResourceDocument(UUID.randomUUID(),publisherFor(source),title,url,"sha256:"+hash,body,now);
                 result[0]=store.append(doc);
                 db.update("insert into owned_resource_import(resource_id,source_url,content_sha256,raw_body,media_type,fetched_at,expires_at) values(?,?,?,?,?,?,?)",
                     doc.getResourceId(),url,hash,raw,"text/html; charset=UTF-8",now,expires);

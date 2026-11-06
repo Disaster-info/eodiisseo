@@ -11,23 +11,24 @@ import tools.jackson.databind.json.JsonMapper;
  */
 public final class GuidanceSourcePlan {
     private static final Set<String> HAZARDS=Set.of("EARTHQUAKE","HEAVY_RAIN","WILDFIRE");
-    private static final Set<String> SECTIONS=Set.of("PREPARE","DURING","EVACUATE","AFTER","ASSISTANCE","DONT");
+    private static final Set<String> SECTIONS=Set.of("PREPARE","DURING","EVACUATE","AFTER","ASSISTANCE","DONT","PLACE");
     private GuidanceSourcePlan(){}
     public static Map<String,Object> inspect(Map<String,Object> input){
         if(input==null||input.size()>18)throw new IllegalArgumentException("Bounded source metadata required");
         String url=text(input,"sourceUrl",2000);
         OfficialGuidanceImporter.officialUri(url);
         String publisher=text(input,"publisher",100),hazard=text(input,"disasterType",30);
-        if(!"행정안전부".equals(publisher)||!HAZARDS.contains(hazard))throw new IllegalArgumentException("Unsupported official source");
-        if(input.get("contentFingerprint")!=null||!Set.of("PENDING","METADATA_ONLY").contains(text(input,"approvalState",30))
-            ||!Set.of("UNCONFIRMED","PERMISSION_REQUIRED").contains(text(input,"rightsState",30)))
+        if(!OfficialGuidanceImporter.publisherFor(OfficialGuidanceImporter.officialUri(url)).equals(publisher)||!HAZARDS.contains(hazard))throw new IllegalArgumentException("Unsupported official source");
+        Object contentHash=input.get("contentFingerprint");
+        if((contentHash!=null&&(!(contentHash instanceof String hash)||!hash.matches("[a-f0-9]{64}")))||!Set.of("PENDING","METADATA_ONLY").contains(text(input,"approvalState",30))
+            ||!Set.of("UNCONFIRMED","PERMISSION_REQUIRED","TYPE1_SCOPED_VERIFIED").contains(text(input,"rightsState",30)))
             throw new IllegalArgumentException("A source plan cannot carry content approval");
         Instant checked=Instant.parse(text(input,"checkedAt",40));
         if(checked.isAfter(Instant.now()))throw new IllegalArgumentException("Future source verification");
         LocalDate registered=LocalDate.parse(text(input,"registeredDate",10));
         if(registered.isAfter(checked.atZone(ZoneId.of("Asia/Seoul")).toLocalDate()))throw new IllegalArgumentException("Invalid registration date");
         Object value=input.get("sections");
-        if(!(value instanceof List<?> values)||values.isEmpty()||values.size()>6)throw new IllegalArgumentException("Bounded section plan required");
+        if(!(value instanceof List<?> values)||values.isEmpty()||values.size()>7)throw new IllegalArgumentException("Bounded section plan required");
         List<Map<String,Object>> sections=new ArrayList<>();Set<String> seen=new HashSet<>();
         for(Object entry:values){
             if(!(entry instanceof Map<?,?> raw))throw new IllegalArgumentException("Invalid section metadata");
@@ -44,7 +45,11 @@ public final class GuidanceSourcePlan {
         result.put("sourceVersion",text(input,"sourceVersion",100));result.put("mediaType",text(input,"mediaType",100));
         String rightsUrl=text(input,"rightsEvidenceUrl",2000);OfficialGuidanceImporter.officialUri(rightsUrl);
         result.put("rightsEvidenceUrl",rightsUrl);result.put("rightsState",input.get("rightsState"));
-        result.put("sections",List.copyOf(sections));result.put("approvalState","PENDING");result.put("contentFingerprint",null);
+        if("TYPE1_SCOPED_VERIFIED".equals(input.get("rightsState"))){
+            String evidence=text(input,"rightsEvidence",1500);
+            result.put("rightsEvidence",evidence);
+        }
+        result.put("sections",List.copyOf(sections));result.put("approvalState","PENDING");result.put("contentFingerprint",contentHash);
         result.put("runtimeSearchEligible",false);
         byte[] metadata=JsonMapper.builder().build().writeValueAsBytes(result);
         try{result.put("planFingerprint",HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(metadata)));}

@@ -46,4 +46,14 @@ class GuidanceSourcePlanTest {
             assertThatThrownBy(()->GuidanceSourcePlan.inspect(source)).isInstanceOf(IllegalArgumentException.class);
         }
     }
+    @Test void scopedRightsAndValidContentHashRemainPendingAndBindPublisher() throws Exception {
+        var source=new LinkedHashMap<>(catalog().getFirst());
+        source.put("sourceUrl","https://www.rda.go.kr/board/synthetic");source.put("publisher","농촌진흥청");
+        source.put("rightsState","TYPE1_SCOPED_VERIFIED");source.put("rightsEvidence","SYNTHETIC scoped evidence only");
+        source.put("contentFingerprint","a".repeat(64));
+        var result=GuidanceSourcePlan.inspect(source);
+        assertThat(result).containsEntry("approvalState","PENDING").containsEntry("runtimeSearchEligible",false).containsEntry("contentFingerprint","a".repeat(64));
+        source.put("publisher","행정안전부");
+        assertThatThrownBy(()->GuidanceSourcePlan.inspect(source)).isInstanceOf(IllegalArgumentException.class);
+    }
 }
