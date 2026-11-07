@@ -35,6 +35,8 @@ import java.util.*;
 import java.net.URI;
 import java.net.http.*;
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /** Real target-branch auth/DB/HTTP. Missing owner integrations are asserted as missing, never faked as production. */
@@ -58,8 +60,16 @@ class OwnedRuntimeSeparationIntegrationTest {
         byte[] bytes=new byte[32];new java.security.SecureRandom().nextBytes(bytes);
         Files.writeString(key,Base64.getEncoder().encodeToString(bytes));Arrays.fill(bytes,(byte)0);
         open();
-        // Synthetic registry fixture only. No collector or reference-data migration is imported from another branch.
-        sql.update("insert into data_source(source_id,name,source_kind,endpoint_key,collection_interval_minutes,active) values(?,'TEST EARTHQUAKE SOURCE','DISASTER','KMA_EARTHQUAKE',5,true)",SOURCE);
+        // KMA source is installed by Flyway; verify it rather than inserting a duplicate fixture.
+        assertThat(sql.queryForObject("select count(*) from data_source where source_id=? and source_kind='DISASTER' and endpoint_key='KMA_EARTHQUAKE' and active=true",Long.class,SOURCE)).isEqualTo(1L);
+    }
+    @AfterEach
+    void restoreSummaryFixture() {
+        if (app != null && app.isActive()) {
+            FakeSummary fake = app.getBean(FakeSummary.class);
+            fake.enabled = true;
+            fake.delegate = null;
+        }
     }
     private void open() {
         app=new SpringApplicationBuilder(EodiisseoApplication.class,Providers.class).web(WebApplicationType.SERVLET)
@@ -89,12 +99,27 @@ class OwnedRuntimeSeparationIntegrationTest {
         try(var client=HttpClient.newHttpClient()){return client.send(request.method(method,data).build(),HttpResponse.BodyHandlers.ofString());}
     }
     private UUID write(String key,String tag) {
-        return tx.execute(status->{
-            var payload=Map.<String,Object>of("tmEqk","20261030090000","lat","37.1","lon","127.1","loc","TEST FIXTURE "+tag);
-            app.getBean(DisasterService.class).earthquake(SOURCE,key,payload,"TEST ORIGINAL "+tag,Instant.now());
+        return tx.execute(status -> {
+            var provider = com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.EARTHQUAKE;
+            long sequence = "second".equals(tag) ? 2L : 1L;
+            String issued = sequence == 1L ? "202611011230" : "202611011330";
+            var payload = Map.<String,Object>of(
+                "stnId", "108", "tmFc", issued, "tmSeq", Long.toString(sequence),
+                "tmEqk", "20261101120000", "lat", "37.1", "lon", "127.1",
+                "loc", "TEST FIXTURE " + tag, "message", "TEST ORIGINAL " + tag
+            );
+            allowIncident(SOURCE, provider, payload, key, sequence,
+                com.disasterinfo.eodiisseo.disaster.port.VerifiedIncidentLinkPort.State.OCCURRED,
+                Instant.parse("2026-11-01T03:00:00Z"), null);
+            var result = app.getBean(VerifiedIncidentService.class).normalize(
+                SOURCE, provider, payload,
+                com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.canonical(payload),
+                Instant.now());
+            assertThat(result.classification()).isIn("EARTHQUAKE_LINKED", "INCIDENT_DUPLICATE");
             sql.update("insert into collection_run(run_id,source_id,mode,started_at,finished_at,status,trigger_type) values(?,?,'LIVE',?,?,'SUCCESS','MANUAL')",
-                UUID.randomUUID(),SOURCE,Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
-            return sql.queryForObject("select disaster_id from source_disaster where source_id=? and source_record_key=?",UUID.class,SOURCE,key);
+                UUID.randomUUID(), SOURCE, Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
+            return sql.queryForObject("select disaster_id from source_disaster where source_id=? and source_record_key=?",
+                UUID.class, SOURCE, "incident:" + key);
         });
     }
     private UUID revision(UUID disaster) {return sql.queryForObject("select r.revision_id from source_disaster_revision r join source_disaster s using(source_disaster_id) where s.disaster_id=? order by revision_no desc limit 1",UUID.class,disaster);}
@@ -104,7 +129,7 @@ class OwnedRuntimeSeparationIntegrationTest {
         for(int i=0;i<20 && worker.drainOneSummary();i++){}
     }
 
-    @Test @Order(1) void protectedOwnerBoundariesRemainDisconnectedAndPortsAreUnique() throws Exception {
+    @Test @Order(1) void protectedOwnerBoundariesAndConnectedPortsEnforceOwnership() throws Exception {
         assertThat(app.getEnvironment().getProperty("AUTH_BRIDGES_ENABLED")).isEqualTo("true");
         assertThat(app.getBeansOfType(DashboardDisasterQueryReader.class)).hasSize(1);
         assertThat(app.getBeansOfType(DashboardDisasterReader.class)).hasSize(1);
@@ -112,8 +137,8 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(app.getBeansOfType(SeverityReader.class)).hasSize(1);
         assertThat(app.getBeansOfType(DisasterReader.class)).hasSize(1);
         assertThat(app.getBeansOfType(Authentication.class)).hasSize(1);
-        assertThat(app.getBeansOfType(InterestAreas.class)).isEmpty();
-        assertThat(app.getBeansOfType(DashboardLocationReader.class)).isEmpty();
+        assertThat(app.getBeansOfType(InterestAreas.class)).hasSize(1);
+        assertThat(app.getBeansOfType(DashboardLocationReader.class)).hasSize(1);
         var member=actor();
         assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,member.memberId())).isZero();
         assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(500);
@@ -121,7 +146,7 @@ class OwnedRuntimeSeparationIntegrationTest {
         // An explicit owned lifecycle call is possible; this does not claim automatic signup integration.
         app.getBean(NotificationRetentionService.class).onMemberCreated(member.memberId(),Instant.now());
         assertThat(sql.queryForObject("select enabled from notification_setting where member_id=?",Boolean.class,member.memberId())).isFalse();
-        assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(500); // Area owner Port still missing.
+        assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(200); // Real area port is connected.
         UUID[] rolled={null};
         tx.executeWithoutResult(status->{
             var nested=actor();rolled[0]=nested.memberId();
@@ -130,13 +155,48 @@ class OwnedRuntimeSeparationIntegrationTest {
         });
         assertThat(sql.queryForObject("select count(*) from member where member_id=?",Long.class,rolled[0])).isZero();
         assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,rolled[0])).isZero();
-        assertThat(sql.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not in ('spatial_ref_sys','flyway_schema_history')",Long.class)).isEqualTo(48);
+
+        tx.executeWithoutResult(status->{
+            sql.update("insert into admin_area(area_code,name,level,center_point,active) values('OWNED_TEST_AREA','SYNTHETIC TEST REGION','SIGUNGU',ST_SetSRID(ST_MakePoint(127.1,37.1),4326)::geography,true)");
+            var foreign=actor();
+            var created=app.getBean(com.disasterinfo.eodiisseo.area.service.AreaService.class)
+                .create(member.memberId(),"OWNED_TEST_AREA","TEST OWNED AREA");
+            UUID area=UUID.fromString(created.get("interestAreaId").toString());
+            var interests=app.getBean(InterestAreas.class);
+            assertThat(interests.findOwned(member.memberId())).anyMatch(a->a.id().equals(area));
+            assertThat(interests.findOwned(foreign.memberId())).noneMatch(a->a.id().equals(area));
+            assertThatThrownBy(()->interests.replaceSelection(foreign.memberId(),Set.of(area)))
+                .isInstanceOfSatisfying(NotificationException.class,e->assertThat(e.reason()).isEqualTo(NotificationException.Reason.FORBIDDEN));
+            var locations=app.getBean(DashboardLocationReader.class);
+            var base=locations.resolveInterestArea(member.memberId(),area);
+            assertThat(base.latitude()).isEqualTo(37.1);
+            assertThat(base.longitude()).isEqualTo(127.1);
+            assertThatThrownBy(()->locations.resolveInterestArea(foreign.memberId(),area))
+                .isInstanceOfSatisfying(com.disasterinfo.eodiisseo.dashboard.DashboardException.class,
+                    e->assertThat(e.reason()).isEqualTo(com.disasterinfo.eodiisseo.dashboard.DashboardException.Reason.FORBIDDEN));
+            assertThatThrownBy(()->locations.resolveInterestArea(member.memberId(),UUID.randomUUID()))
+                .isInstanceOfSatisfying(com.disasterinfo.eodiisseo.dashboard.DashboardException.class,
+                    e->assertThat(e.reason()).isEqualTo(com.disasterinfo.eodiisseo.dashboard.DashboardException.Reason.NOT_FOUND));
+            status.setRollbackOnly();
+        });
+        assertThat(sql.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not in ('spatial_ref_sys','flyway_schema_history')",Long.class)).isEqualTo(50); // Canonical + collection raw-record/revision + owned-runtime migrations.
     }
 
     @Test @Order(2) void ownedReadsRevisionOutboxAndSummaryWorkWithoutBorrowingACollector() throws Exception {
         var member=actor();
         assertThat(http(null,"GET","/api/v1/disasters",null).statusCode()).isEqualTo(401);
         assertThat(http(member,"GET","/api/v1/disasters",null).body()).contains("\"disasters\":[]");
+
+        tx.executeWithoutResult(status->{
+            long before=sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class);
+            String forged="incident:untrusted-"+UUID.randomUUID();
+            app.getBean(DisasterService.class).earthquake(SOURCE,forged,
+                Map.of("tmEqk","20261101120000","lat","37.1","lon","127.1","loc","TEST UNVERIFIED"),
+                "TEST UNVERIFIED PREFIX ONLY",Instant.now());
+            assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class)).isEqualTo(before);
+            assertThat(sql.queryForObject("select count(*) from owned_incident_head where incident_key=?",Long.class,forged.substring(9))).isZero();
+            status.setRollbackOnly();
+        });
         String key="owned-"+UUID.randomUUID();UUID disaster=write(key,"first");
         UUID first=revision(disaster);
         write(key,"first");
@@ -147,14 +207,18 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(http(member,"GET","/api/v1/disasters?page=-1",null).statusCode()).isEqualTo(400);
         drain();
         assertThat(http(member,"GET","/api/v1/disasters/"+disaster+"/ai-summary",null).body()).contains("COMPLETED");
-        // Notification dispatch is held because the real InterestAreas implementation does not exist on this branch.
-        assertThat(sql.queryForObject("select state from disaster_runtime_outbox where disaster_id=? and event_kind='NEW'",String.class,disaster)).isEqualTo("HELD");
-        assertThat(sql.queryForObject("select last_error_code from disaster_runtime_outbox where disaster_id=? and event_kind='NEW'",String.class,disaster)).isEqualTo("NOTIFICATION_UNAVAILABLE");
+        // Verified incident creates one NEW and one REVISION event; delivery is an independent policy decision.
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and event_kind='NEW'",Long.class,disaster)).isEqualTo(1L);
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and event_kind='REVISION'",Long.class,disaster)).isEqualTo(1L);
         write(key,"second");
         assertThat(http(member,"GET","/api/v1/disasters/"+disaster+"/ai-summary",null).body()).contains("STALE");
         drain();
         assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?",String.class,first)).isEqualTo("STALE");
         assertThat(app.getBean(SummarySourceReader.class).isCurrentRevision(first)).isFalse();
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and event_kind='NEW'",Long.class,disaster)).isEqualTo(1L);
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and event_kind='REVISION'",Long.class,disaster)).isEqualTo(2L);
+        assertThat(http(member,"GET","/api/v1/disasters/"+disaster+"/ai-summary",null).body()).contains("COMPLETED");
+
         UUID[] rolled={null};
         tx.executeWithoutResult(status->{rolled[0]=write("rollback-"+UUID.randomUUID(),"rollback");status.setRollbackOnly();});
         assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=?",Long.class,rolled[0])).isZero();
@@ -376,7 +440,12 @@ class OwnedRuntimeSeparationIntegrationTest {
             for(int i=0;i<100&&worker.drainOneEvent();i++){}
             assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?",String.class,revision)).isEqualTo("PENDING");
             for(int i=0;i<100&&worker.drainOneSummary();i++){}
-            assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?",String.class,revision)).isEqualTo("COMPLETED");
+            assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?",String.class,revision))
+                .as("Summary task=%s | Outbox=%s | AI errors=%s",
+                    sql.queryForList("select state,last_error_code,attempts from summary_runtime_task where revision_id=?",revision),
+                    sql.queryForList("select event_kind,state,last_error_code,attempts from disaster_runtime_outbox where revision_id=?",revision),
+                    sql.queryForList("select error_code from service_error_log where component='AISUM' order by occurred_at desc limit 5"))
+                .isEqualTo("COMPLETED");
             assertThat(sql.queryForObject("select model_name from ai_summary where source_revision_id=?",String.class,revision)).isEqualTo("fixture:e2e");
             assertThat(sql.queryForObject("select original_text from source_disaster where disaster_id=?",String.class,disaster)).isEqualTo(original);
             assertThat(http(actor(),"GET","/api/v1/disasters/"+disaster+"/ai-summary",null).body()).contains("COMPLETED");
@@ -657,7 +726,12 @@ class OwnedRuntimeSeparationIntegrationTest {
             for(int i=0;i<100&&worker.drainOneEvent();i++){}
             assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?",String.class,revision)).isEqualTo("PENDING");
             for(int i=0;i<100&&worker.drainOneSummary();i++){}
-            assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?",String.class,revision)).isEqualTo("COMPLETED");
+            assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?",String.class,revision))
+                .as("Summary task=%s | Outbox=%s | AI errors=%s",
+                    sql.queryForList("select state,last_error_code,attempts from summary_runtime_task where revision_id=?",revision),
+                    sql.queryForList("select event_kind,state,last_error_code,attempts from disaster_runtime_outbox where revision_id=?",revision),
+                    sql.queryForList("select error_code from service_error_log where component='AISUM' order by occurred_at desc limit 5"))
+                .isEqualTo("COMPLETED");
             assertThat(sql.queryForObject("select model_name from ai_summary where source_revision_id=?",String.class,revision)).isEqualTo("fixture:phase2");
             assertThat(http(actor(),"GET","/api/v1/disasters/"+disaster+"/ai-summary",null).body()).contains("COMPLETED");
             assertThat(http(actor(),"GET","/api/v1/disasters/"+disaster,null).body()).contains(disaster.toString());
@@ -1108,6 +1182,79 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(sql.queryForObject("select count(*) from ai_resource_review where revoked_at is null",Long.class)).isZero();
         assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class)).isEqualTo(outboxBefore);
         Files.writeString(directory.resolve("PHASE7_RAG_REVIEW_PACKET.md"),notes.toString(),StandardOpenOption.APPEND);
+    }
+
+    @Test @Order(32)
+    void earthquakeHeadAndEventsRequireAnActuallySavedNewRevision() {
+        var provider=com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.EARTHQUAKE;
+        var state=com.disasterinfo.eodiisseo.disaster.port.VerifiedIncidentLinkPort.State.OCCURRED;
+        var occurred=Instant.parse("2026-11-01T03:00:00Z");
+        String incident="revision-result-"+UUID.randomUUID(),key="incident:"+incident;
+        var row=new LinkedHashMap<String,Object>(Map.of("stnId","108","tmFc","202611011230","tmSeq","65",
+            "tmEqk","20261101120000","lat","37.1","lon","127.1","loc","TEST WRITE RESULT"));
+        var service=app.getBean(VerifiedIncidentService.class);
+        java.util.function.Supplier<com.disasterinfo.eodiisseo.disaster.collection.OfficialRecordNormalizer.Result> normalize=()->
+            service.normalize(SOURCE,provider,row,
+                com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.canonical(row),Instant.now());
+        allowIncident(SOURCE,provider,row,incident,1,state,occurred,null);
+        assertThat(normalize.get().classification()).isEqualTo("EARTHQUAKE_LINKED");
+        UUID disaster=sql.queryForObject("select disaster_id from source_disaster where source_id=? and source_record_key=?",UUID.class,SOURCE,key);
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=?",Long.class,disaster)).isEqualTo(2);
+        var initial=earthquakeWriteSnapshot(incident,disaster);
+        assertThat(normalize.get().classification()).isEqualTo("INCIDENT_DUPLICATE");
+        assertThat(earthquakeWriteSnapshot(incident,disaster)).isEqualTo(initial);
+
+        row.put("tmFc","202611011330");row.put("tmSeq","66");row.put("cor","TEST CORRECTION");
+        for(String invalid:List.of("NaN","91","invalid")){
+            row.put("lat",invalid);
+            allowIncident(SOURCE,provider,row,incident,2,state,occurred,null);
+            assertThat(normalize.get().classification()).isEqualTo("INVALID_FACTS");
+            assertThat(earthquakeWriteSnapshot(incident,disaster)).isEqualTo(initial);
+        }
+        row.remove("lat");
+        allowIncident(SOURCE,provider,row,incident,2,state,occurred,null);
+        assertThat(normalize.get().classification()).isEqualTo("INVALID_FACTS");
+        assertThat(earthquakeWriteSnapshot(incident,disaster)).isEqualTo(initial);
+
+        row.put("lat","37.2");
+        allowIncident(SOURCE,provider,row,incident,2,state,occurred,null);
+        assertThat(normalize.get().classification()).isEqualTo("EARTHQUAKE_LINKED");
+        assertThat(sql.queryForObject("select official_sequence from owned_incident_head where source_id=? and incident_key=?",Long.class,SOURCE,incident)).isEqualTo(2);
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and event_kind='NEW'",Long.class,disaster)).isEqualTo(1);
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and event_kind='REVISION'",Long.class,disaster)).isEqualTo(2);
+        assertThat(sql.queryForObject("select count(*) from source_disaster_revision r join source_disaster s using(source_disaster_id) where s.disaster_id=?",Long.class,disaster)).isEqualTo(2);
+        var corrected=earthquakeWriteSnapshot(incident,disaster);
+        assertThat(normalize.get().classification()).isEqualTo("INCIDENT_DUPLICATE");
+        assertThat(earthquakeWriteSnapshot(incident,disaster)).isEqualTo(corrected);
+
+        // A real PostgreSQL write failure after revision/outbox/head writes must roll ALL of them back.
+        row.put("tmFc","202611011430");row.put("tmSeq","67");row.put("lat","37.3");
+        allowIncident(SOURCE,provider,row,incident,3,state,occurred,null);
+        assertThatThrownBy(()->tx.executeWithoutResult(status->{
+            assertThat(normalize.get().classification()).isEqualTo("EARTHQUAKE_LINKED");
+            sql.update("insert into owned_incident_head select * from owned_incident_head where source_id=? and incident_key=?",SOURCE,incident);
+        })).isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
+        assertThat(earthquakeWriteSnapshot(incident,disaster)).isEqualTo(corrected);
+
+        // A legacy row with identical content has no NEW revision and must not become a verified head/event.
+        String unchanged="unchanged-"+UUID.randomUUID(),unchangedKey="incident:"+unchanged;
+        String original=com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.canonical(row);
+        app.getBean(DisasterService.class).earthquake(SOURCE,unchangedKey,row,original,Instant.now());
+        long events=sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class);
+        allowIncident(SOURCE,provider,row,unchanged,1,state,occurred,null);
+        assertThat(normalize.get().classification()).isEqualTo("INVALID_FACTS");
+        assertThat(sql.queryForObject("select count(*) from owned_incident_head where source_id=? and incident_key=?",Long.class,SOURCE,unchanged)).isZero();
+        assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class)).isEqualTo(events);
+        assertThat(sql.queryForObject("select count(*) from source_disaster_revision r join source_disaster s using(source_disaster_id) where s.source_id=? and s.source_record_key=?",Long.class,SOURCE,unchangedKey)).isEqualTo(1);
+    }
+
+    private Map<String,Object> earthquakeWriteSnapshot(String incident,UUID disaster) {
+        return Map.of(
+            "head",sql.queryForMap("select * from owned_incident_head where source_id=? and incident_key=?",SOURCE,incident),
+            "source",sql.queryForMap("select * from source_disaster where disaster_id=?",disaster),
+            "disaster",sql.queryForMap("select * from disaster where disaster_id=?",disaster),
+            "revisions",sql.queryForList("select * from source_disaster_revision where source_disaster_id in (select source_disaster_id from source_disaster where disaster_id=?) order by revision_no",disaster),
+            "events",sql.queryForList("select * from disaster_runtime_outbox where disaster_id=? order by event_key",disaster));
     }
     @TestConfiguration(proxyBeanMethods=false)
     static class Providers {

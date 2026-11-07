@@ -48,10 +48,14 @@ public class VerifiedIncidentService {
         String key="incident:"+link.incidentId();
         UUID record;
         if(provider==EARTHQUAKE){
-            earthquakes.earthquake(source,key,row,original,now);
-            var saved=db.one("select source_disaster_id from source_disaster where source_id=? and source_record_key=?",source,key);
-            if(saved==null)return new OfficialRecordNormalizer.Result("INVALID_FACTS",null);
-            record=(UUID)saved.get("source_disaster_id");
+            var saved=earthquakes.saveEarthquakeRevision(source,key,row,original,now);
+            // An existing source row is not proof that this announcement created a revision.
+            if(saved.isEmpty())return new OfficialRecordNormalizer.Result("INVALID_FACTS",null);
+            record=saved.get().sourceRecordId();
+            UUID disaster=saved.get().disasterId(),revisionId=saved.get().revisionId();
+            // Only this validated association path may emit earthquake events; a key prefix is not evidence.
+            if(head==null)events.append(disaster,record,revisionId,"NEW",null,null,"NEW:"+disaster,now);
+            events.append(disaster,record,revisionId,"REVISION",null,null,"REVISION:"+revisionId,now);
             db.update("update source_disaster set external_id=?,source_updated_at=?,source_url=? where source_disaster_id=?",announcement,link.issuedAt(),provider.endpoint.toString(),record);
         }else record=fire(source,key,announcement,row,original,link,head,now);
         db.update("""

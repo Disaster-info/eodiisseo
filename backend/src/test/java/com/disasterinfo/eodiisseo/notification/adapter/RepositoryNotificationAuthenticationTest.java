@@ -108,8 +108,10 @@ class RepositoryNotificationAuthenticationTest {
 
     @Test void theLegacyFlagStillWorksWhenTheSharedFlagIsOmitted() {
         try (var context = new AnnotationConfigApplicationContext()) {
-            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test-auth-flags", Map.of(
-                    "eodiisseo.notification.auth.enabled", "true")));
+            // This case requires an absent flag, independently of the enclosing integration process.
+            context.setEnvironment(new org.springframework.mock.env.MockEnvironment()
+                    .withProperty("eodiisseo.notification.auth.enabled", "true"));
+            assertThat(context.getEnvironment().containsProperty("AUTH_BRIDGES_ENABLED")).isFalse();
             context.registerBean(SessionAccessService.class, () -> sessions);
             context.register(RepositoryNotificationAuthentication.class);
             context.refresh();
