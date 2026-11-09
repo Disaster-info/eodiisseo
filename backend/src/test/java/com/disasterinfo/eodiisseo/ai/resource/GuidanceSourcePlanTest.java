@@ -56,4 +56,13 @@ class GuidanceSourcePlanTest {
         source.put("publisher","행정안전부");
         assertThatThrownBy(()->GuidanceSourcePlan.inspect(source)).isInstanceOf(IllegalArgumentException.class);
     }
-}
+    @Test void phase31aCandidatesHaveNoImportedBodyApprovalOrReusedContentHash() throws Exception {
+        var root=JsonMapper.builder().build().readValue(Files.readString(Path.of(
+            "src/main/java/com/disasterinfo/eodiisseo/ai/resource/PHASE3_1A_SOURCE_CATALOG.json")),Map.class);
+        var sources=(List<Map<String,Object>>)root.get("sources");assertThat(sources).hasSize(7);
+        for(var source:sources){
+            var plan=GuidanceSourcePlan.inspect(source);
+            assertThat(plan).containsEntry("runtimeSearchEligible",false).containsEntry("approvalState","PENDING").containsEntry("contentFingerprint",null);
+            assertThat(plan).doesNotContainKeys("contentText","html","resourceId");
+        }
+    }}

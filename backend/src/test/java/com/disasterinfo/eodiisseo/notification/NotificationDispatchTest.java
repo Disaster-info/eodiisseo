@@ -310,4 +310,18 @@ class NotificationDispatchTest {
             assertThat(winners).isEqualTo(1);assertThat(f.store.events).hasSize(1);
         }
     }
+    @Test void changedInterestSelectionSuppressesAnOtherwiseRetryableDelivery(){
+        var f=new NotificationFixture();f.device("device-a");f.transientFcmFailure=true;
+        f.dispatcher().process(initial(f),f.now);var event=f.store.events.values().iterator().next();
+        f.transientFcmFailure=false;f.owned=List.of(new InterestArea(f.area1,false),new InterestArea(f.area2,false));
+        assertThat(f.dispatcher().retry(event.id(),f.now.plusSeconds(1)).successfulDevices()).isZero();
+        assertThat(f.sends).isEqualTo(1);assertThat(f.store.deliveries).hasSize(1);
+    }
+    @Test void interestSelectionChangedDuringDecryptionIsRecheckedBeforeSubmission(){
+        var f=new NotificationFixture();f.device("device-a");
+        TokenCipher changed=new TokenCipher(){public String encrypt(String t){return f.testCipher.encrypt(t);}public String decrypt(String t){f.owned=List.of();return f.testCipher.decrypt(t);}};
+        var dispatch=new NotificationDispatchService(Optional.of(f.auth),Optional.of(f.store),Optional.of(f.interests),Optional.of(f.severityReader),Optional.of(id->f.disaster),Optional.of(changed),Optional.of(f.testFcm),Optional.empty());
+        assertThat(dispatch.process(initial(f),f.now).successfulDevices()).isZero();assertThat(f.sends).isZero();
+        assertThat(f.store.deliveries.values()).allMatch(d->d.result()==DeliveryResult.FAILED);
+    }
 }

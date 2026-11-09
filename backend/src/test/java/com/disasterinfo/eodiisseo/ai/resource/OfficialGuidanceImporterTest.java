@@ -40,4 +40,16 @@ class OfficialGuidanceImporterTest {
         }
         assertThat(OfficialGuidanceImporter.publisherMatches("농촌진흥청",java.net.URI.create("https://www.rda.go.kr.evil.invalid/test"))).isFalse();
     }
-}
+    @Test void actualBareOfficialPortalHostsAreAllowedWithoutWeakeningHostBinding(){
+        for(String host:new String[]{"safekorea.go.kr","safety24.go.kr"}){
+            var uri=OfficialGuidanceImporter.officialUri("https://"+host+"/synthetic-guide");
+            assertThat(OfficialGuidanceImporter.publisherMatches("행정안전부",uri)).isTrue();
+            assertThatThrownBy(()->OfficialGuidanceImporter.officialUri("https://"+host+".invalid/synthetic-guide"))
+                .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+    @Test void unsupportedFilesAreNotAcceptedBecauseTheyContainAnHtmlLookingFragment(){
+        for(String prefix:new String[]{"%PDF-1.7\n","PK\u0003\u0004","HWP Document\n","plain text export\n"})
+            assertThatThrownBy(()->OfficialGuidanceImporter.extract((prefix+"<div id='guide'>SYNTHETIC</div>").getBytes(StandardCharsets.UTF_8),"guide"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }}

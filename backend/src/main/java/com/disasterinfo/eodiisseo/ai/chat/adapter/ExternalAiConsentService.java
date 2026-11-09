@@ -25,6 +25,11 @@ public class ExternalAiConsentService implements ChatOutboundConsentPort {
         try {sessions.requireActiveSession(member,(UUID)consent.get("granted_session_id"));return true;}
         catch(ApiProblem denied){return false;}
     }
+    /** Explicit refusal/revocation forbids new local records too; absent outbound consent keeps the existing local-only fallback policy. */
+    public boolean localPersistenceRevoked(UUID member){
+        if(member==null)return true;var row=db.one("select granted from ai_external_consent where member_id=?",member);
+        return row!=null&&!Boolean.TRUE.equals(row.get("granted"));
+    }
     @Transactional public void record(UUID member,UUID session,boolean granted) {
         sessions.runWithActiveSession(member,session,()->db.update("""
             insert into ai_external_consent(member_id,granted,changed_at,granted_session_id) values(?,?,?,?)

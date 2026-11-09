@@ -14,11 +14,25 @@ public interface ChatPromptPrivacyPort {
     Optional<PreparedQuestion> minimizeLocally(String rawQuestion);
     default Optional<PreparedQuestion> minimizeLocally(java.util.UUID memberId,String rawQuestion) { return minimizeLocally(rawQuestion); }
 
+    /** Local persistence permission is separate from external-transmission approval. */
+    default boolean localPersistenceRevoked(java.util.UUID memberId){return false;}
     record PreparedQuestion(String safeQuestion, boolean approvedForOutbound) {
         public boolean usableForOutbound() {
             return approvedForOutbound && ChatText.hasText(safeQuestion);
         }
 
+        /** Only the known closed generic templates are reformatted for retrieval, never raw personal text. */
+        public String retrievalQuestion(){
+            if(safeQuestion==null)return null;
+            return switch(safeQuestion){
+                case "지진 발생 시 안전한 대피 방법" -> "지진 대피 행동요령";
+                case "호우 발생 시 안전한 대피 방법" -> "호우 대피 행동요령";
+                case "산불 발생 시 안전한 대피 방법" -> "산불 대피 행동요령";
+                case "태풍 발생 시 안전한 대피 방법" -> "태풍 대피 행동요령";
+                case "홍수 발생 시 안전한 대피 방법" -> "홍수 대피 행동요령";
+                default -> safeQuestion;
+            };
+        }
         @Override
         public String toString() {
             return "PreparedQuestion[safeQuestion=<redacted>, approvedForOutbound=" + approvedForOutbound + "]";

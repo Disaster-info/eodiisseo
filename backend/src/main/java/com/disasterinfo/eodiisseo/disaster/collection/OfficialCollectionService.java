@@ -21,28 +21,37 @@ public class OfficialCollectionService {
         if(!"owned-disaster-development".equals(owner))throw new CollectionFailure("OWNER_CONFIRMATION_REQUIRED");
         if(source==null||from==null||to==null||to.isBefore(from)||to.isAfter(from.plusDays(2))
             ||to.isAfter(LocalDate.ofInstant(clock.instant(),ZoneId.of("Asia/Seoul"))))throw new CollectionFailure("WINDOW_LIMIT");
+        if(client.provider()==OfficialProviderClient.Provider.WILDFIRE_MESSAGES && !from.equals(to))throw new CollectionFailure("UNSUPPORTED_END_DATE");
         UUID run=UUID.randomUUID();Instant now=clock.instant();
-        Boolean claimed=tx.execute(status->{
+        String claimStatus=tx.execute(status->{
+            // Same gate as CollectionRepository.request/expire: absent-row locks alone do not serialize claims.
+            db.rows("select pg_advisory_xact_lock(78161108)");
             if(db.count("select count(*) from data_source where source_id=? and active and source_kind='DISASTER' and endpoint_key=?",source,client.provider().endpointKey)!=1)
                 throw new CollectionFailure("SOURCE_CONTRACT");
+            // Until both collectors share a provider-owner protocol, an active alias makes execution unsafe.
+            if(providerAliasActive(source,client.provider()))return "PROVIDER_OWNERSHIP_CONFLICT";
+            var lock=db.one("select * from collection_job_lock where source_id=? and mode='LIVE' for update",source);
+            if(lock!=null){
+                if(OwnedDatabase.instant(lock.get("lease_until")).isAfter(now))return "BUSY_OR_RATE_LIMITED";
+                // No durable collector owner exists in this schema. Never infer it from age/heartbeat/source.
+                return "LEASE_OWNERSHIP_UNVERIFIED";
+            }
             db.update("insert into owned_collection_cursor(source_id) values(?) on conflict do nothing",source);
             var cursor=db.one("select * from owned_collection_cursor where source_id=? for update",source);
-            if(OwnedDatabase.instant(cursor.get("next_attempt_at")).isAfter(now))return false;
-            // Use the canonical lock protocol, including owner run/source/mode FK, to exclude another collector.
-            var lock=db.one("select * from collection_job_lock where source_id=? and mode='LIVE' for update",source);
-            if(lock!=null&&OwnedDatabase.instant(lock.get("lease_until")).isAfter(now))return false;
-            if(lock!=null)db.update("update collection_run set status='FAILED',finished_at=?,error_code='LEASE_EXPIRED' where run_id=? and status='RUNNING'",now,lock.get("run_id"));
-            db.update("insert into collection_run(run_id,source_id,mode,started_at,status,trigger_type) values(?,?,'LIVE',?,'RUNNING','SCHEDULED')",run,source,now);
-            db.update("insert into collection_job_lock(source_id,mode,run_id,lease_until) values(?,'LIVE',?,?) on conflict(source_id,mode) do update set run_id=excluded.run_id,lease_until=excluded.lease_until",
-                source,run,now.plus(Duration.ofMinutes(30)));
+            if(OwnedDatabase.instant(cursor.get("next_attempt_at")).isAfter(now))return "BUSY_OR_RATE_LIMITED";
+            // This synchronous worker has already claimed execution; it is not a queued shared job.
+            // Heartbeat is execution state, NOT an ownership credential for expiry/recovery.
+            db.update("insert into collection_run(run_id,source_id,mode,started_at,status,trigger_type,heartbeat_at) values(?,?,'LIVE',?,'RUNNING','SCHEDULED',?)",run,source,now,now);
+            db.update("insert into collection_job_lock(source_id,mode,run_id,lease_until) values(?,'LIVE',?,?)",source,run,now.plus(Duration.ofMinutes(30)));
             db.update("update owned_collection_cursor set next_attempt_at=? where source_id=?",now.plusSeconds(60),source);
-            return true;
+            return null;
         });
-        if(!Boolean.TRUE.equals(claimed))return new Outcome("BUSY_OR_RATE_LIMITED",0,0);
+        if(claimStatus!=null)return new Outcome(claimStatus,0,0);
         try{
             List<OfficialProviderClient.Page> pages=new ArrayList<>();int total=-1,received=0;
             do{
                 tx.executeWithoutResult(status->{
+                    if(providerAliasActive(source,client.provider()))throw new CollectionFailure("PROVIDER_OWNERSHIP_CONFLICT");
                     LocalDate day=LocalDate.ofInstant(clock.instant(),ZoneOffset.UTC);
                     var budget=db.one("select budget_day,requests_today from owned_collection_cursor where source_id=? for update",source);
                     int used=budget.get("budget_day") instanceof java.sql.Date date && date.toLocalDate().equals(day)?((Number)budget.get("requests_today")).intValue():0;
@@ -53,12 +62,17 @@ public class OfficialCollectionService {
                 });
                 var page=client.page(key,from,to,pages.size()+1);
                 if(page.items().size()>page.total())throw new CollectionFailure("PAGE_TOTAL_INCONSISTENT");
+                if(client.provider()==OfficialProviderClient.Provider.HEAVY_RAIN && page.total()==0 && page.items().isEmpty())
+                    throw new CollectionFailure("EMPTY_RESULT_CONTRACT_REQUIRED");
                 if(total<0)total=page.total();else if(total!=page.total())throw new CollectionFailure("PAGING_CHANGED");
                 pages.add(page);received+=page.items().size();
                 if(received>total||pages.size()>100)throw new CollectionFailure("PAGE_INCOMPLETE");
+                // A short non-final page cannot prove offsets for the requested 100-row page size.
+                if(client.provider()==OfficialProviderClient.Provider.HEAVY_RAIN && received<total && page.items().size()<100)throw new CollectionFailure("PAGE_INCOMPLETE");
             }while(received<total);
             int count=received;
             return tx.execute(status->{
+                if(providerAliasActive(source,client.provider()))throw new CollectionFailure("PROVIDER_OWNERSHIP_CONFLICT");
                 db.one("select source_id from owned_collection_cursor where source_id=? for update",source);
                 var lock=db.one("select run_id,lease_until from collection_job_lock where source_id=? and mode='LIVE' for update",source);
                 Instant finished=clock.instant();
@@ -82,17 +96,30 @@ public class OfficialCollectionService {
                     try{identity=OfficialRecordNormalizer.identity(client.provider(),row);}catch(IllegalArgumentException e){identity="INVALID:"+hash;}
                     // Even a different MDFCN_YMD for the same SN makes this finite message snapshot unstable.
                     if(client.provider()==OfficialProviderClient.Provider.WILDFIRE_MESSAGES && !messageIds.add(identity))throw new CollectionFailure("PAGING_CHANGED");
-                    if(!pageIdentities.add(identity+":"+hash))throw new CollectionFailure("PAGING_CHANGED");
+                    if(!pageIdentities.add(client.provider()==OfficialProviderClient.Provider.HEAVY_RAIN?identity:identity+":"+hash))throw new CollectionFailure("PAGING_CHANGED");
                     // An identical historical announcement is not replayed over a more recent state.
                     var previous=db.one("select source_disaster_id from owned_collection_item where source_id=? and provider_record_key=? and content_sha256=?",source,identity,hash);
                     if(previous!=null && previous.get("source_disaster_id")!=null){
                         db.update("update owned_collection_item set last_seen_at=? where source_id=? and provider_record_key=? and content_sha256=?",finished,source,identity,hash);
+                        if(client.provider()==OfficialProviderClient.Provider.HEAVY_RAIN)normalizer.refreshImpactAreas((UUID)previous.get("source_disaster_id"),finished);
                         continue;
                     }
                     var result=normalizer.normalize(source,client.provider(),row,original,finished);
+                    // Unresolved warning state/order is not successful warning coverage.
+                    if(client.provider()==OfficialProviderClient.Provider.HEAVY_RAIN && result.sourceRecord()==null)
+                        throw new CollectionFailure(result.classification());
                     db.update("insert into owned_collection_item(item_id,source_id,provider_record_key,content_sha256,canonical_json,first_seen_at,last_seen_at,classification,source_disaster_id) values(?,?,?,?,?,?,?,?,?) on conflict(source_id,provider_record_key,content_sha256) do update set last_seen_at=excluded.last_seen_at,classification=excluded.classification,source_disaster_id=excluded.source_disaster_id",
                         UUID.randomUUID(),source,identity,hash,original,finished,finished,result.classification(),result.sourceRecord());
                     if(result.sourceRecord()!=null)saved++;
+                }
+                if(client.provider()==OfficialProviderClient.Provider.WILDFIRE_MESSAGES){
+                    // A finite raw archive is not a proven incremental snapshot. Canonical run states
+                    // have no partial/archived value: keep completion FAILED with an explicit reason.
+                    db.update("update collection_run set status='FAILED',finished_at=?,heartbeat_at=?,records_received=?,records_saved=?,error_code='INCREMENTAL_CONTRACT_REQUIRED' where run_id=?",
+                        finished,finished,count,saved,run);
+                    db.update("update owned_collection_cursor set last_failure_code='INCREMENTAL_CONTRACT_REQUIRED',next_attempt_at=? where source_id=?",finished.plusSeconds(300),source);
+                    db.update("delete from collection_job_lock where source_id=? and mode='LIVE' and run_id=?",source,run);
+                    return new Outcome("RAW_ARCHIVED_CONTRACT_REQUIRED",count,saved);
                 }
                 db.update("update collection_run set status='SUCCESS',finished_at=?,heartbeat_at=?,records_received=?,records_saved=? where run_id=?",finished,finished,count,saved,run);
                 if(client.provider()!=OfficialProviderClient.Provider.WILDFIRE_MESSAGES){
@@ -123,6 +150,15 @@ public class OfficialCollectionService {
             });
             return new Outcome(code,0,0);
         }
+    }
+    /** Fixed client contracts only; never derive provider identity from names or credentials. */
+    private boolean providerAliasActive(UUID source,OfficialProviderClient.Provider provider) {
+        String alias=switch(provider){
+            case EARTHQUAKE -> provider.endpointKey; // Duplicate exact endpoint_key is rejected by the canonical UNIQUE.
+            case HEAVY_RAIN -> "KMA_WARNING";
+            case WILDFIRE_MESSAGES -> "SAFETYDATA_DISASTER_MESSAGE";
+        };
+        return db.count("select count(*) from data_source where source_id<>? and active and endpoint_key=?",source,alias)>0;
     }
     private void advanceCoverage(UUID source,LocalDate from) {
         var cursor=db.one("select completed_through,coverage_start from owned_collection_cursor where source_id=? for update",source);

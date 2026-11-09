@@ -21,7 +21,7 @@ import java.util.UUID;
 
 /** CHAT-001 retrieval only. No automatic collection, approvals, dynamic-risk claims or fixture loading. */
 @Service
-public class ResourceService implements ChatOfficialResourceSearchPort {
+public class ResourceService implements com.disasterinfo.eodiisseo.ai.chat.port.ChatEvidenceGenerationPolicy {
     private final OfficialResourceStore store;
     private final ResourceParagraphSearch paragraphs;
     private final Optional<ResourceApprovalPort> approvals;
@@ -41,6 +41,10 @@ public class ResourceService implements ChatOfficialResourceSearchPort {
         this.clock = Objects.requireNonNull(clock);
     }
 
+    @Override
+    public com.disasterinfo.eodiisseo.ai.chat.port.ChatAnswerGenerationPort guardGeneration(com.disasterinfo.eodiisseo.ai.chat.port.ChatAnswerGenerationPort delegate) {
+        return new com.disasterinfo.eodiisseo.ai.resource.vector.MandatoryContextGenerationGuard(delegate);
+    }
     @Override
     public SearchResult search(String question) {
         try {

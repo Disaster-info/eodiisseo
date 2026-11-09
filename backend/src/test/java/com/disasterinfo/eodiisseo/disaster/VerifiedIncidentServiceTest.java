@@ -38,4 +38,30 @@ class VerifiedIncidentServiceTest {
         }
         verify(db,never()).update(anyString(),any(Object[].class));
     }
+
+    @Test void bulletinListEntriesAreNotDetailedIncidents(){
+        UUID source=UUID.randomUUID();var db=mock(OwnedDatabase.class);
+        when(db.count(anyString(),eq(source),anyString())).thenReturn(1L);
+        var earthquakes=mock(DisasterService.class);var events=mock(DisasterRuntimeEvents.class);
+        var links=mock(VerifiedIncidentLinkPort.class);
+        var service=new VerifiedIncidentService(db,earthquakes,events,Optional.of(links));
+        var listRow=Map.<String,Object>of("value","SYNTHETIC ANNOUNCEMENT","code","3");
+        assertThat(service.normalize(source,OfficialProviderClient.Provider.EARTHQUAKE,listRow,
+            OfficialProviderClient.canonical(listRow),Instant.now()).classification()).isEqualTo("INVALID_FACTS");
+        verifyNoInteractions(links,earthquakes,events);
+        verify(db,never()).update(anyString(),any(Object[].class));
+    }
+    @Test void reannouncementReferenceAndCorrectionTextDoNotGrantIncidentEvidence(){
+        UUID source=UUID.randomUUID();var db=mock(OwnedDatabase.class);
+        when(db.count(anyString(),eq(source),anyString())).thenReturn(1L);
+        var earthquakes=mock(DisasterService.class);var events=mock(DisasterRuntimeEvents.class);
+        var service=new VerifiedIncidentService(db,earthquakes,events,Optional.empty());
+        for(String issued:List.of("202611011000","202611011100")){
+            var row=Map.<String,Object>of("stnId","108","tmFc",issued,"tmSeq","1","cnt","1","fcTp","5","cor","SYNTHETIC CORRECTION");
+            assertThat(service.normalize(source,OfficialProviderClient.Provider.EARTHQUAKE,row,
+                OfficialProviderClient.canonical(row),Instant.now()).classification()).isEqualTo("EARTHQUAKE_UNLINKED");
+        }
+        verifyNoInteractions(earthquakes,events);
+        verify(db,never()).update(anyString(),any(Object[].class));
+    }
 }

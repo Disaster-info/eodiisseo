@@ -181,6 +181,34 @@ class ChatRagIntegrationTest {
         }
     }
 
+    @Test void approvalRevokedWhileModelRunsCannotBePublishedOrCited(){
+        prepare();respond(ID,PARAGRAPH);
+        when(client.chat(anyString(),anyString(),anyMap(),any())).thenAnswer(call->{
+            when(approvals.findApproval(ID)).thenReturn(Optional.empty());
+            return validModelReply();
+        });
+        assertFallback();verify(answers).save(any(),eq(List.of()));
+    }
+    @Test void originalChangedWhileModelRunsCannotReuseEarlierApproval(){
+        prepare();respond(ID,PARAGRAPH);
+        when(client.chat(anyString(),anyString(),anyMap(),any())).thenAnswer(call->{
+            document=document(PARAGRAPH+" SYNTHETIC CHANGED VERSION");
+            when(resources.searchCandidates(anyList(),anyInt())).thenReturn(List.of(document));
+            return validModelReply();
+        });
+        assertFallback();verify(answers).save(any(),eq(List.of()));
+    }
+    @Test void repositoryFailureAfterModelReplyDoesNotPublishPreviouslySelectedEvidence(){
+        prepare();respond(ID,PARAGRAPH);var calls=new java.util.concurrent.atomic.AtomicInteger();
+        when(resources.searchCandidates(anyList(),anyInt())).thenAnswer(call->{
+            if(calls.incrementAndGet()>=3)throw new IllegalStateException("SYNTHETIC DB FAILURE");return List.of(document);
+        });
+        assertFallback();verify(answers).save(any(),eq(List.of()));
+    }
+    private OllamaChatClient.Response validModelReply(){
+        return new OllamaChatClient.Response(OllamaJson.write(Map.of("answer",PARAGRAPH,"usedResourceIds",List.of(ID.toString()),
+            "sufficientEvidence",true,"citations",List.of(Map.of("resourceId",ID.toString(),"excerpt",PARAGRAPH)))),"fixture-model",Duration.ofMillis(1));
+    }
     private void prepare() {
         doCallRealMethod().when(privacy).minimizeLocally(any(UUID.class),anyString());
         when(resources.isAvailable()).thenReturn(true);

@@ -44,7 +44,7 @@ public final class OwnedDisasterPortDefaults {
             return id->{
                 var row=data.find(id).orElse(null);var source=data.representative(id).orElse(null);
                 if(row==null || source==null || !data.latest(source))return null;
-                String region=data.region(id);if(region==null)region=(String)source.get("source_address");
+                String region=data.notificationRegion(id);
                 return new OfficialDisaster(id,(String)row.get("type_code"),region,(String)row.get("title"),
                     (String)source.get("revision_text"),severity.findById((UUID)row.get("official_severity_id")),
                     DisasterStatus.valueOf((String)row.get("status")),true);

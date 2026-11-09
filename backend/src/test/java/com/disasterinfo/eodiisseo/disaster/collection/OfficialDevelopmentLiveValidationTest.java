@@ -49,6 +49,21 @@ class OfficialDevelopmentLiveValidationTest {
         if(admin!=null&&database!=null&&database.matches("owned_[a-f0-9]{32}"))admin.execute("drop database "+database+" with (force)");
         observed.clear();
     }
+    /** Disposable validation setup only; never reactivate or relabel an existing source. */
+    static UUID developmentSource(JdbcTemplate sql,OfficialProviderClient.Provider provider){
+        var existing=sql.queryForList("select source_id,source_kind,active from data_source where endpoint_key=?",provider.endpointKey);
+        if(!existing.isEmpty()){
+            assertEquals(1,existing.size(),"One source per endpoint contract");
+            var row=existing.getFirst();
+            assertEquals("DISASTER",row.get("source_kind"),"Existing source contract must match");
+            assertEquals(Boolean.TRUE,row.get("active"),"Existing source must already be active");
+            return (UUID)row.get("source_id");
+        }
+        UUID source=UUID.randomUUID();
+        sql.update("insert into data_source(source_id,name,source_kind,endpoint_key,collection_interval_minutes,active) values(?,?,'DISASTER',?,5,true)",
+            source,"DEVELOPMENT PARTIAL PROBE",provider.endpointKey);
+        return source;
+    }
     private List<Sample> samples(OfficialProviderClient.Provider provider){
         Assumptions.assumeTrue(observed.containsKey(provider),"Provider observation was not available");
         return observed.get(provider);
@@ -58,9 +73,7 @@ class OfficialDevelopmentLiveValidationTest {
         Assumptions.assumeTrue("true".equals(System.getenv("EODIISSEO_"+provider.name()+"_APPROVED")),"Dataset approval required");
         String key=System.getenv(provider==OfficialProviderClient.Provider.WILDFIRE_MESSAGES?"EODIISSEO_DEV_MOIS_KEY":"EODIISSEO_DEV_KMA_KEY");
         Assumptions.assumeTrue(key!=null&&!key.isBlank(),"Development key unavailable");
-        UUID source=UUID.randomUUID();sources.put(provider,source);
-        sql.update("insert into data_source(source_id,name,source_kind,endpoint_key,collection_interval_minutes,active) values(?,?,'DISASTER',?,5,true)",
-            source,"DEVELOPMENT PARTIAL PROBE",provider.endpointKey);
+        UUID source=developmentSource(sql,provider);sources.put(provider,source);
         LocalDate day=LocalDate.parse(System.getenv("EODIISSEO_DEV_"+provider.name()+"_DATE"));
         LocalDate today=LocalDate.now(ZoneId.of("Asia/Seoul"));
         assertTrue(day.isBefore(today),"Historical query required");

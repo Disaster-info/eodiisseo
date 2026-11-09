@@ -11,11 +11,14 @@ import java.time.format.*;
 import java.util.*;
 import static com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderClient.Provider.*;
 
-/** Only documented facts enter the official disaster model; ambiguous reports remain archived. */
+/** Only documented facts enter the official disaster model; unresolved reports never authorize state changes. */
 @Service @Profile("!test")
 public class OfficialRecordNormalizer {
     private final OwnedDatabase db;private final DisasterService earthquakes;private final DisasterRuntimeEvents events;private final VerifiedIncidentService incidents;
     public OfficialRecordNormalizer(OwnedDatabase db,DisasterService earthquakes,DisasterRuntimeEvents events,VerifiedIncidentService incidents){this.db=db;this.earthquakes=earthquakes;this.events=events;this.incidents=incidents;}
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private OfficialImpactAreaSynchronizer impactAreas;
+    public void refreshImpactAreas(UUID sourceRecord,Instant now){if(impactAreas!=null)impactAreas.refresh(sourceRecord,now);}
     public record Result(String classification,UUID sourceRecord) {}
     public static Instant time(Object input){
         String text=Objects.toString(input,"");
@@ -44,11 +47,14 @@ public class OfficialRecordNormalizer {
             throw new CollectionFailure("SOURCE_CONTRACT");
         if(provider==WILDFIRE_MESSAGES && !"산불".equals(row.get("DST_SE_NM")))return new Result("UNCLASSIFIED_MESSAGE",null);
         if(provider==WILDFIRE_MESSAGES||provider==EARTHQUAKE)return incidents.normalize(source,provider,row,original,now);
+        Result normalized;
         try {
             String key=identity(provider,row);Instant issued=time(row.get("tmFc"));
             if(issued.isAfter(now))return new Result("FUTURE_REPORT",null);
-            return rain(source,key,row,original,issued,now);
+            normalized=rain(source,key,row,original,issued,now);
         }catch(IllegalArgumentException e){return new Result("INVALID_FACTS",null);}
+        if(normalized.sourceRecord()!=null)refreshImpactAreas(normalized.sourceRecord(),now);
+        return normalized;
     }
     private Result rain(UUID source,String announcement,Map<String,Object> row,String original,Instant issued,Instant now){
         if(!"2".equals(Objects.toString(row.get("warnVar"))))return new Result("NOT_HEAVY_RAIN",null);
@@ -64,10 +70,15 @@ public class OfficialRecordNormalizer {
             where s.source_id=? and split_part(s.source_record_key,':' ,1)=? and d.data_origin='OFFICIAL'
             order by s.source_updated_at desc nulls last limit 1 for update of s,d
             """,source,zone);
+        String hash=AuthService.hash(original);
         Instant start=warningTime(row.get("startTime")).orElse(null);
         boolean lift=Set.of("2","8").contains(command);
         if(old!=null&&OwnedDatabase.instant(old.get("source_updated_at"))!=null&&issued.isBefore(OwnedDatabase.instant(old.get("source_updated_at"))))
             return new Result("OUT_OF_ORDER_WARNING",null);
+        if(old!=null && issued.equals(OwnedDatabase.instant(old.get("source_updated_at"))) && !hash.equals(old.get("content_hash")))
+            return new Result("WARNING_REVISION_ORDER_REQUIRED",null);
+        if(old!=null && !"1".equals(command) && start!=null && !start.equals(OwnedDatabase.instant(old.get("occurred_at"))))
+            return new Result("WARNING_PREDECESSOR_MISMATCH",null);
         if("1".equals(command)&&start!=null){
             old=db.one("select s.*,d.status,d.occurred_at from source_disaster s join disaster d using(disaster_id) where s.source_id=? and s.source_record_key=? for update of s,d",source,zone+":"+start);
         }
@@ -77,7 +88,6 @@ public class OfficialRecordNormalizer {
         if(start==null||start.isAfter(now))return new Result("WARNING_NOT_YET_EFFECTIVE",null);
         Instant ended=lift?warningTime(row.get("endTime")).orElseThrow(()->new IllegalArgumentException("Missing official lift time")):null;
         if(ended!=null&&(ended.isBefore(start)||ended.isAfter(now)))return new Result("INVALID_LIFT_TIME",null);
-        String hash=AuthService.hash(original);
         if(old!=null&&hash.equals(old.get("content_hash"))){
             db.update("update source_disaster set collected_at=? where source_disaster_id=?",now,old.get("source_disaster_id"));
             return new Result("HEAVY_RAIN_DUPLICATE",(UUID)old.get("source_disaster_id"));

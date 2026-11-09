@@ -16,7 +16,7 @@ class VerifiedWarningImpactReaderTest {
     @BeforeEach void setup(){
         db=mock(OwnedDatabase.class);mappings=new HashMap<>();
         when(db.rows(anyString(),eq(disaster))).thenReturn(List.of(Map.of("source_record_key","L_TEST:2026-11-01T01:00:00Z","source_updated_at",issued,"status","ONGOING")));
-        when(db.count(anyString(),eq("EXACT"))).thenReturn(1L);
+        when(db.one(contains("from admin_area"),eq("EXACT"))).thenReturn(Map.of("area_code","EXACT","name","SYNTHETIC","level","SIGUNGU","active",true));
         reader=new VerifiedWarningImpactReader(db,Optional.of((zone,issue,asOf)->Optional.ofNullable(mappings.get(zone))));
     }
     private OfficialWarningAreaMappingPort.Mapping mapping(String zone,Set<String> codes,Instant from,Instant until,boolean complete){

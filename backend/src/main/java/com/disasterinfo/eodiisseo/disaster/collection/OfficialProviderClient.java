@@ -87,11 +87,12 @@ public final class OfficialProviderClient {
             // Official KMA guides define 03/3 + NODATA_ERROR. It is an observation, not coverage proof.
             if(provider!=Provider.WILDFIRE_MESSAGES && Set.of("03","3").contains(code)
                 && "NODATA_ERROR".equals(header.get("resultMsg")))throw new CollectionFailure("NO_DATA");
-            if(!normal)throw new CollectionFailure(Set.of("20","30","31","32","33","34").contains(code)?"AUTH_REJECTED":
+            if(!normal)throw new CollectionFailure(authRejected(code)?"AUTH_REJECTED":
                 Set.of("22","23").contains(code)?"RATE_LIMIT":"PROVIDER_CODE");
             Map<String,Object> body;Object rows;Object total;
             if(provider==Provider.WILDFIRE_MESSAGES){
                 rows=envelope.get("body");total=envelope.get("totalCount");body=envelope;
+                if(rows==null || "".equals(rows))throw new CollectionFailure("SCHEMA");
             }else{
                 body=map(envelope.get("body"));total=body.get("totalCount");Object container=body.get("items");
                 rows=container instanceof Map<?,?>?((Map<?,?>)container).get("item"):null;
@@ -103,14 +104,23 @@ public final class OfficialProviderClient {
             else if(rows instanceof Map<?,?>)items.add(Collections.unmodifiableMap(new TreeMap<>(map(rows))));
             else if(rows!=null&&!rows.equals(""))throw new CollectionFailure("SCHEMA");
             if(items.size()>100 || (count>0&&items.isEmpty()))throw new CollectionFailure("PAGE_INCOMPLETE");
+            if((provider==Provider.HEAVY_RAIN || provider==Provider.WILDFIRE_MESSAGES) && body.containsKey("numOfRows")){
+                int declared=number(body.get("numOfRows"));
+                if(declared<items.size() || declared<0 || (count>0 && declared==0))throw new CollectionFailure("PAGE_INCOMPLETE");
+            }
             return new Page(expectedPage,count,items,bytes);
         }catch(CollectionFailure e){throw e;}catch(Exception e){throw new CollectionFailure("SCHEMA");}
     }
     private static Map<String,Object> map(Object value){if(!(value instanceof Map<?,?>))throw new CollectionFailure("SCHEMA");return (Map<String,Object>)value;}
     private static int number(Object value){try{return Integer.parseInt(Objects.toString(value,""));}catch(Exception e){throw new CollectionFailure("SCHEMA");}}
+    private boolean authRejected(String code){
+        // Portal KMA guide: 21 = temporarily disabled key. No equivalent Hub/MOIS error table was verified.
+        return Set.of("20","30","31","32","33","34").contains(code)
+            || (provider!=Provider.WILDFIRE_MESSAGES && "apis.data.go.kr".equals(endpoint.getHost()) && "21".equals(code));
+    }
     private static String encode(String value){return URLEncoder.encode(value,StandardCharsets.UTF_8);}
     /** JSON/XML normalize to the same canonical field map; exact wire bytes are separately archived. */
-    private static Map<String,Object> xml(String text)throws Exception{
+    private Map<String,Object> xml(String text)throws Exception{
         var factory=DocumentBuilderFactory.newInstance();
         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);
         factory.setFeature("http://xml.org/sax/features/external-general-entities",false);
@@ -124,7 +134,7 @@ public final class OfficialProviderClient {
             var codes=root.getElementsByTagName("returnReasonCode");
             if(codes.getLength()==1) {
                 String code=codes.item(0).getTextContent().strip();
-                throw new CollectionFailure(Set.of("20","30","31","32","33","34").contains(code)?"AUTH_REJECTED":
+                throw new CollectionFailure(authRejected(code)?"AUTH_REJECTED":
                     Set.of("22","23").contains(code)?"RATE_LIMIT":"PROVIDER_CODE");
             }
             throw new CollectionFailure("PROVIDER_CODE");

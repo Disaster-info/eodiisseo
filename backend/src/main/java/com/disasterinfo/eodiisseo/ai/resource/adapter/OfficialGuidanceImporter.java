@@ -23,7 +23,7 @@ import javax.swing.text.html.parser.ParserDelegator;
 /** Explicit OPS import tool. No endpoint, startup import, credentials, approval or external AI transmission. */
 @Service @Profile("!test")
 public class OfficialGuidanceImporter {
-    private static final Set<String> HOSTS=Set.of("www.mois.go.kr","mois.go.kr","www.safekorea.go.kr","www.safety24.go.kr","nonsan.go.kr","www.nonsan.go.kr","www.rda.go.kr","rda.go.kr");
+    private static final Set<String> HOSTS=Set.of("www.mois.go.kr","mois.go.kr","www.safekorea.go.kr","safekorea.go.kr","www.safety24.go.kr","safety24.go.kr","nonsan.go.kr","www.nonsan.go.kr","www.rda.go.kr","rda.go.kr");
     private final OwnedDatabase db;private final OfficialResourceStore store;private final SessionAccessService sessions;
     private final AuthService auth;private final Clock clock;private final TransactionTemplate tx;
     public OfficialGuidanceImporter(OwnedDatabase db,OfficialResourceStore store,SessionAccessService sessions,AuthService auth,
@@ -111,6 +111,8 @@ public class OfficialGuidanceImporter {
             throw new IllegalArgumentException("A bounded UTF-8 HTML body and explicit element ID are required");
         try{
             String html=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(raw)).toString();
+            String markup=html.startsWith("\uFEFF")?html.substring(1):html;
+            if(!markup.stripLeading().startsWith("<"))throw new IllegalArgumentException("Only explicit HTML exports are supported; do not disguise PDF/HWP/image bytes");
             var paragraphs=new ArrayList<String>();var line=new StringBuilder();
             int[] depth={0},ignored={0},matches={0};
             var callback=new HTMLEditorKit.ParserCallback(){

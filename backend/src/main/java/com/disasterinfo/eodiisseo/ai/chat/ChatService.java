@@ -10,6 +10,8 @@ import com.disasterinfo.eodiisseo.ai.chat.port.ChatAnswerGenerationPort;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatAnswerGenerationPort.GeneratedAnswer;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatAnswerGenerationPort.GenerationRequest;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatAnswerStore;
+import com.disasterinfo.eodiisseo.ai.chat.port.ChatEvidenceGenerationPolicy;
+import com.disasterinfo.eodiisseo.ai.chat.port.ChatEvidenceCommitPort;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatAuthenticationPort;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatOfficialResourceSearchPort;
 import com.disasterinfo.eodiisseo.ai.chat.port.ChatOfficialResourceSearchPort.OfficialResource;
@@ -47,16 +49,20 @@ public class ChatService {
     private final Optional<ChatAnswerStore> persistence;
     private final Optional<ChatRetentionPolicy> retention;
     private final Optional<ChatPromptPrivacyPort> promptPrivacy;
+    private final Optional<ChatEvidenceCommitPort> completion;
     private final Clock clock;
 
+    public ChatService(Optional<ChatAuthenticationPort> authentication,Optional<ChatOfficialResourceSearchPort> officialSearch,
+            Optional<ChatAnswerGenerationPort> generation,Optional<ChatAnswerStore> persistence,Optional<ChatRetentionPolicy> retention,
+            Optional<ChatPromptPrivacyPort> promptPrivacy){this(authentication,officialSearch,generation,persistence,retention,promptPrivacy,Clock.systemUTC(),Optional.empty());}
     @Autowired
     public ChatService(Optional<ChatAuthenticationPort> authentication,
                        Optional<ChatOfficialResourceSearchPort> officialSearch,
                        Optional<ChatAnswerGenerationPort> generation,
                        Optional<ChatAnswerStore> persistence,
                        Optional<ChatRetentionPolicy> retention,
-                       Optional<ChatPromptPrivacyPort> promptPrivacy) {
-        this(authentication, officialSearch, generation, persistence, retention, promptPrivacy, Clock.systemUTC());
+                       Optional<ChatPromptPrivacyPort> promptPrivacy, Optional<ChatEvidenceCommitPort> completion) {
+        this(authentication, officialSearch, generation, persistence, retention, promptPrivacy, Clock.systemUTC(), completion);
     }
 
     ChatService(Optional<ChatAuthenticationPort> authentication,
@@ -64,6 +70,12 @@ public class ChatService {
                 Optional<ChatAnswerGenerationPort> generation,
                 Optional<ChatAnswerStore> persistence, Optional<ChatRetentionPolicy> retention,
                 Optional<ChatPromptPrivacyPort> promptPrivacy, Clock clock) {
+        this(authentication, officialSearch, generation, persistence, retention, promptPrivacy, clock, Optional.empty());
+    }
+    public ChatService(Optional<ChatAuthenticationPort> authentication, Optional<ChatOfficialResourceSearchPort> officialSearch,
+            Optional<ChatAnswerGenerationPort> generation, Optional<ChatAnswerStore> persistence, Optional<ChatRetentionPolicy> retention,
+            Optional<ChatPromptPrivacyPort> promptPrivacy, Clock clock, Optional<ChatEvidenceCommitPort> completion) {
+        this.completion=Objects.requireNonNull(completion);
         this.authentication = Objects.requireNonNull(authentication);
         this.officialSearch = Objects.requireNonNull(officialSearch);
         this.generation = Objects.requireNonNull(generation);
@@ -81,26 +93,40 @@ public class ChatService {
         ChatAnswerStore store = requireStore();
         ChatRetentionPolicy retentionPolicy = requireRetentionPolicy();
         Outcome outcome = generate(authenticatedMemberId, question, requestedAt.plus(RESPONSE_LIMIT));
-        Instant completedAt = clock.instant();
-        Instant expiresAt = approvedExpiry(retentionPolicy, requestedAt, completedAt);
-        ChatAnswer answer = new ChatAnswer(UUID.randomUUID(), authenticatedMemberId, question,
-                outcome.text(), outcome.status(), outcome.modelName(), requestedAt, completedAt, expiresAt);
-
-        // The auth adapter serializes this completion with withdrawal's immediate deletion.
+        Outcome[] finished={outcome}; ChatAnswer[] saved={null};
         try {
-            auth.runWithActiveSession(authenticatedMemberId, verifiedServiceSessionId,
-                    () -> saveSafely(store, answer, outcome.usedResources()));
-        } catch (ChatException failure) {
-            throw failure;
-        } catch (RuntimeException failure) {
-            throw new ChatException(ChatException.Reason.UNAUTHENTICATED,
-                    "An authenticated active member and valid service session are required.");
+            auth.runWithActiveSession(authenticatedMemberId, verifiedServiceSessionId, () -> {
+                recheckPrivacy(authenticatedMemberId,question,outcome);
+                java.util.function.Consumer<Boolean> persist = current -> {
+                    recheckPrivacy(authenticatedMemberId,question,outcome);
+                    if(!current)finished[0]=fallback(Status.INSUFFICIENT).withQuestion(outcome.approvedQuestion());
+                    Instant completedAt=clock.instant();
+                    Instant expiresAt=approvedExpiry(retentionPolicy,requestedAt,completedAt);
+                    var value=finished[0];
+                    saved[0]=new ChatAnswer(UUID.randomUUID(),authenticatedMemberId,question,value.text(),value.status(),value.modelName(),requestedAt,completedAt,expiresAt);
+                    saveSafely(store,saved[0],value.usedResources());
+                    recheckPrivacy(authenticatedMemberId,question,outcome);
+                };
+                if(completion.isPresent()&&!outcome.usedResources().isEmpty())completion.orElseThrow().withCurrentEvidence(outcome.usedResources(),persist);
+                else persist.accept(true);
+            });
+        } catch (ChatException failure) { throw failure; }
+        catch (RuntimeException failure) {
+            throw new ChatException(ChatException.Reason.UNAUTHENTICATED,"An authenticated active member and valid service session are required.");
         }
-        return new ChatResponse(outcome.status() == Status.COMPLETED ? AnswerType.AI : AnswerType.FALLBACK,
-                outcome.text(), outcome.usedResources().stream()
-                .map(resource -> new Source(resource.organization(), resource.title())).toList(), completedAt);
+        return new ChatResponse(finished[0].status()==Status.COMPLETED?AnswerType.AI:AnswerType.FALLBACK,
+            finished[0].text(),finished[0].usedResources().stream().map(r->new Source(r.organization(),r.title())).toList(),saved[0].getCompletedAt());
     }
 
+    private void recheckPrivacy(UUID member,String question,Outcome outcome){
+        try{if(promptPrivacy.isPresent()&&promptPrivacy.orElseThrow().localPersistenceRevoked(member))throw new IllegalStateException();}
+        catch(RuntimeException denied){throw new ChatException(ChatException.Reason.POLICY_UNRESOLVED,"AI persistence permission was withdrawn.");}
+        if(outcome.approvedQuestion()==null)return; // Preserve the existing local-only fallback when outbound was never approved.
+        try {
+            var current=promptPrivacy.orElseThrow().minimizeLocally(member,question);
+            if(current==null||current.isEmpty()||!current.get().usableForOutbound()||!outcome.approvedQuestion().equals(current.get().safeQuestion()))throw new IllegalStateException();
+        }catch(RuntimeException failure){throw new ChatException(ChatException.Reason.POLICY_UNRESOLVED,"AI processing permission changed before persistence.");}
+    }
     /** Invoked by the existing retention scheduler after it is wired; no duplicate scheduler policy. */
     public int deleteExpiredAnswers() {
         try {
@@ -140,8 +166,10 @@ public class ChatService {
                 return basicGuidance;
             }
             String safeQuestion = prepared.get().safeQuestion();
-            SearchResult searchResult = deadline.await(() -> officialSearch.orElseThrow().search(safeQuestion));
-            basicGuidance = selectedBasicGuidance(searchResult);
+            String searchQuestion=prepared.get().retrievalQuestion();
+            basicGuidance=basicGuidance.withQuestion(safeQuestion);
+            SearchResult searchResult = deadline.await(() -> officialSearch.orElseThrow().search(searchQuestion));
+            basicGuidance = selectedBasicGuidance(searchResult).withQuestion(safeQuestion);
             Map<UUID, OfficialResource> evidence = validateEvidence(searchResult);
             if (evidence.isEmpty()) {
                 return basicGuidance.withStatus(Status.INSUFFICIENT);
@@ -153,16 +181,25 @@ public class ChatService {
             if(stillApproved==null || stillApproved.isEmpty() || !stillApproved.get().usableForOutbound()
                     || !safeQuestion.equals(stillApproved.get().safeQuestion()))return basicGuidance;
             // Recheck current approvals after privacy/consent and immediately before outbound generation.
-            Map<UUID,OfficialResource> currentEvidence=validateEvidence(deadline.await(()->officialSearch.orElseThrow().search(safeQuestion)));
-            if(!currentEvidence.entrySet().containsAll(evidence.entrySet()))return fallback(Status.INSUFFICIENT);
-            GeneratedAnswer answer = deadline.await(() -> generation.orElseThrow()
+            Map<UUID,OfficialResource> currentEvidence=validateEvidence(deadline.await(()->officialSearch.orElseThrow().search(searchQuestion)));
+            if(!currentEvidence.entrySet().containsAll(evidence.entrySet()))return fallback(Status.INSUFFICIENT).withQuestion(safeQuestion);
+            ChatAnswerGenerationPort generator=generation.orElseThrow();
+            if(officialSearch.orElseThrow() instanceof ChatEvidenceGenerationPolicy policy)generator=policy.guardGeneration(generator);
+            ChatAnswerGenerationPort guarded=generator;
+            GeneratedAnswer answer = deadline.await(() -> guarded
                     .generate(new GenerationRequest(safeQuestion, List.copyOf(evidence.values()), deadlineAt)));
             if (!validGeneratedAnswer(answer, evidence)) {
                 return basicGuidance.withStatus(Status.FAILED);
             }
+            var postModelPrivacy=deadline.await(()->promptPrivacy.orElseThrow().minimizeLocally(memberId,question));
+            if(postModelPrivacy==null||postModelPrivacy.isEmpty()||!postModelPrivacy.get().usableForOutbound()||!safeQuestion.equals(postModelPrivacy.get().safeQuestion()))return fallback(Status.FALLBACK).withQuestion(safeQuestion);
+            // A review can expire or be revoked while the model is working. Do not publish stale evidence.
+            Map<UUID,OfficialResource> finalEvidence=validateEvidence(deadline.await(()->officialSearch.orElseThrow().search(searchQuestion)));
+            if(answer.usedResourceIds().stream().anyMatch(id->!Objects.equals(evidence.get(id),finalEvidence.get(id))))
+                return fallback(Status.INSUFFICIENT).withQuestion(safeQuestion);
             List<OfficialResource> used = answer.usedResourceIds().stream().distinct()
                     .map(evidence::get).toList();
-            return new Outcome(Status.COMPLETED, answer.text(), answer.modelName(), used);
+            return new Outcome(Status.COMPLETED, answer.text(), answer.modelName(), used).withQuestion(safeQuestion);
         } catch (TimeoutException failure) {
             return basicGuidance.withStatus(Status.TIMEOUT);
         } catch (InterruptedException failure) {
@@ -295,9 +332,11 @@ public class ChatService {
         return new Outcome(status, FALLBACK_ANSWER, null, List.of());
     }
 
-    private record Outcome(Status status, String text, String modelName, List<OfficialResource> usedResources) {
+    private record Outcome(Status status, String text, String modelName, List<OfficialResource> usedResources,String approvedQuestion) {
+        Outcome(Status status,String text,String modelName,List<OfficialResource> resources){this(status,text,modelName,resources,null);}
+        Outcome withQuestion(String question){return new Outcome(status,text,modelName,usedResources,question);}
         Outcome withStatus(Status newStatus) {
-            return new Outcome(newStatus, text, modelName, usedResources);
+            return new Outcome(newStatus, text, modelName, usedResources,approvedQuestion);
         }
     }
 }

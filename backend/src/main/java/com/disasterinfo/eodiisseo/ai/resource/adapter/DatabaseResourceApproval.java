@@ -28,11 +28,21 @@ public class DatabaseResourceApproval implements ResourceApprovalPort {
                 || !Boolean.TRUE.equals(review.get("injection_reviewed")))return Optional.empty();
         var doc=document(id); Instant now=clock.instant();
         if(!importCurrent(id,now))return Optional.empty();
-        if(doc==null || doc.getContentText()==null || INJECTION.matcher(doc.getContentText()).find()
+        if(!reviewable(doc,now)
                 || !doc.revisionFingerprint().equals(review.get("revision_fingerprint"))
                 || !doc.getAgencyName().equals(review.get("source_organization")) || !doc.getSourceUrl().equals(review.get("source_url"))
                 || now.isBefore(OwnedDatabase.instant(review.get("reviewed_at"))) || !now.isBefore(OwnedDatabase.instant(review.get("valid_until"))))return Optional.empty();
         return Optional.of(new Approval(id,doc.revisionFingerprint(),OwnedDatabase.instant(review.get("reviewed_at")),OwnedDatabase.instant(review.get("valid_until")),true));
+    }
+    /** Approval cannot weaken the exact source/content checks applied during retrieval. */
+    private static boolean reviewable(OfficialResourceDocument doc,Instant now) {
+        if(doc==null||doc.getCheckedAt()==null||doc.getCheckedAt().isAfter(now)||doc.getContentText()==null
+                ||doc.getContentText().isBlank()||INJECTION.matcher(doc.getContentText()).find()
+                ||KoreanLexicalParagraphSearch.suspicious(doc.getContentText()))return false;
+        try {
+            var uri=OfficialGuidanceImporter.officialUri(doc.getSourceUrl());
+            return OfficialGuidanceImporter.publisherMatches(doc.getAgencyName(),uri);
+        }catch(RuntimeException invalid){return false;}
     }
     private boolean importCurrent(UUID id,Instant now) {
         if(!db.tableExists("owned_resource_import"))return true;
@@ -53,7 +63,7 @@ public class DatabaseResourceApproval implements ResourceApprovalPort {
         requireReviewer(reviewer);
         db.one("select resource_id from official_resource where resource_id=? for update",resource);
         var doc=document(resource);
-        if(!importCurrent(resource,clock.instant()) || doc==null || !doc.revisionFingerprint().equals(expectedFingerprint) || validUntil==null || !validUntil.isAfter(clock.instant())
+        if(!importCurrent(resource,clock.instant()) || !reviewable(doc,clock.instant()) || !doc.revisionFingerprint().equals(expectedFingerprint) || validUntil==null || !validUntil.isAfter(clock.instant())
                 || evidenceReference==null || evidenceReference.isBlank() || evidenceReference.length()>500
                 || !rightsAndPublicAiUseConfirmed || !injectionReviewed || doc.getContentText()==null || INJECTION.matcher(doc.getContentText()).find())
             throw new IllegalArgumentException("An exact reviewed publication and explicit evidence are required");
