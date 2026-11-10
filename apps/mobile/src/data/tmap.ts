@@ -78,7 +78,8 @@ export async function regionOf({ lat, lon }: LatLon): Promise<string> {
 
 // TMAP 지도(JavaScript SDK v2)를 띄우는 HTML. 앱은 WebView, 웹은 iframe 으로 같은 HTML 을 그림
 // SDK 로더가 document.write 로 본체를 불러오므로 <script> 태그로 문서 안에 직접 넣어야 함
-export type MapMarker = { lat: number; lon: number; title: string; me?: boolean }; // me = 내 위치 (점 아이콘으로 구분)
+// me = 내 위치 (점 아이콘으로 구분). label = 핀 위 번호 (대피소 목록의 순번과 같게, 1번만 노랑)
+export type MapMarker = { lat: number; lon: number; title: string; me?: boolean; label?: string };
 export function tmapHtml(markers: MapMarker[], path: LatLon[] = [], lineColor = '#000', zoom = 16) {
   const data = JSON.stringify(markers).replace(/</g, '\\u003c'); // 이름에 </script> 가 있어도 안전하게
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
@@ -86,13 +87,26 @@ export function tmapHtml(markers: MapMarker[], path: LatLon[] = [], lineColor = 
 <script src="https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=${KEY}"></script>
 </head><body><div id="map"></div><script>
 var markers = ${data};
+// 지도 SDK 를 못 불러왔거나(네트워크·앱 키 문제) 표시할 위치가 없으면 안내 문구만 (지도 그리기는 else 안에서만)
+if (typeof Tmapv2 === 'undefined' || !markers.length) {
+  document.getElementById('map').innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;box-sizing:border-box;font:15px/1.5 -apple-system,Roboto,sans-serif;color:#4E5B6A;background:#E7EAF0">지도를 불러오지 못했어요.<br>네트워크 상태를 확인해 주세요.</div>';
+} else {
 var path = ${JSON.stringify(path)};
 var map = new Tmapv2.Map('map', { center: new Tmapv2.LatLng(markers[0].lat, markers[0].lon), width: '100%', height: '100%', zoom: ${zoom} });
 var ME_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="8" fill="${lineColor}" stroke="white" stroke-width="3"/></svg>');
+// 번호 핀: 노선도의 출구 번호처럼 네모 판 + 아래 꼭지 (1번 = 노랑, 나머지 = 흰색). 아래 꼭지 끝이 실제 위치
+function numIcon(n) {
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40"><path d="M16 39 L9 29 H23 Z" fill="#16191D"/>'
+    + '<rect x="1.5" y="1.5" width="29" height="29" rx="6" fill="' + (n === '1' ? '#FFC629' : '#FFFFFF') + '" stroke="#16191D" stroke-width="2.5"/>'
+    + '<text x="16" y="22.5" font-size="17" font-weight="900" font-family="-apple-system,Roboto,sans-serif" text-anchor="middle" fill="#111">' + n + '</text></svg>';
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
 var bounds = new Tmapv2.LatLngBounds();
 markers.forEach(function (m) {
   var p = new Tmapv2.LatLng(m.lat, m.lon);
-  new Tmapv2.Marker(m.me ? { position: p, map: map, title: m.title, icon: ME_ICON, iconSize: new Tmapv2.Size(22, 22) } : { position: p, map: map, title: m.title });
+  new Tmapv2.Marker(m.me ? { position: p, map: map, title: m.title, icon: ME_ICON, iconSize: new Tmapv2.Size(22, 22) }
+    : m.label ? { position: p, map: map, title: m.title, icon: numIcon(m.label), iconSize: new Tmapv2.Size(32, 40) }
+    : { position: p, map: map, title: m.title });
   bounds.extend(p);
 });
 if (path.length) {
@@ -101,5 +115,6 @@ if (path.length) {
   line.forEach(function (p) { bounds.extend(p); });
 }
 if (markers.length > 1 || path.length) map.fitBounds(bounds); // 마커·경로가 모두 보이게
+}
 </script></body></html>`;
 }

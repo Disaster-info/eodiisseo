@@ -1,0 +1,14 @@
+#cloud-config
+# OpenStack 인스턴스(VM)를 만들 때 '사용자 정의 스크립트(User Data)'에 붙여 넣으면
+# 처음 부팅할 때 Docker 와 git 을 자동으로 설치함 (Ubuntu 22.04·24.04 이미지 기준)
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+runcmd:
+  # Docker 공식 설치 스크립트 (Docker Engine + compose 플러그인)
+  - curl -fsSL https://get.docker.com | sh
+  # ubuntu 계정이 sudo 없이 docker 명령을 쓸 수 있게 (다시 접속한 뒤부터 적용)
+  - usermod -aG docker ubuntu
+  - systemctl enable --now docker

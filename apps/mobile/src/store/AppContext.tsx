@@ -1,13 +1,15 @@
 // 앱 전역 상태 (화면 이동은 expo-router 가 담당)
 import * as Location from 'expo-location';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { api, endSession, logoutSession, restoreSession, setOnSessionExpired } from '../data/api';
+import { api, endSession, logoutSession, restoreSession, setOnSessionExpired, withTimeout } from '../data/api';
 import { GPS_LOCATION, INIT_GROUPS, Level, ME, MemberInfo, Provider } from '../data/mock';
 import { getItem, removeItem, setItem } from '../data/storage';
 import { LatLon, Place, regionOf } from '../data/tmap';
 
 // FS-LOC-001·003: 위치 동의·기준 위치를 기기에 저장 → 다시 열어도 그대로. owner 로 회원을 구분 (다른 회원이면 다시 물음)
 const LOC_KEY = 'eodiisseo.location';
+const THEME_KEY = 'eodiisseo.theme';          // 화면 테마: 기기 설정 (회원과 무관)
+const CHECK_KEY = 'eodiisseo.checklist.';      // + 회원 ID: 체크리스트 체크 상태 (기기에 저장, 서버에 올리지 않음)
 type LocPrefs = { owner: string; locConsent: boolean; manualLoc: boolean; picked: string; place: Place | null };
 const NO_PREFS = { locConsent: false, manualLoc: false, picked: GPS_LOCATION, place: null };
 async function loadLocPrefs(owner: string): Promise<LocPrefs | null> {
@@ -43,7 +45,12 @@ function useAppState() {
   const [areaNames, setAreaNames] = useState<Record<string, string>>({}); // FS-AREA-003: 관심지역 표시명 (지역 → 별칭)
   const [groups, setGroups] = useState(INIT_GROUPS);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const [theme, setTheme] = useState<ThemeMode>('system');           // 화면 테마 (기본: 기기 설정 따름)
+  const [theme, setThemeRaw] = useState<ThemeMode>('system');        // 화면 테마 (기본: 기기 설정 따름)
+  const setTheme = (t: ThemeMode) => { setThemeRaw(t); setItem(THEME_KEY, t).catch(() => {}); };
+  // 앱을 다시 열어도 고른 테마 유지 (읽기 실패하면 기본값)
+  useEffect(() => {
+    getItem(THEME_KEY).then(t => { if (t === 'light' || t === 'dark' || t === 'system') setThemeRaw(t); }).catch(() => {});
+  }, []);
   const [ready, setReady] = useState(false); // 저장된 로그인 확인이 끝났는지 (끝나기 전엔 화면을 그리지 않아 로그인 화면이 깜빡이지 않음)
 
   // FS-LOC-001: 동의 철회 시 모든 그룹에서 내 위치공유 중단
@@ -65,7 +72,8 @@ function useAppState() {
     let alive = true;
     (async () => {
       if (!(await Location.requestForegroundPermissionsAsync()).granted) return 'fail' as const;
-      const { coords } = await Location.getCurrentPositionAsync({});
+      // 실내 등에서 위치가 한없이 늦게 올 수 있어 20초 넘으면 '확인 불가' (기준 위치 직접 지정 안내로 이어짐)
+      const { coords } = await withTimeout(Location.getCurrentPositionAsync({}), 20000, '현재 위치 확인 시간 초과');
       const c = { lat: coords.latitude, lon: coords.longitude };
       return { coords: c, region: await regionOf(c) };
     })().then(v => alive && setGps(v), () => alive && setGps('fail'));
@@ -78,11 +86,13 @@ function useAppState() {
   const needLocation = !locConsent && !manualLoc;
 
   // FS-AUTH-001·002: 인증 성공 후 로그인 상태 생성. 이 회원이 이 기기에서 위치 동의에 답했으면 다시 묻지 않음
+  // 운영자는 위치 동의 화면을 건너뜀: 기준 위치를 직접 지정한 상태(기본 GPS_LOCATION)로 바로 시작 (내 위치를 쓰지 않음)
   const login = async (p: Provider, info: MemberInfo) => {
     const saved = await loadLocPrefs(info.id);
-    const prefs = saved ?? NO_PREFS; // 처음이거나 다른 회원이면 이전 회원의 위치 설정을 쓰지 않음
+    // 처음이거나 다른 회원이면 이전 회원의 위치 설정을 쓰지 않음
+    const prefs = saved ?? (info.operator ? { ...NO_PREFS, manualLoc: true } : NO_PREFS);
     setLocConsentRaw(prefs.locConsent); setManualLoc(prefs.manualLoc); setPicked(prefs.picked); setPlace(prefs.place);
-    setNeedConsent(!saved);
+    setNeedConsent(!saved && !info.operator);
     setMember(info); setProvider(p); setLinked(l => (l.includes(p) ? l : [...l, p])); setLoginNotice('');
   };
   // FS-AUTH-005: 로그아웃 (회원 데이터는 서버에 남아 있으므로 지우지 않음)
@@ -98,11 +108,27 @@ function useAppState() {
   const withdraw = () => {
     setGroups([]); setLinked([]); setAreas([]); setAreaNames({}); setChecked({}); setNoti({ ...INIT_NOTI, areas: [] });
     setLocConsentRaw(false); setPicked(GPS_LOCATION); setManualLoc(false); setPlace(null);
-    removeItem(LOC_KEY).catch(() => {}); endSession(); setMember(null); setLoginNotice('회원 탈퇴가 완료되었습니다.');
+    removeItem(LOC_KEY).catch(() => {}); if (member) removeItem(CHECK_KEY + member.id).catch(() => {}); endSession(); setMember(null); setLoginNotice('회원 탈퇴가 완료되었습니다.');
   };
 
   // 위치 동의에 답한 뒤의 위치 설정을 기기에 저장 (로그아웃해도 남기고, 탈퇴하면 지움)
   const memberId = member?.id;
+  // 체크리스트: 회원별로 기기에 저장 → 로그인하면 불러옴 (다른 회원의 체크가 보이지 않게 회원 ID 로 구분)
+  const [checkedOwner, setCheckedOwner] = useState<string | null>(null);
+  useEffect(() => {
+    if (!memberId) return;
+    let alive = true;
+    getItem(CHECK_KEY + memberId).then(raw => {
+      if (!alive) return;
+      try { setChecked(raw ? JSON.parse(raw) : {}); } catch { setChecked({}); }
+      setCheckedOwner(memberId);
+    }).catch(() => alive && setCheckedOwner(memberId));
+    return () => { alive = false; };
+  }, [memberId]);
+  useEffect(() => {
+    if (!memberId || checkedOwner !== memberId) return; // 불러오기 전에는 저장하지 않음 (빈 값으로 덮어쓰지 않게)
+    setItem(CHECK_KEY + memberId, JSON.stringify(checked)).catch(() => {});
+  }, [memberId, checkedOwner, checked]);
   useEffect(() => {
     if (!memberId || needConsent) return;
     const prefs: LocPrefs = { owner: memberId, locConsent, manualLoc, picked, place };
@@ -121,7 +147,8 @@ function useAppState() {
   // 앱 시작 시 한 번: 저장된 로그인 세션이 있으면 이어서 로그인. 사용 중 세션이 끝나면(갱신 실패) 만료 처리
   useEffect(() => {
     setOnSessionExpired(expire);
-    restoreSession().then(async r => { if (r) await login(r.provider, r.info); }).finally(() => setReady(true));
+    // 복원 중 어떤 오류가 나도 로그인 화면으로 (화면이 그려지지 않은 채 멈추지 않게)
+    restoreSession().then(async r => { if (r) await login(r.provider, r.info); }).catch(() => {}).finally(() => setReady(true));
   }, []); // 시작 시 한 번만 (login·expire 는 setState·저장소만 씀)
 
   return { ready, needConsent, setNeedConsent, member, rename, provider, linked, setLinked, loginNotice, login, logout, expire,

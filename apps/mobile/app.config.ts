@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const kakaoNativeAppKey = process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY;
   return {
     ...config,
-    name: config.name ?? 'Disaster',
+    name: config.name ?? '어디있어',
     slug: config.slug ?? 'Disaster',
     plugins: [
       ...(config.plugins ?? []),

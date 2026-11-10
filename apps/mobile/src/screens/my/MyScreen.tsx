@@ -1,51 +1,20 @@
-// FS-AUTH-006 회원정보 조회·프로필(이름) 수정, 003 소셜 계정 연결, 005 로그아웃, 007 회원 탈퇴 / FS-LOC-001 동의 철회 / FS-OPS 진입
-// 배치: 프로필 + 상태 요약 태그 → 위치·알림 → 화면 → 계정 → 로그아웃·탈퇴 (비슷한 설정끼리 묶음, 모든 행 같은 높이)
+// FS-AUTH-006 회원정보 조회·프로필(이름) 수정, 003 소셜 계정 연결, 005 로그아웃, 007 회원 탈퇴 / FS-LOC-001 동의 철회
+// FS-OPS: 운영자 계정이면 이 탭이 '관리자 설정' — 운영 현황(AdminSections)을 맨 위에. 소셜 계정 연결·회원 탈퇴는 없음
+// 배치: 프로필 + 상태 요약 태그 → (운영 현황) → 위치·알림 → 화면 → 계정 → 로그아웃·탈퇴 (비슷한 설정끼리 묶음, 모든 행 같은 높이)
 import { router } from 'expo-router';
-import { Children, ReactNode, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { AppSwitch, Badge, Btn, Icon, IconName, Page, Segmented, confirm, notify, useTheme } from '../../components/ui';
 import { Provider } from '../../data/mock';
 import { ThemeMode, useApp } from '../../store/AppContext';
+import { AdminSections } from './AdminSections';
+import { Group, Row } from './rows';
 
 const PROVIDERS: Provider[] = ['Google', 'Kakao'];
 const THEMES: { mode: ThemeMode; label: string }[] = [
   { mode: 'system', label: '시스템' }, { mode: 'light', label: '라이트' }, { mode: 'dark', label: '다크' },
 ];
 const PROVIDER_ICON: Record<Provider, IconName> = { Google: 'logo-google', Kakao: 'chatbubble' };
-
-// 설정 목록의 한 줄: 아이콘 + 제목 + (부가설명) + 오른쪽(값·스위치 등)
-// value: 현재 값 (오른쪽 회색 글자 + 화살표). danger: 탈퇴처럼 되돌릴 수 없는 동작 (빨간 아이콘·제목)
-function Row({ icon, title, sub, value, right, onPress, danger }:
-  { icon: IconName; title: string; sub?: string; value?: string; right?: ReactNode; onPress?: () => void; danger?: boolean }) {
-  const { C, s } = useTheme();
-  return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}
-      accessibilityLabel={value ? `${title}, ${value}` : undefined}
-      style={({ pressed }) => [s.row, { gap: 12, paddingVertical: 8, minHeight: 52 }, pressed && s.pressed]}>
-      <Icon name={icon} size={22} color={danger ? C.danger : C.sub} />
-      <View style={{ flex: 1 }}>
-        <Text style={[s.body, danger && { color: C.danger, fontWeight: '700' }]}>{title}</Text>
-        {!!sub && <Text style={[s.small, { marginTop: 1 }]}>{sub}</Text>}
-      </View>
-      {!!value && <Text style={[s.muted, { marginTop: 0, flexShrink: 1, textAlign: 'right' }]} numberOfLines={1}>{value}</Text>}
-      {right ?? (onPress && <Icon name="chevron-forward" size={18} color={C.sub} />)}
-    </Pressable>
-  );
-}
-
-// 묶음: 제목(선택) + 카드 안 행 사이에 얇은 구분선
-function Group({ title, children }: { title?: string; children: ReactNode }) {
-  const { s } = useTheme();
-  const rows = Children.toArray(children).filter(Boolean);
-  return (
-    <View>
-      {!!title && <Text style={[s.small, { fontWeight: '700', marginLeft: 16, marginBottom: 6 }]}>{title}</Text>}
-      <View style={[s.card, { paddingVertical: 2 }]}>
-        {rows.map((r, i) => <View key={i} style={i > 0 && s.divTop}>{r}</View>)}
-      </View>
-    </View>
-  );
-}
 
 export default function MyScreen() {
   const { C, s } = useTheme();
@@ -86,7 +55,10 @@ export default function MyScreen() {
             <Text style={[s.h2, { color: C.onSign, fontWeight: '800' }]} maxFontSizeMultiplier={1.3}>{member.name.slice(0, 1)}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={s.h2}>{member.name}</Text>
+            <View style={[s.row, { gap: 8 }]}>
+              <Text style={[s.h2, { flexShrink: 1 }]} numberOfLines={1}>{member.name}</Text>
+              {member.operator && <Badge text="관리자" icon="shield-checkmark" color={C.primary} />}
+            </View>
             {/* 로그인 제공자는 아래 '계정' 묶음에 표시 (여기서 같이 쓰면 이메일이 잘림) */}
             {!!member.email && <Text style={[s.muted, { marginTop: 1 }]} numberOfLines={1}>{member.email}</Text>}
           </View>
@@ -99,7 +71,7 @@ export default function MyScreen() {
         </View>
         {nameDraft === null ? (
           <View style={[s.row, { flexWrap: 'wrap', gap: 6, marginTop: 12 }]} accessible accessibilityLabel={`위치 동의 ${locConsent ? '켜짐' : '꺼짐'}, 알림 ${notiSummary}, 관심지역 ${areas.length}곳`}>
-            <Badge text={`위치 동의 ${locConsent ? '켜짐' : '꺼짐'}`} color={locConsent ? C.success : C.sub} />
+            {!member.operator && <Badge text={`위치 동의 ${locConsent ? '켜짐' : '꺼짐'}`} color={locConsent ? C.success : C.sub} />}
             <Badge text={noti.on ? `알림 ${noti.minLevel} 이상` : '알림 꺼짐'} color={noti.on ? C.primary : C.sub} />
             <Badge text={`관심지역 ${areas.length}곳`} color={C.primary} />
           </View>
@@ -119,9 +91,12 @@ export default function MyScreen() {
         )}
       </View>
 
+      {member.operator && <AdminSections />}
+
       <Group title="위치 · 알림">
-        <Row icon="location-outline" title="위치정보 이용 동의" sub="끄면 동의 철회 · 그룹 위치공유 중단"
-          right={<AppSwitch accessibilityLabel="위치정보 이용 동의" value={locConsent} onValueChange={toggleConsent} />} />
+        {/* 운영자는 동의 화면을 건너뛰고 기준 위치를 직접 지정해 씀 (그룹 위치공유도 없음) */}
+        {!member.operator && <Row icon="location-outline" title="위치정보 이용 동의" sub="끄면 동의 철회 · 그룹 위치공유 중단"
+          right={<AppSwitch accessibilityLabel="위치정보 이용 동의" value={locConsent} onValueChange={toggleConsent} />} />}
         <Row icon="pin-outline" title="기준 위치" value={location} onPress={() => router.push('/location')} />
         <Row icon="star-outline" title="관심지역" value={`${areas.length}곳`} onPress={() => router.push('/areas')} />
         <Row icon="notifications-outline" title="재난 알림" value={notiSummary} onPress={() => router.push('/noti')} />
@@ -138,19 +113,18 @@ export default function MyScreen() {
         </View>
       </Group>
 
-      <Group title="계정">
+      {!member.operator && <Group title="계정">
         {PROVIDERS.map(p => (
           <Row key={p} icon={PROVIDER_ICON[p]} title={p}
             right={p === provider ? <Text style={[s.muted, { marginTop: 0 }]}>로그인 계정</Text>
               : linked.includes(p) ? <Text style={[s.muted, { marginTop: 0, color: C.success }]}>연결됨</Text>
               : <Pressable onPress={() => connect(p)} accessibilityRole="button" accessibilityLabel={`${p} 계정 연결하기`}><Text style={s.link}>연결하기</Text></Pressable>} />
         ))}
-        {member.operator && <Row icon="construct-outline" title="운영 관리" sub="API 수집 상태 · 재난 데이터 · 오류 로그" onPress={() => router.push('/ops')} />}
-      </Group>
+      </Group>}
 
       <Group>
         <Row icon="log-out-outline" title="로그아웃" onPress={() => confirm('로그아웃', '로그아웃할까요?', '로그아웃', logout)} right={false} />
-        <Row icon="person-remove-outline" title="회원 탈퇴" sub="모든 데이터 삭제 · 되돌릴 수 없어요" onPress={requestWithdraw} danger />
+        {!member.operator && <Row icon="person-remove-outline" title="회원 탈퇴" sub="모든 데이터 삭제 · 되돌릴 수 없어요" onPress={requestWithdraw} danger />}
       </Group>
 
       {!!member.joinedAt && <Text style={[s.small, { textAlign: 'center', marginTop: 4 }]}>가입일 {member.joinedAt}</Text>}

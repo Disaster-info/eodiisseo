@@ -22,13 +22,28 @@ async function keep(next: Session | null) {
 export const startSession = (tokens: Tokens, provider: Provider) => keep({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, provider });
 export const endSession = () => keep(null);
 
-/** 로그인 없이 부르는 API. 서버에 닿지 못하면(꺼짐·주소 오류) 사용자 문구로 */
+const TIMEOUT_MS = 15000; // 서버가 응답하지 않으면 이 시간 뒤 실패로 처리 (앱 시작이 빈 화면에서 멈추지 않게)
+
+/** 로그인 없이 부르는 API. 서버에 닿지 못하면(꺼짐·주소 오류·응답 없음) 사용자 문구로 */
 export async function request(path: string, init: RequestInit = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    return await fetch(`${API}${path}`, init);
+    return await fetch(`${API}${path}`, { ...init, signal: ctrl.signal });
   } catch {
-    throw new Error('서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.');
+    throw new Error(ctrl.signal.aborted
+      ? '서버 응답이 없어요. 잠시 후 다시 시도해 주세요.'
+      : '서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.');
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/** 시간 제한: ms 안에 끝나지 않으면 message 로 실패 (휴대폰 GPS 처럼 응답이 한없이 늦을 수 있는 작업용) */
+export function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
 
 // refresh 토큰은 쓸 때마다 새것으로 바뀌고, 이미 쓴 것을 다시 보내면 서버가 세션을 끊음 → 갱신은 동시에 한 번만
@@ -81,6 +96,7 @@ export async function signIn(provider: Provider, body: object): Promise<MemberIn
   if (json.accountStatus === 'WITHDRAWAL_PENDING') {
     throw new Error(`탈퇴 처리 중인 계정이에요. ${String(json.recoverableUntil).slice(0, 10)}까지 복구할 수 있어요.`);
   }
+  if (!json.accessToken || !json.refreshToken) throw new Error('로그인 응답이 올바르지 않아요. 잠시 후 다시 시도해 주세요.');
   await startSession(json, provider); // 토큰 저장 → 다시 열어도 로그인 유지, 만료되면 자동 갱신
   // 운영 관리 권한(OPS)은 회원 정보 조회로 확인. 실패하면 로그인 응답의 값만, 권한 없음으로 둠
   const info = await fetchMember().catch(() => null);

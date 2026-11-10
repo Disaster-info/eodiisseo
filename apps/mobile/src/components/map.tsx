@@ -1,6 +1,6 @@
 // TMAP 지도 틀 (iOS·Android·웹 공통): 높이 + '크게 보기' 버튼 + 전체 화면 지도
 // 화면 안 지도는 미리보기(움직이지 않음), 누르면 전체 화면에서 확대·이동 — 스크롤 화면 안 지도의 손가락 동작 겹침을 없앰
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Modal, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LatLon, MapMarker } from '../data/tmap';
@@ -8,7 +8,9 @@ import { MapCanvas } from './mapCanvas';
 import { Icon, useTheme } from './ui';
 
 // path: 경로선 좌표 (있으면 마커와 함께 화면에 맞춰 보여줌). height: 화면 안 지도 높이 (기본 160)
-export function TmapView({ markers, path, label, height = 160 }: { markers: MapMarker[]; path?: LatLon[]; label: string; height?: number }) {
+type Props = { markers: MapMarker[]; path?: LatLon[]; label: string; height?: number };
+
+function TmapViewInner({ markers, path, label, height = 160 }: Props) {
   const { C, s } = useTheme();
   const { top, bottom } = useSafeAreaInsets();
   const [full, setFull] = useState(false);
@@ -45,3 +47,9 @@ export function TmapView({ markers, path, label, height = 160 }: { markers: MapM
     </>
   );
 }
+
+// 화면이 다시 그려져도 지도 내용(마커·경로·제목·높이)이 같으면 지도(WebView·iframe)를 다시 그리지 않음
+// 마커 배열은 부르는 화면에서 매번 새로 만들어지므로 내용으로 비교 (마커 수가 적어 비교 비용은 작음)
+// 경로(path)는 경로 결과 객체가 그대로 유지되므로 참조만 비교
+export const TmapView = memo(TmapViewInner, (a, b) =>
+  a.label === b.label && a.height === b.height && a.path === b.path && JSON.stringify(a.markers) === JSON.stringify(b.markers));

@@ -9,6 +9,14 @@ npm install
 npx expo start      # 휴대폰 Expo Go 로 QR 스캔 / i: iOS 시뮬레이터 / a: 안드로이드 / w: 웹
 ```
 
+## 서버 배포 (OpenStack)
+
+웹 버전과 백엔드를 OpenStack VM 에서 Docker 로 운영합니다. 순서와 설명은 [deploy/README.md](deploy/README.md) 참고.
+
+```bash
+cd deploy && cp .env.example .env && docker compose up -d --build   # 서버에서 실행 → http://<서버IP>
+```
+
 ## 앱 식별자 (Android·iOS)
 
 `app.json` 에 설정된 앱 고유 ID입니다. Firebase(FCM 푸시 알림) 앱 등록과 스토어 등록에 같은 값을 씁니다.

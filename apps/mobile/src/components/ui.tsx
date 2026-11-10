@@ -1,6 +1,6 @@
 // 공통 UI 컴포넌트 + 스타일
 import { ComponentProps, ReactNode, createContext, useContext, useState } from 'react';
-import { ActionSheetIOS, Alert, Modal, Platform, Pressable, PressableProps, ScrollViewProps, StyleSheet, Switch, SwitchProps, Text, View, useWindowDimensions } from 'react-native';
+import { ActionSheetIOS, Alert, Linking, Modal, Platform, Pressable, PressableProps, ScrollViewProps, StyleSheet, Switch, SwitchProps, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { Stack } from 'expo-router';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
@@ -31,14 +31,19 @@ const DARK_SIGN = {
   signLine: { blue: '#3F7FC6', green: '#2F9466', red: '#C4473F', yellow: '#B8932E' },
 };
 const LIGHT = {
-  primary: '#0B5CAD', fill: '#0B5CAD', primarySoft: '#DCE8F6', noticeText: '#0A4C8F', // primary: 글자·아이콘, fill: 흰 글자를 얹는 버튼 바탕
+  primary: '#0B5CAD', fill: '#0B4A6B', primarySoft: '#DCE8F6', noticeText: '#0A4C8F', // primary: 글자·아이콘, fill: 흰 글자를 얹는 버튼·선택 칩·스위치 바탕 (페트롤 블루)
   danger: '#B3201A', dangerSoft: '#FBE6E4', dangerText: '#B3201A',
   warning: '#8A5A00', success: '#0E7A4F',
-  text: '#16181B', sub: '#4E5B6A', border: '#D3DEEA', bg: '#E6EDF5', card: '#FFFFFF', // bg: 스카이 (옅은 하늘색)
+  text: '#16181B', sub: '#4E5B6A', border: '#D3DEEA', bg: '#E7EAF0', card: '#FFFFFF', // bg: C안(탑승권) 회청색 바탕
   bar: '#FFFFFF', barBorder: '#D3DEEA',
   rim: '#000000', // 아이콘·배지 테두리: 색이 바탕과 비슷해도 경계가 보이게 (바탕 대비 17.8:1)
   sign: SIGN, signInk: SIGN_INK, signLine: SIGN_LINE, onSign: '#FFFFFF',
   emergency: SIGN.red, // 119 전화 버튼: 어느 테마·시안에서도 강한 빨강
+  // C안(탑승권): navy = 승차권 머리 띠·채운 버튼 색(페트롤 블루로 통일), 고정폭 숫자색, 절취선 / B안(노선도): 노선 녹색, 출구 번호 노랑
+  navy: '#0B4A6B', carbon: '#4A3C8C', perf: '#C3CAD6',
+  // 화면 상단(헤더 + 본문 위 띠) = 페트롤 블루. headSub = 띠 위 보조 글자, headLine = 띠 위 칩 테두리
+  head: '#0B4A6B', headSub: '#CFE3EE', headLine: '#4C82A3',
+  line: '#00A05A', exit: '#FFC629', tabOn: '#0B4A6B', // tabOn: 선택된 탭·테두리 버튼 글자색
 };
 const DARK: typeof LIGHT = {
   primary: '#7DB2EC', fill: '#1F67B5', primarySoft: '#16263A', noticeText: '#A9CBF2',
@@ -49,6 +54,9 @@ const DARK: typeof LIGHT = {
   rim: '#C9CED6', // 어두운 하얀색 (바탕 대비 11.7:1)
   ...DARK_SIGN, onSign: '#FFFFFF',
   emergency: SIGN.red,
+  navy: '#0B4A6B', carbon: '#B9AEF0', perf: '#3A4048',
+  head: '#0B4A6B', headSub: '#CFE3EE', headLine: '#4C82A3',
+  line: '#2F9466', exit: '#FFC629', tabOn: '#7DB2EC',
 };
 export type Colors = typeof LIGHT;
 
@@ -79,6 +87,11 @@ export function confirm(title: string, message: string, okText: string, onOk: ()
 export function notify(title: string, message = '') {
   if (Platform.OS === 'web') window.alert(message ? `${title}\n\n${message}` : title);
   else Alert.alert(title, message);
+}
+
+// 119 전화. 전화 기능이 없는 기기(태블릿·컴퓨터 등)는 실패하므로 안내로 대신 (홈·행동요령 화면이 함께 씀)
+export function dial119() {
+  Linking.openURL('tel:119').catch(() => notify('이 기기에서는 전화를 걸 수 없어요', '휴대폰으로 119에 전화하거나, 119로 문자를 보내 신고하세요.'));
 }
 
 // 행마다 붙는 보조 동작(이름 변경·삭제 등)을 '…' 버튼 하나로 모음. 작은 글자 링크를 나란히 두지 않음
@@ -290,12 +303,18 @@ export const Header = ({ title }: { title: string }) => <Stack.Screen options={{
 //   'automatic' 이면 iOS 가 헤더·홈 인디케이터만큼 안쪽 여백을 직접 넣어 가려지지 않음 (iOS 전용, 다른 OS 는 무시)
 //   → iOS 는 아래 여백을 시스템이 넣으므로 bottom 을 더하지 않음 (두 번 더해지지 않게)
 // refreshControl: 아래로 당겨 새로고침 (홈 등 필요한 화면만 넘김)
-export function Page({ children, refreshControl }: { children: ReactNode; refreshControl?: ScrollViewProps['refreshControl'] }) {
+// band: 상단 띠 높이. 헤더와 이어지는 페트롤 블루 면을 본문 맨 위에 깔아 첫 카드가 띠에 걸치게 함 (위로 당겨도 남색이 이어지게 위쪽으로 길게)
+export function Page({ children, refreshControl, band }: { children: ReactNode; refreshControl?: ScrollViewProps['refreshControl']; band?: number }) {
+  const { C } = useTheme();
   const { bottom } = useSafeAreaInsets();
   const { gutter, column } = useLayout();
   return (
     <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" refreshControl={refreshControl}
+      // 헤더가 색 면이라 위 끝에서 더 당겨지면 헤더가 끌려 내려오는 듯 보임 → 당겨지지 않게 (iOS 튕김 · 안드로이드 늘어남 · 웹 당김 모두 끔)
+      // 아래로 당겨 새로고침(refreshControl)을 쓰는 화면만 예외
+      {...(!refreshControl && { bounces: false, overScrollMode: 'never' as const, style: Platform.OS === 'web' ? ({ overscrollBehaviorY: 'none' } as object) : undefined })}
       contentContainerStyle={[column, { paddingTop: 16, paddingHorizontal: gutter, gap: 12, paddingBottom: 32 + (Platform.OS === 'ios' ? 0 : bottom) }]}>
+      {!!band && <View style={{ position: 'absolute', left: 0, right: 0, top: -1000, height: 1000 + band, backgroundColor: C.head }} />}
       {children}
     </KeyboardAwareScrollView>
   );

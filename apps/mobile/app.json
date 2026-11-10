@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Disaster",
+    "name": "어디있어",
     "slug": "Disaster",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
     "android": {
       "package": "com.disasterinfo.eodiisseo",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#D7EAF3",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -21,7 +21,14 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "name": "어디있어",
+      "shortName": "어디있어",
+      "lang": "ko",
+      "description": "실시간 재난 정보와 가까운 대피소, 가족 안심 확인",
+      "themeColor": "#0B4A6B",
+      "backgroundColor": "#E7EAF0"
     },
     "plugins": [
       "@react-native-vector-icons/ionicons",
@@ -42,6 +49,18 @@
             "extraMavenRepos": [
               "https://devrepo.kakao.com/nexus/content/groups/public/"
             ]
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#D7EAF3",
+          "dark": {
+            "backgroundColor": "#121416"
           }
         }
       ]

@@ -1,9 +1,10 @@
 // FS-CHAT-001: AI 재난 대응 안내 — 공식 행동요령 검색 → 근거가 있을 때만 AI 답변, 없으면 기본 행동요령
+// C안: 남색 띠 위에 안내 문구, 내 질문은 남색 말풍선, AI 답변은 점선 쿠폰(공식 정보와 구분)
 import { useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Linking, ScrollView, Text, TextInput, View, type ScrollViewInstance } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, ScrollView, Text, TextInput, View, type ScrollViewInstance } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Badge, Btn, Chip, Header, Icon, useLayout, useTheme } from '../../components/ui';
+import { Badge, Btn, Chip, Header, Icon, dial119, useLayout, useTheme } from '../../components/ui';
 import { BASIC_GUIDE, GUIDES } from '../../data/mock';
 
 type Msg = { id: number; me: boolean; text: string; sources?: string[]; fallback?: boolean };
@@ -43,23 +44,25 @@ export default function ChatScreen() {
     // automaticOffset: 헤더 높이 자동 보정. -bottom: 키보드가 하단 바를 덮으므로 그 여백만큼 덜 올림
     <KeyboardAvoidingView style={s.fill} behavior="padding" automaticOffset keyboardVerticalOffset={-bottom}>
       <Header title="재난 행동요령 AI" />
-      <ScrollView ref={scroll} contentInsetAdjustmentBehavior="automatic" onContentSizeChange={() => scroll.current?.scrollToEnd()} contentContainerStyle={[column, { paddingVertical: 16, paddingHorizontal: gutter, gap: 12 }]}>
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.primarySoft, padding: 12, borderRadius: 12 }}>
-          <Icon name="information-circle" size={18} color={C.noticeText} />
-          <Text style={[s.muted, { color: C.noticeText, flex: 1, marginTop: 0 }]}>행정안전부·소방청·기상청·산림청 공식 자료를 근거로 AI가 안내해요. 위급하면 바로 신고하세요.</Text>
+      <ScrollView ref={scroll} bounces={false} overScrollMode="never" contentInsetAdjustmentBehavior="automatic" onContentSizeChange={() => scroll.current?.scrollToEnd()} contentContainerStyle={[column, { paddingVertical: 16, paddingHorizontal: gutter, gap: 12 }]}>
+        {/* 헤더와 이어지는 상단 띠 (위로 당겨도 남색이 이어지게 위쪽으로 길게) */}
+        <View style={{ position: 'absolute', left: 0, right: 0, top: -1000, height: 1000 + 84, backgroundColor: C.head }} />
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <Icon name="information-circle" size={18} color={C.headSub} />
+          <Text style={[s.muted, { color: C.headSub, flex: 1, marginTop: 0 }]}>행정안전부·소방청·기상청·산림청 공식 자료를 근거로 AI가 안내해요. 위급하면 바로 신고하세요.</Text>
         </View>
-        <Btn title="119 전화 걸기" icon="call" color={C.emergency} onPress={() => Linking.openURL('tel:119')} />
+        <Btn title="119 전화 걸기" icon="call" color={C.emergency} onPress={dial119} />
         {msgs.length === 0 && (
           <View style={[s.row, { flexWrap: 'wrap' }]}>{SUGGEST.map(x => <Chip key={x} text={x} on={false} onPress={() => ask(x)} />)}</View>
         )}
         {msgs.map(m => m.me ? (
-          <View key={m.id} style={{ alignSelf: 'flex-end', maxWidth: '85%', backgroundColor: C.fill, borderRadius: 16, padding: 12 }}>
+          <View key={m.id} style={{ alignSelf: 'flex-end', maxWidth: '85%', backgroundColor: C.navy, borderRadius: 16, borderBottomRightRadius: 4, padding: 12 }}>
             <Text style={[s.body, { color: C.onSign }]} lineBreakStrategyIOS="hangul-word">{m.text}</Text>
           </View>
         ) : (
-          <View key={m.id} style={[s.card, { maxWidth: '92%', borderWidth: 1.5, borderStyle: 'dashed', borderColor: m.fallback ? C.border : C.primary }]}>
+          <View key={m.id} style={[s.card, { maxWidth: '92%', borderWidth: 1.5, borderStyle: 'dashed', borderColor: m.fallback ? C.perf : C.tabOn }]}>
             <View style={{ alignSelf: 'flex-start', marginBottom: 6 }}>
-              <Badge text={m.fallback ? '기본 행동요령' : 'AI 생성 안내'} icon={m.fallback ? 'book-outline' : 'sparkles'} color={m.fallback ? C.sub : C.primary} />
+              <Badge text={m.fallback ? '기본 행동요령' : 'AI 생성 안내'} icon={m.fallback ? 'book-outline' : 'sparkles'} color={m.fallback ? C.sub : C.tabOn} />
             </View>
             <Text style={s.body} lineBreakStrategyIOS="hangul-word">{m.text}</Text>
             {m.sources?.map(src => (
@@ -70,14 +73,14 @@ export default function ChatScreen() {
             ))}
           </View>
         ))}
-        {pending && <View style={s.row}><ActivityIndicator color={C.primary} /><Text style={s.muted}>공식 자료를 찾고 있어요…</Text></View>}
+        {pending && <View style={s.row}><ActivityIndicator color={C.tabOn} /><Text style={s.muted}>공식 자료를 찾고 있어요…</Text></View>}
       </ScrollView>
       <View style={{ paddingTop: 12, paddingHorizontal: Math.max(12, gutter), paddingBottom: 12 + bottom, backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border }}>
         {/* 입력줄도 대화와 같은 폭 칸에 (바 배경은 화면 끝까지) */}
         <View style={[s.row, column]}>
         <TextInput accessibilityLabel="재난 대응 질문" style={[s.input, { flex: 1, marginVertical: 0 }]} placeholder="재난 대응 방법을 물어보세요" placeholderTextColor={C.sub}
           value={q} onChangeText={setQ} onSubmitEditing={() => ask(q)} returnKeyType="send" />
-        <View style={{ width: 64 }}><Btn title="전송" onPress={() => ask(q)} /></View>
+        <View style={{ width: 64 }}><Btn title="전송" color={C.navy} onPress={() => ask(q)} /></View>
         </View>
       </View>
     </KeyboardAvoidingView>

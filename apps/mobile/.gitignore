@@ -49,3 +49,7 @@ yarn-error.*
 .impeccable/config.local.json
 .impeccable/review/
 .impeccable/questions/
+
+# 배포(OpenStack) 서버의 실제 값 — 예시(.env.example)만 커밋
+deploy/.env
+deploy/backend.env
