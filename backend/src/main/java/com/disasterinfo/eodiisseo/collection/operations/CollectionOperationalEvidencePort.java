@@ -12,6 +12,7 @@ public interface CollectionOperationalEvidencePort {
     }
     @FunctionalInterface interface Transport { CollectionProviderPort.Reply exchange(String contract, CollectionProviderPort.Request request); }
     Map<Kind,Evidence> current();
+    default List<String> productionBlockers(org.springframework.jdbc.core.JdbcTemplate jdbc,Collection<UUID> sources){return List.of("PRODUCTION_CONTROLS_UNVERIFIED");}
     default boolean legacyWorkersStopped(){return false;}
     default boolean legacySchedulersDisabled(){return false;}
     default boolean completionVerified(UUID run,String snapshot,String reference){return false;}

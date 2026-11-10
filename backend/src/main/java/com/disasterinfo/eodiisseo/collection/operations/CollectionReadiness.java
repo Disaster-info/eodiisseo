@@ -46,6 +46,7 @@ public final class CollectionReadiness {
                 var holder=(EntityManagerHolder)TransactionSynchronizationManager.getResource(manager.getEntityManagerFactory());
                 if(holder==null||((Number)holder.getEntityManager().createNativeQuery("select pg_backend_pid()").getSingleResult()).intValue()!=jdbc.queryForObject("select pg_backend_pid()",Integer.class))reasons.add("JPA_JDBC_TRANSACTION_MISMATCH");
             }
+            if(mode==CollectionOperationMode.PRODUCTION&&evidence!=null){if(!(evidence instanceof VerifiedCollectionOperationalEvidence))reasons.add("VERIFIED_PRODUCTION_ADAPTER_REQUIRED");try{reasons.addAll(evidence.productionBlockers(jdbc,sources==null?List.of():sources));}catch(RuntimeException invalid){reasons.add("PRODUCTION_ASSURANCE_CHECK_FAILED");}}
             Instant now=jdbc.queryForObject("select clock_timestamp()",Timestamp.class).toInstant();
             var live=evidence==null?Map.<CollectionOperationalEvidencePort.Kind,CollectionOperationalEvidencePort.Evidence>of():evidence.current();
             for(var kind:CollectionOperationalEvidencePort.Kind.values()){

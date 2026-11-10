@@ -45,6 +45,11 @@ public final class OfficialCollectionHttpTransport implements OfficialCollection
         try{return get.get(URI.create(endpoint.url()+"?"+parameters),request.timeout());}
         catch(RuntimeException failed){throw new CollectionFailure("TRANSPORT");}
     }
+    static String endpointFingerprint(){var metadata=new TreeMap<String,Object>();ENDPOINTS.forEach((key,e)->metadata.put(key,Map.of("url",e.url(),"keyParameter",e.keyParameter(),"safety",e.safety())));return com.disasterinfo.eodiisseo.collection.operations.CollectionAssurance.hash(com.disasterinfo.eodiisseo.collection.operations.CollectionAssurance.canonical(metadata));}
+    static boolean approvedEndpoint(URI uri){
+        return uri!=null&&"https".equals(uri.getScheme())&&uri.getRawUserInfo()==null&&uri.getRawFragment()==null
+            &&(uri.getPort()==-1||uri.getPort()==443)&&ENDPOINTS.values().stream().anyMatch(e->{var fixed=URI.create(e.url());return fixed.getHost().equals(uri.getHost())&&fixed.getRawPath().equals(uri.getRawPath());});
+    }
     private static String encode(String value){return URLEncoder.encode(value,StandardCharsets.UTF_8);}
     @Override public String toString(){return "OfficialCollectionHttpTransport[credentials=redacted]";}
 }

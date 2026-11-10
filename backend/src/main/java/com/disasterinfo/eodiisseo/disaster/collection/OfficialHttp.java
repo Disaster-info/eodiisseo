@@ -20,14 +20,20 @@ public final class OfficialHttp implements AutoCloseable {
             public List<Proxy> select(URI uri){return List.of(Proxy.NO_PROXY);}
             public void connectFailed(URI uri,SocketAddress address,java.io.IOException error){}
         }).build();
-    public Reply get(URI uri,Duration timeout) {
+    public record HeadersReply(int status,byte[] body,List<String> retryAfter){
+        public HeadersReply {body=body.clone();retryAfter=List.copyOf(retryAfter);}
+        @Override public byte[] body(){return body.clone();}
+        @Override public String toString(){return "OfficialHeadersReply[status="+status+",headers=redacted,body=redacted]";}
+    }
+    public Reply get(URI uri,Duration timeout){var response=getWithHeaders(uri,timeout);return new Reply(response.status(),response.body());}
+    public HeadersReply getWithHeaders(URI uri,Duration timeout) {
         if(timeout==null||timeout.isNegative()||timeout.isZero()||timeout.compareTo(Duration.ofSeconds(30))>0)
             throw new CollectionFailure("INVALID_TIMEOUT");
         var future=http.sendAsync(HttpRequest.newBuilder(uri).timeout(timeout).header("Accept","application/json, application/xml, text/html").GET().build(),
             info->new LimitedBody());
         try {
             var response=future.get(timeout.toMillis(),TimeUnit.MILLISECONDS);
-            return new Reply(response.statusCode(),response.body());
+            return new HeadersReply(response.statusCode(),response.body(),response.headers().allValues("Retry-After"));
         } catch(InterruptedException e){Thread.currentThread().interrupt();throw new CollectionFailure("INTERRUPTED");}
           catch(TimeoutException e){throw new CollectionFailure("TIMEOUT");}
           catch(Exception e){throw new CollectionFailure("TRANSPORT");}

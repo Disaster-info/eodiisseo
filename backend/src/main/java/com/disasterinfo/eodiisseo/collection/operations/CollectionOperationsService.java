@@ -87,6 +87,7 @@ public final class CollectionOperationsService {
     static String hash(String value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception impossible){throw new IllegalStateException(impossible);}}
     static String reference(String ref){if(ref==null||!ref.matches("[A-Z0-9][A-Z0-9_.:-]{3,159}"))throw ApiProblem.bad("Opaque reviewed evidence reference required");return ref;}
     private CollectionOperationalEvidencePort.Evidence witness(CollectionOperationalEvidencePort.Kind kind){
+        if(mode==CollectionOperationMode.PRODUCTION&&!(evidence instanceof VerifiedCollectionOperationalEvidence))throw ApiProblem.conflict("SIGNED_OPERATIONAL_EVIDENCE_REQUIRED");
         var e=evidence==null?null:evidence.current().get(kind);
         if(e==null||e.kind()!=kind||!e.verified()||!mode.accepts(e.synthetic())||!e.validUntil().isAfter(now()))throw ApiProblem.conflict("OPERATIONAL_EVIDENCE_REQUIRED");
         reference(e.reference());if(kind==CollectionOperationalEvidencePort.Kind.LEGACY_FLEET&&(!evidence.legacyWorkersStopped()||!evidence.legacySchedulersDisabled()))throw ApiProblem.conflict("LEGACY_STOP_PROOF_REQUIRED");return e;
@@ -161,6 +162,7 @@ public final class CollectionOperationsService {
         var a=transactions.transaction(tx->tx.assignment(operation.source()));if(a==null)throw ApiProblem.conflict("APPROVED_ASSIGNMENT_REQUIRED");
         transactions.transaction(tx->{tx.lock(a,"LIVE");return null;});
         new CollectionContractRegistry().require(a.contract(),a.alias());
+        if(mode==CollectionOperationMode.PRODUCTION&&!new CollectionOfficialAdmissionCatalog().productionAdmissible(a.contract()))throw ApiProblem.conflict("OFFICIAL_PROVIDER_CONTRACT_UNVERIFIED");
         if(a.contract().equals("MOIS_WILDFIRE")||a.contract().equals("KMA_WARNING_LIST"))throw ApiProblem.conflict("DOMAIN_CONTRACT_UNRESOLVED");
         var canonical=transactions.transaction(tx->tx.assignment(operation.canonicalSource()));
         if(canonical==null||!canonical.target().equals(a.target())||!canonical.contract().equals(a.contract())||!canonical.quotaScope().equals(a.quotaScope()))throw ApiProblem.conflict("CANONICAL_ASSIGNMENT_MISMATCH");

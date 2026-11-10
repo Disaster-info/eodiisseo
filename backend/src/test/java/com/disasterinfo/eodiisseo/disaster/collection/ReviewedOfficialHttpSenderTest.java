@@ -1,0 +1,31 @@
+package com.disasterinfo.eodiisseo.disaster.collection;
+import com.disasterinfo.eodiisseo.collection.operations.CollectionOperationMode;
+import org.junit.jupiter.api.*;
+import java.util.*;
+import java.time.*;
+import java.net.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+class ReviewedOfficialHttpSenderTest {
+    static final URI APPROVED=URI.create("https://apis.data.go.kr/1360000/EqkInfoService/getEqkMsg?serviceKey=SYNTHETIC");
+    DataSource ds()throws Exception{var d=mock(DataSource.class);var c=mock(Connection.class);var m=mock(DatabaseMetaData.class);when(d.getConnection()).thenReturn(c);when(c.getMetaData()).thenReturn(m);when(m.getURL()).thenReturn("jdbc:postgresql://127.0.0.1:55433/collection4b2_01234567890123456789012345678901");return d;}
+    @Test void flagsMustBeImmutableStartupInputsNotOnlyMutableProperties(){var p=new Properties();p.setProperty("jdk.httpclient.redirects.retrylimit","1");p.setProperty("jdk.httpclient.disableRetryConnect","true");p.setProperty("jdk.httpclient.enableAllMethodRetry","false");assertThrows(IllegalStateException.class,()->ReviewedOfficialHttpSender.verifyRuntime(List.of(),p,21));var args=List.of("-Djdk.httpclient.redirects.retrylimit=1","-Djdk.httpclient.disableRetryConnect=true","-Djdk.httpclient.enableAllMethodRetry=false");assertEquals(64,ReviewedOfficialHttpSender.verifyRuntime(args,p,21).length());p.setProperty("javax.net.debug","all");assertThrows(IllegalStateException.class,()->ReviewedOfficialHttpSender.verifyRuntime(args,p,21));}
+    @Test void endpointsAndSyntheticModeFailClosed()throws Exception{var count=new AtomicInteger();try(var s=ReviewedOfficialHttpSender.audit((uri,t)->{count.incrementAndGet();return new OfficialHttp.HeadersReply(200,new byte[0],List.of());},Clock.systemUTC(),ds(),CollectionOperationMode.DISPOSABLE_AUDIT)){assertThrows(RuntimeException.class,()->s.get(URI.create("https://evil.invalid/path?serviceKey=SYNTHETIC"),Duration.ofSeconds(1)));assertThrows(RuntimeException.class,()->s.get(URI.create("http://apis.data.go.kr/1360000/EqkInfoService/getEqkMsg"),Duration.ofSeconds(1)));assertThrows(RuntimeException.class,()->s.get(URI.create("https://user@apis.data.go.kr/1360000/EqkInfoService/getEqkMsg"),Duration.ofSeconds(1)));assertEquals(0,count.get());assertEquals(200,s.get(APPROVED,Duration.ofSeconds(1)).status());assertEquals(1,count.get());assertTrue(s.synthetic());}assertThrows(IllegalArgumentException.class,()->ReviewedOfficialHttpSender.audit((u,t)->null,Clock.systemUTC(),ds(),CollectionOperationMode.PRODUCTION));}
+    @Test void absentAmbiguousOrMalformedRetryAfterNeverMeansImmediateRetry(){Instant now=Instant.parse("2026-11-10T00:00:00Z");assertEquals(ReviewedOfficialHttpSender.NO_AUTOMATIC_RETRY,ReviewedOfficialHttpSender.retryAfter(429,List.of(),now));assertEquals(ReviewedOfficialHttpSender.NO_AUTOMATIC_RETRY,ReviewedOfficialHttpSender.retryAfter(503,List.of("1","2"),now));assertEquals(ReviewedOfficialHttpSender.NO_AUTOMATIC_RETRY,ReviewedOfficialHttpSender.retryAfter(500,List.of("garbage"),now));assertEquals(Duration.ofSeconds(7),ReviewedOfficialHttpSender.retryAfter(429,List.of("7"),now));assertEquals(Duration.ofSeconds(10),ReviewedOfficialHttpSender.retryAfter(503,List.of("Tue, 10 Nov 2026 00:00:10 GMT"),now));assertEquals(Duration.ZERO,ReviewedOfficialHttpSender.retryAfter(200,List.of(),now));}
+    @Test void exceptionAndOversizeCannotExposeCredentialUri()throws Exception{try(var sender=ReviewedOfficialHttpSender.audit((u,t)->{throw new IllegalStateException(u.toString());},Clock.systemUTC(),ds(),CollectionOperationMode.DISPOSABLE_AUDIT)){var error=assertThrows(RuntimeException.class,()->sender.get(APPROVED,Duration.ofSeconds(1)));assertNull(error.getCause());assertFalse(error.getMessage().contains("SYNTHETIC"));assertFalse(sender.toString().contains("serviceKey"));}try(var sender=ReviewedOfficialHttpSender.audit((u,t)->new OfficialHttp.HeadersReply(200,new byte[2097153],List.of()),Clock.systemUTC(),ds(),CollectionOperationMode.DISPOSABLE_AUDIT)){assertThrows(RuntimeException.class,()->sender.get(APPROVED,Duration.ofSeconds(1)));}}
+    @Test @Timeout(30) void reviewedJdkFlagsPermitOnlyOneWireAttemptOnUncertainConnection()throws Exception{
+        AtomicInteger attempts=new AtomicInteger();try(var server=new ServerSocket(0,10,InetAddress.getLoopbackAddress());var pool=Executors.newVirtualThreadPerTaskExecutor()){
+            server.setSoTimeout(1000);var running=new java.util.concurrent.atomic.AtomicBoolean(true);var accept=pool.submit(()->{while(running.get()){try(var socket=server.accept()){attempts.incrementAndGet();socket.setSoTimeout(3000);var in=new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.US_ASCII));while(true){String line=in.readLine();if(line==null||line.isEmpty())break;}}catch(SocketTimeoutException ignored){}catch(IOException closed){break;}}return true;});
+            String classes=new java.io.File(audit.collection.fixture.HttpRetryProbe.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getPath()+File.pathSeparator+new java.io.File(OfficialHttp.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getPath();
+            var child=new ProcessBuilder(System.getProperty("java.home")+File.separator+"bin"+File.separator+"java","-Xmx64m","-Djdk.httpclient.redirects.retrylimit=1","-Djdk.httpclient.disableRetryConnect=true","-Djdk.httpclient.enableAllMethodRetry=false","-cp",classes,"audit.collection.fixture.HttpRetryProbe",Integer.toString(server.getLocalPort())).redirectErrorStream(true).start();
+            try{assertTrue(child.waitFor(15,TimeUnit.SECONDS));String output=new String(child.getInputStream().readAllBytes(),StandardCharsets.UTF_8);assertEquals(0,child.exitValue(),output);assertTrue(output.contains("EXPECTED_UNCERTAIN"));}finally{if(child.isAlive())child.destroy();running.set(false);server.close();}assertTrue(accept.get(5,TimeUnit.SECONDS));assertEquals(1,attempts.get());
+        }
+    }
+}

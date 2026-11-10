@@ -11,7 +11,7 @@ import tools.jackson.databind.json.JsonMapper;
 /** Fail-closed raw retention: suspicious bodies are omitted, never silently called original bytes. */
 public final class CollectionArchivePolicy {
     private static final JsonMapper JSON=JsonMapper.builder().build();
-    private final Duration retention;private final String approval;private final Set<String> secrets;
+    private final Duration retention;private final String approval;private final Set<String> secrets;private final CollectionRawPrivacyPort privacy;
     private static final Pattern SENSITIVE=Pattern.compile("(?i)(service.?key|auth.?key|api.?key|token|credential|private.?key|client.?secret|authorization|bearer\\s|password|signature|https?://[^\\s\\\"<>]+\\?)");
     public record Body(byte[] bytes,String sha256,boolean omitted) {
         public Body {bytes=bytes==null?null:bytes.clone();}
@@ -19,7 +19,10 @@ public final class CollectionArchivePolicy {
         @Override public String toString(){return "ArchiveBody[redacted]";}
     }
     public CollectionArchivePolicy(Duration retention,String approval,Set<String> secretValues) {
-        this.retention=Objects.requireNonNull(retention);this.approval=Objects.requireNonNull(approval);this.secrets=Set.copyOf(secretValues);
+        this(retention,approval,secretValues,null);
+    }
+    public CollectionArchivePolicy(Duration retention,String approval,Set<String> secretValues,CollectionRawPrivacyPort privacy){
+        this.privacy=privacy;this.retention=Objects.requireNonNull(retention);this.approval=Objects.requireNonNull(approval);this.secrets=Set.copyOf(secretValues);
         if(retention.isNegative()||retention.isZero()||approval.isBlank()||SENSITIVE.matcher(approval).find()||secrets.stream().anyMatch(String::isBlank)||secrets.stream().anyMatch(approval::contains))throw new IllegalArgumentException("Explicit private retention/access approval required");
     }
     public Duration retention(){return retention;}
@@ -36,6 +39,7 @@ public final class CollectionArchivePolicy {
         boolean omit;
         try{String text=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(raw)).toString();
             omit=SENSITIVE.matcher(text).find()||secrets.stream().anyMatch(text::contains);
+            if(!omit&&privacy!=null){try{omit=privacy.inspect(text)!=CollectionRawPrivacyPort.Decision.ALLOW;}catch(RuntimeException failed){omit=true;}}
             String stripped=text.stripLeading();
             if(!omit&&(stripped.startsWith("{")||stripped.startsWith("[")||stripped.startsWith("\""))) {
                 try{omit=sensitive(JSON.readValue(text,Object.class),0);}catch(RuntimeException malformed){omit=true;}
