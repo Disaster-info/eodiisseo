@@ -179,7 +179,11 @@ class OwnedRuntimeSeparationIntegrationTest {
                     e->assertThat(e.reason()).isEqualTo(com.disasterinfo.eodiisseo.dashboard.DashboardException.Reason.NOT_FOUND));
             status.setRollbackOnly();
         });
-        assertThat(sql.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not in ('spatial_ref_sys','flyway_schema_history')",Long.class)).isEqualTo(50); // Canonical + collection raw-record/revision + owned-runtime migrations.
+        String tables=" from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not in ('spatial_ref_sys','flyway_schema_history')";
+        String ownership="('collection_contract','collection_target','collection_source_assignment','collection_target_lease','collection_run_resolution')";
+        assertThat(sql.queryForObject("select count(*)"+tables+" and table_name not in "+ownership,Long.class)).isEqualTo(50);
+        assertThat(sql.queryForObject("select count(*)"+tables+" and table_name in "+ownership,Long.class)).isEqualTo(5);
+        assertThat(sql.queryForObject("select count(*)"+tables,Long.class)).isEqualTo(55);
     }
 
     @Test @Order(2) void ownedReadsRevisionOutboxAndSummaryWorkWithoutBorrowingACollector() throws Exception {

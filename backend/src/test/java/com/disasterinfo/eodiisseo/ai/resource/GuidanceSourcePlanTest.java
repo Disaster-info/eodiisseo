@@ -7,7 +7,7 @@ import java.util.*;
 import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.*;
 
-/** Real source metadata only. No official guidance body, rights grant or resource approval is created. */
+/** Tracked phase-6 metadata and synthetic phase-3-1A contract fixture. No imports or approvals. */
 class GuidanceSourcePlanTest {
     static List<Map<String,Object>> catalog() throws Exception {
         var root=JsonMapper.builder().build().readValue(Files.readString(Path.of(
@@ -56,9 +56,12 @@ class GuidanceSourcePlanTest {
         source.put("publisher","행정안전부");
         assertThatThrownBy(()->GuidanceSourcePlan.inspect(source)).isInstanceOf(IllegalArgumentException.class);
     }
-    @Test void phase31aCandidatesHaveNoImportedBodyApprovalOrReusedContentHash() throws Exception {
-        var root=JsonMapper.builder().build().readValue(Files.readString(Path.of(
-            "src/main/java/com/disasterinfo/eodiisseo/ai/resource/PHASE3_1A_SOURCE_CATALOG.json")),Map.class);
+    @Test void syntheticCandidatesHaveNoImportedBodyApprovalOrReusedContentHash() throws Exception {
+        // Synthetic contract fixture, not the private phase-3-1A source inventory.
+        var fixture=GuidanceSourcePlanTest.class.getResourceAsStream("/ai/resource/synthetic-guidance-source-catalog.json");
+        assertThat(fixture).isNotNull();
+        Map root;
+        try(fixture){root=JsonMapper.builder().build().readValue(fixture,Map.class);}
         var sources=(List<Map<String,Object>>)root.get("sources");assertThat(sources).hasSize(7);
         for(var source:sources){
             var plan=GuidanceSourcePlan.inspect(source);

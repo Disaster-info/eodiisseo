@@ -23,7 +23,7 @@ public class VerifiedIncidentService {
     @Transactional
     public OfficialRecordNormalizer.Result normalize(UUID source,OfficialProviderClient.Provider provider,Map<String,Object> row,String original,Instant now){
         if(provider!=EARTHQUAKE && provider!=WILDFIRE_MESSAGES)throw new CollectionFailure("SOURCE_CONTRACT");
-        if(db.count("select count(*) from data_source where source_id=? and active and source_kind='DISASTER' and endpoint_key=?",source,provider.endpointKey)!=1)throw new CollectionFailure("SOURCE_CONTRACT");
+        if(!com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderSources.active(db,source,provider))throw new CollectionFailure("SOURCE_CONTRACT");
         String unlinked=provider==EARTHQUAKE?"EARTHQUAKE_UNLINKED":"WILDFIRE_MESSAGE_UNLINKED";
         String announcement;
         try{announcement=OfficialRecordNormalizer.identity(provider,row);}catch(IllegalArgumentException e){return new OfficialRecordNormalizer.Result("INVALID_FACTS",null);}

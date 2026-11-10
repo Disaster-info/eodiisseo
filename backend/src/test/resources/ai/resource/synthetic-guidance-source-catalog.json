@@ -1,0 +1,145 @@
+{
+    "sources":  [
+                    {
+                        "sourceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-real-document/0",
+                        "publisher":  "행정안전부",
+                        "disasterType":  "EARTHQUAKE",
+                        "sourceTitle":  "SYNTHETIC metadata candidate 0",
+                        "sourceVersion":  "SYNTHETIC-v1",
+                        "registeredDate":  "2020-01-01",
+                        "checkedAt":  "2020-01-02T00:00:00Z",
+                        "mediaType":  "text/plain",
+                        "rightsState":  "UNCONFIRMED",
+                        "rightsEvidenceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-rights-grant/0",
+                        "approvalState":  "PENDING",
+                        "contentFingerprint":  null,
+                        "sections":  [
+                                         {
+                                             "section":  "DURING",
+                                             "sourceLocator":  "SYNTHETIC planned section 0 - not a real locator"
+                                         }
+                                     ]
+                    },
+                    {
+                        "sourceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-real-document/1",
+                        "publisher":  "행정안전부",
+                        "disasterType":  "HEAVY_RAIN",
+                        "sourceTitle":  "SYNTHETIC metadata candidate 1",
+                        "sourceVersion":  "SYNTHETIC-v1",
+                        "registeredDate":  "2020-01-01",
+                        "checkedAt":  "2020-01-02T00:00:00Z",
+                        "mediaType":  "text/plain",
+                        "rightsState":  "UNCONFIRMED",
+                        "rightsEvidenceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-rights-grant/1",
+                        "approvalState":  "PENDING",
+                        "contentFingerprint":  null,
+                        "sections":  [
+                                         {
+                                             "section":  "DURING",
+                                             "sourceLocator":  "SYNTHETIC planned section 1 - not a real locator"
+                                         }
+                                     ]
+                    },
+                    {
+                        "sourceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-real-document/2",
+                        "publisher":  "행정안전부",
+                        "disasterType":  "WILDFIRE",
+                        "sourceTitle":  "SYNTHETIC metadata candidate 2",
+                        "sourceVersion":  "SYNTHETIC-v1",
+                        "registeredDate":  "2020-01-01",
+                        "checkedAt":  "2020-01-02T00:00:00Z",
+                        "mediaType":  "text/plain",
+                        "rightsState":  "UNCONFIRMED",
+                        "rightsEvidenceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-rights-grant/2",
+                        "approvalState":  "PENDING",
+                        "contentFingerprint":  null,
+                        "sections":  [
+                                         {
+                                             "section":  "DURING",
+                                             "sourceLocator":  "SYNTHETIC planned section 2 - not a real locator"
+                                         }
+                                     ]
+                    },
+                    {
+                        "sourceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-real-document/3",
+                        "publisher":  "행정안전부",
+                        "disasterType":  "EARTHQUAKE",
+                        "sourceTitle":  "SYNTHETIC metadata candidate 3",
+                        "sourceVersion":  "SYNTHETIC-v1",
+                        "registeredDate":  "2020-01-01",
+                        "checkedAt":  "2020-01-02T00:00:00Z",
+                        "mediaType":  "text/plain",
+                        "rightsState":  "UNCONFIRMED",
+                        "rightsEvidenceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-rights-grant/3",
+                        "approvalState":  "PENDING",
+                        "contentFingerprint":  null,
+                        "sections":  [
+                                         {
+                                             "section":  "DURING",
+                                             "sourceLocator":  "SYNTHETIC planned section 3 - not a real locator"
+                                         }
+                                     ]
+                    },
+                    {
+                        "sourceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-real-document/4",
+                        "publisher":  "행정안전부",
+                        "disasterType":  "HEAVY_RAIN",
+                        "sourceTitle":  "SYNTHETIC metadata candidate 4",
+                        "sourceVersion":  "SYNTHETIC-v1",
+                        "registeredDate":  "2020-01-01",
+                        "checkedAt":  "2020-01-02T00:00:00Z",
+                        "mediaType":  "text/plain",
+                        "rightsState":  "UNCONFIRMED",
+                        "rightsEvidenceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-rights-grant/4",
+                        "approvalState":  "PENDING",
+                        "contentFingerprint":  null,
+                        "sections":  [
+                                         {
+                                             "section":  "DURING",
+                                             "sourceLocator":  "SYNTHETIC planned section 4 - not a real locator"
+                                         }
+                                     ]
+                    },
+                    {
+                        "sourceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-real-document/5",
+                        "publisher":  "행정안전부",
+                        "disasterType":  "WILDFIRE",
+                        "sourceTitle":  "SYNTHETIC metadata candidate 5",
+                        "sourceVersion":  "SYNTHETIC-v1",
+                        "registeredDate":  "2020-01-01",
+                        "checkedAt":  "2020-01-02T00:00:00Z",
+                        "mediaType":  "text/plain",
+                        "rightsState":  "UNCONFIRMED",
+                        "rightsEvidenceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-rights-grant/5",
+                        "approvalState":  "PENDING",
+                        "contentFingerprint":  null,
+                        "sections":  [
+                                         {
+                                             "section":  "DURING",
+                                             "sourceLocator":  "SYNTHETIC planned section 5 - not a real locator"
+                                         }
+                                     ]
+                    },
+                    {
+                        "sourceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-real-document/6",
+                        "publisher":  "행정안전부",
+                        "disasterType":  "EARTHQUAKE",
+                        "sourceTitle":  "SYNTHETIC metadata candidate 6",
+                        "sourceVersion":  "SYNTHETIC-v1",
+                        "registeredDate":  "2020-01-01",
+                        "checkedAt":  "2020-01-02T00:00:00Z",
+                        "mediaType":  "text/plain",
+                        "rightsState":  "UNCONFIRMED",
+                        "rightsEvidenceUrl":  "https://www.mois.go.kr/synthetic-test-only/not-a-rights-grant/6",
+                        "approvalState":  "PENDING",
+                        "contentFingerprint":  null,
+                        "sections":  [
+                                         {
+                                             "section":  "DURING",
+                                             "sourceLocator":  "SYNTHETIC planned section 6 - not a real locator"
+                                         }
+                                     ]
+                    }
+                ],
+    "fixturePurpose":  "SYNTHETIC metadata only. No official document, rights grant, approval or fetched content."
+}

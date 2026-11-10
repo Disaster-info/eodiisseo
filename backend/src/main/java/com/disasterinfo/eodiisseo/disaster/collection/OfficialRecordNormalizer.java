@@ -43,7 +43,7 @@ public class OfficialRecordNormalizer {
     }
     @Transactional
     public Result normalize(UUID source,OfficialProviderClient.Provider provider,Map<String,Object> row,String original,Instant now){
-        if(db.count("select count(*) from data_source where source_id=? and active and source_kind='DISASTER' and endpoint_key=?",source,provider.endpointKey)!=1)
+        if(!com.disasterinfo.eodiisseo.disaster.collection.OfficialProviderSources.active(db,source,provider))
             throw new CollectionFailure("SOURCE_CONTRACT");
         if(provider==WILDFIRE_MESSAGES && !"산불".equals(row.get("DST_SE_NM")))return new Result("UNCLASSIFIED_MESSAGE",null);
         if(provider==WILDFIRE_MESSAGES||provider==EARTHQUAKE)return incidents.normalize(source,provider,row,original,now);
