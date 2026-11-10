@@ -20,8 +20,9 @@ public final class OfficialHttp implements AutoCloseable {
             public List<Proxy> select(URI uri){return List.of(Proxy.NO_PROXY);}
             public void connectFailed(URI uri,SocketAddress address,java.io.IOException error){}
         }).build();
-    public record HeadersReply(int status,byte[] body,List<String> retryAfter){
-        public HeadersReply {body=body.clone();retryAfter=List.copyOf(retryAfter);}
+    public record HeadersReply(int status,byte[] body,List<String> retryAfter,List<String> contentTypes){
+        public HeadersReply(int status,byte[] body,List<String> retryAfter){this(status,body,retryAfter,List.of());}
+        public HeadersReply {body=body.clone();retryAfter=List.copyOf(retryAfter);contentTypes=List.copyOf(contentTypes);}
         @Override public byte[] body(){return body.clone();}
         @Override public String toString(){return "OfficialHeadersReply[status="+status+",headers=redacted,body=redacted]";}
     }
@@ -33,7 +34,7 @@ public final class OfficialHttp implements AutoCloseable {
             info->new LimitedBody());
         try {
             var response=future.get(timeout.toMillis(),TimeUnit.MILLISECONDS);
-            return new HeadersReply(response.statusCode(),response.body(),response.headers().allValues("Retry-After"));
+            return new HeadersReply(response.statusCode(),response.body(),response.headers().allValues("Retry-After"),response.headers().allValues("Content-Type"));
         } catch(InterruptedException e){Thread.currentThread().interrupt();throw new CollectionFailure("INTERRUPTED");}
           catch(TimeoutException e){throw new CollectionFailure("TIMEOUT");}
           catch(Exception e){throw new CollectionFailure("TRANSPORT");}

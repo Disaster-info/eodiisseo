@@ -36,9 +36,13 @@ public final class ReviewedOfficialHttpSender implements OfficialCollectionHttpT
     }
     public static String endpointFingerprint(){return OfficialCollectionHttpTransport.endpointFingerprint();}
     @Override public CollectionProviderPort.Reply get(URI uri,Duration timeout){
+        var r=observe(uri,timeout);return new CollectionProviderPort.Reply(r.status(),r.body(),retryAfter(r.status(),r.retryAfter(),clock.instant()));
+    }
+    /** Metadata observation reuses exactly the same endpoint, timeout, JDK retry and body guards. */
+    public OfficialHttp.HeadersReply observe(URI uri,Duration timeout){
         if(closed||!OfficialCollectionHttpTransport.approvedEndpoint(uri)||timeout==null||timeout.isZero()||timeout.isNegative()||timeout.compareTo(Duration.ofSeconds(15))>0)throw new CollectionFailure("SENDER_POLICY_REJECTED");
         if(!synthetic)verifyRuntime(ManagementFactory.getRuntimeMXBean().getInputArguments(),System.getProperties(),Runtime.version().feature());
-        try{var r=exchange.apply(uri,timeout);return new CollectionProviderPort.Reply(r.status(),r.body(),retryAfter(r.status(),r.retryAfter(),clock.instant()));}
+        try{var r=exchange.apply(uri,timeout);if(r.status()<100||r.status()>599||r.body().length>2_097_152)throw new CollectionFailure("RESPONSE_LIMIT");return r;}
         catch(RuntimeException failed){throw new CollectionFailure("TRANSPORT");}
     }
     static Duration retryAfter(int status,List<String> values,Instant now){
