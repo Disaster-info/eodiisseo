@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Coupon, Field, MONO, Perf, Stamp } from '../../components/ticket';
-import { AppSwitch, ActionMenu, Btn, Chip, Header, Icon, MapBox, Page, STALE_MIN, confirm, freshness, impactColor, knownImpact, notify, useTheme } from '../../components/ui';
+import { AppSwitch, Btn, Chip, Header, Icon, MapBox, Page, STALE_MIN, confirm, freshness, impactColor, knownImpact, notify, useTheme } from '../../components/ui';
 import { CATEGORIES, IMPACT_ICON, Impact, ME, Member } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
@@ -19,6 +19,7 @@ export default function GroupDetailScreen({ id }: { id: number }) {
   const { groups, setGroups, locConsent, location } = useApp();
   const [edit, setEdit] = useState<{ name: string; category: string } | null>(null); // 그룹 정보 수정 중
   const [picking, setPicking] = useState(false); // 관리자 탈퇴: 권한 넘길 사람 고르는 중
+  const [managing, setManaging] = useState(false); // 관리자: 구성원 관리 모드 (행마다 권한 넘기기·제외 버튼)
   const [copied, setCopied] = useState(false);   // 초대 코드 복사 직후 2초간 '복사됨' 표시
   const g = groups.find(x => x.id === id);
   const me = g?.members.find(m => m.id === ME);
@@ -74,7 +75,18 @@ export default function GroupDetailScreen({ id }: { id: number }) {
       {/* 그룹 정보 승차권 머리 띠가 헤더와 같은 색이라 띠 없이 헤더 바로 아래로 띄워 둠 */}
       <Page>
         {/* 그룹 정보 한 장: 요약 칸 → 구성원(위험한 순) → 절취선 → 초대 코드 */}
-        <Coupon head="그룹 정보" headIcon="people" right={`${g.category} · 구성원 ${g.members.length}/10`}>
+        {/* 관리자는 머리 띠의 '구성원 관리'로 관리 모드를 켜고 끔. 평소에는 행에 상태 도장만 있어 줄이 고르게 맞음 */}
+        <Coupon head="그룹 정보" headIcon="people" right={<View style={s.row}>
+          <Text style={[s.small, { color: '#FFFFFF', fontWeight: '700' }]}>{g.category} · {g.members.length}/10</Text>
+          {me.admin && g.members.length > 1 && (
+            <Pressable onPress={() => setManaging(v => !v)} accessibilityRole="button" accessibilityState={{ expanded: managing }} hitSlop={8}
+              accessibilityLabel={managing ? '구성원 관리 끝내기' : '구성원 관리 (권한 넘기기·제외)'}
+              style={({ pressed }) => [{ minHeight: 32, paddingHorizontal: 10, borderRadius: 6, justifyContent: 'center' },
+                managing ? { backgroundColor: '#FFFFFF' } : { borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.7)' }, pressed && s.pressed]}>
+              <Text style={[s.small, { fontWeight: '800', color: managing ? C.navy : '#FFFFFF' }]}>{managing ? '완료' : '구성원 관리'}</Text>
+            </Pressable>
+          )}
+        </View>}>
           <View style={[s.row, { gap: 12 }]}>
             <Field label="구성원" value={`${g.members.length}명`} mono />
             <Field label="영향지역 포함" value={`${hits}명`} mono color={hits ? C.danger : undefined} />
@@ -100,13 +112,20 @@ export default function GroupDetailScreen({ id }: { id: number }) {
                   <Text style={[s.muted, { marginTop: 0 }]}>{m.sharing ? `${m.place} · ${freshness(m.updatedMin)}` : '위치공유 OFF'}</Text>
                   {old && <Text style={[s.small, { color: C.warning }]}>{m.impact} · 오래된 위치 기준, 확인 필요</Text>}
                 </View>
-                <Stamp text={STAMP[k]} icon={IMPACT_ICON[k]} color={vague ? C.sub : impactColor(C, k)} dashed={vague} />
-                {/* 관리자 동작은 '…' 메뉴로 (제외는 확인 후 처리) */}
-                {me.admin && m.id !== ME && (
-                  <ActionMenu title={m.name} items={[
-                    { text: '관리자 권한 넘기기', onPress: () => transfer(m) },
-                    { text: '그룹에서 제외', destructive: true, onPress: () => kick(m) },
-                  ]} />
+                {/* 관리 모드: 상태 도장 자리에 동작 버튼 (나 자신은 그대로 도장). 제외·권한 이전은 확인 후 처리 */}
+                {managing && m.id !== ME ? (
+                  <View style={[s.row, { gap: 6 }]}>
+                    <Pressable onPress={() => transfer(m)} accessibilityRole="button" accessibilityLabel={`${m.name}님에게 관리자 권한 넘기기`}
+                      style={({ pressed }) => [{ minHeight: 40, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1.5, borderColor: C.tabOn, justifyContent: 'center' }, pressed && s.pressed]}>
+                      <Text style={[s.small, { fontWeight: '800', color: C.tabOn }]}>관리자로</Text>
+                    </Pressable>
+                    <Pressable onPress={() => kick(m)} accessibilityRole="button" accessibilityLabel={`${m.name}님을 그룹에서 제외`}
+                      style={({ pressed }) => [{ minHeight: 40, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1.5, borderColor: C.danger, justifyContent: 'center' }, pressed && s.pressed]}>
+                      <Text style={[s.small, { fontWeight: '800', color: C.danger }]}>제외</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Stamp text={STAMP[k]} icon={IMPACT_ICON[k]} color={vague ? C.sub : impactColor(C, k)} dashed={vague} />
                 )}
               </View>
             );

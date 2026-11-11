@@ -8,12 +8,14 @@
 import * as Clipboard from 'expo-clipboard';
 import { router, useIsFocused } from 'expo-router';
 import { ReactNode, createContext, useContext, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, IconName, STALE_MIN, confirm, dial119, knownImpact, useLayout, useTheme } from '../../components/ui';
 import {
   DISASTERS, Disaster, IMPACT_ICON, Impact, LEVEL_ICON, MAX_RADIUS, ME, SHELTERS, TYPE_ICON, WEATHER, WEATHER_ICON, WEATHER_TIP, isActive, searchShelters,
 } from '../../data/mock';
+import { TmapView } from '../../components/map';
+import { LatLon, Route, coordsOf, searchRoute } from '../../data/tmap';
 import { useApp } from '../../store/AppContext';
 
 const CURRENT = '현재 위치';
@@ -27,7 +29,7 @@ const IMPACT_ORDER: Record<Impact, number> = { '영향지역 포함': 0, '판단
 //   라이트: 원색에서 채도만 낮춰 덜 쨍하게. 주의보 노랑은 밝은 바탕이라 어두운 글자
 //   다크: 같은 색상에서 채도 ×0.8 · 명도 27% 로 낮추고 글자도 한 톤 낮춘 흰색 (대비 완화). 글자 대비는 모두 4.5:1 이상
 const NOW_FIELD = {
-  light: { 경보: { bg: '#AE3429', glow: '#D0463A' }, 주의보: { bg: '#E1B847', glow: '#E5C261' }, 안전: { bg: '#28714F', glow: '#359769' } },
+  light: { 경보: { bg: '#AE3429', glow: '#D0463A' }, 주의보: { bg: '#FFD43B', glow: '#FFE27A' }, 안전: { bg: '#28714F', glow: '#359769' } },
   dark: { 경보: { bg: '#672823', glow: '#85342D' }, 주의보: { bg: '#6C571D', glow: '#8C7126' }, 안전: { bg: '#2B5F47', glow: '#387B5C' } },
 };
 const FIELD = {
@@ -41,6 +43,7 @@ const HIT = '#FF9C92';  // 어두운 바탕 위 '영향지역' 강조
 type Tone = { bg: string; ink: string; soft: string; faint: string; line: string; card: string; btn: string };
 const DARK_TONE: Tone = { bg: '#1E2125', ink: INK, soft: SOFT, faint: 'rgba(246,241,236,0.45)', line: 'rgba(246,241,236,0.2)', card: 'rgba(8,8,10,0.55)', btn: 'rgba(246,241,236,0.12)' };
 const LIGHT_TONE: Tone = { bg: '#F2C230', ink: '#1F1803', soft: '#3A300C', faint: 'rgba(31,24,3,0.5)', line: 'rgba(31,24,3,0.2)', card: 'rgba(255,255,255,0.4)', btn: 'rgba(31,24,3,0.08)' };
+// 라이트 노랑(주의보, #FFD43B) 1쪽은 LIGHT_TONE (어두운 글자)
 const NOW_TONE: Tone = { ...DARK_TONE, soft: '#F0EAE3' };                // 라이트 1쪽 빨강·초록 (보조 글자를 밝혀 대비 4.5 이상)
 const DIM_TONE: Tone = { ...DARK_TONE, ink: '#E3DDD4', soft: '#DDD6CC' }; // 다크 1쪽: 한 톤 낮춘 흰 글자
 const ToneCtx = createContext(DARK_TONE);
@@ -53,7 +56,7 @@ let toFirstPage = () => {};
 export const goHomeFirstPage = () => toFirstPage();
 
 export default function HomeScreen() {
-  const { location, isManual, areas, areaNames, groups, member } = useApp();
+  const { location, isManual, areas, areaNames, groups, member, myPos, place } = useApp();
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   const { dark } = useTheme(); // 1쪽 상태 색은 기기 테마(라이트·다크)를 따름
@@ -92,6 +95,25 @@ export default function HomeScreen() {
   const { list: shelters } = searchShelters(SHELTERS, location);
   const nearest = shelters[0];
 
+  // 2쪽 지도: 기준 위치 → 가장 가까운 대피소 도보 경로 (TMAP). 출발 = GPS 위치 > 장소 검색으로 고른 곳 > 지역 대표 좌표
+  // 2쪽을 처음 볼 때 불러옴 (홈을 열 때마다 지도 API 를 부르지 않게). key 가 같으면 다시 부르지 않음
+  const [route, setRoute] = useState<{ key: string; value: (Route & { from: LatLon }) | 'error' } | null>(null);
+  const [sawShelter, setSawShelter] = useState(false);
+  if (page === 1 && !sawShelter) setSawShelter(true);
+  const routeKey = nearest ? `${nearest.id}|${myPos ? `${myPos.lat},${myPos.lon}` : place ? `${place.lat},${place.lon}` : location}` : '';
+  const routeNow = route?.key === routeKey ? route.value : 'loading';
+  useEffect(() => {
+    if (!nearest || !sawShelter || route?.key === routeKey) return;
+    let alive = true;
+    (async () => {
+      const from = myPos ?? place ?? (await coordsOf(location));
+      return { ...(await searchRoute(from, nearest)), from };
+    })().then(value => alive && setRoute({ key: routeKey, value }), () => alive && setRoute({ key: routeKey, value: 'error' }));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- routeKey 가 출발지·대피소를 모두 담음
+  }, [routeKey, sawShelter]);
+  const mapH = Math.round(Math.min(380, Math.max(180, h * 0.42))) - 16; // 지도 높이: 쪽 높이의 42% (아래 대피소 정보·버튼이 들어갈 자리는 남김)
+
   const ops = !!member?.operator;
   const pages = ['지금 상황', '대피소', ...(ops ? [] : ['우리 가족'])];
   const go = (i: number) => ref.current?.scrollTo({ y: i * h, animated: true });
@@ -116,6 +138,7 @@ export default function HomeScreen() {
   // 1쪽 바탕: 현재 위치 경보 = 빨강, 주의보 = 노랑, 없음 = 초록
   const level = top?.level === '경보' ? '경보' : top ? '주의보' : '안전';
   const field = NOW_FIELD[dark ? 'dark' : 'light'][level];
+  // 1쪽 글자 톤: 라이트 노랑 = 어두운 글자, 라이트 빨강·초록 = 밝은 글자, 다크 = 한 톤 낮춘 밝은 글자
   // 1쪽 글자 톤: 라이트 노랑 = 어두운 글자, 라이트 빨강·초록 = 밝은 글자, 다크 = 한 톤 낮춘 밝은 글자
   const c = dark ? DIM_TONE : level === '주의보' ? LIGHT_TONE : NOW_TONE;
   const p = dark ? stD : level === '주의보' ? stL : stN;
@@ -289,8 +312,34 @@ export default function HomeScreen() {
         </View>
         {nearest ? (
           <>
-            <DistanceScale items={shelters.map(x => x.distance)} />
-            <View style={{ flex: 1 }} />
+            {/* 경로 지도 (누르면 크게 보기). 경로를 못 찾으면 출발·대피소 위치만
+                좌우 여백 = 화면 여백 + 8 로 같게 (오른쪽 쪽 표시 막대와 겹치지 않게) */}
+            {/* 지도 묶음을 위 제목 줄과 아래 대피소 정보 사이 빈 공간의 가운데에 둠 → 위·아래 여백이 같음 */}
+            <View style={{ flex: 1, justifyContent: 'center' }}>
+            <View style={{ marginLeft: 8, marginRight: -2 }}>
+              {routeNow === 'loading' ? (
+                <View style={[st.row, { height: mapH, borderRadius: 12, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' }]}>
+                  <ActivityIndicator color={INK} />
+                  <Text style={st.small}>대피소까지 경로를 찾는 중…</Text>
+                </View>
+              ) : routeNow === 'error' ? (
+                <>
+                  <TmapView height={mapH} markers={[{ lat: nearest.lat, lon: nearest.lon, title: `1. ${nearest.name}`, label: '1' }, ...(myPos ? [{ ...myPos, title: '내 위치', me: true }] : [])]}
+                    label={`${nearest.name} 위치 지도`} />
+                  <Text style={[st.small, { marginTop: 6 }]}>경로를 불러오지 못해 위치만 보여요. 경로 버튼에서 다시 찾을 수 있어요.</Text>
+                </>
+              ) : (
+                <>
+                  <TmapView height={mapH} path={routeNow.path} label={`${location}에서 ${nearest.name}까지 도보 경로 지도`}
+                    markers={[{ ...routeNow.from, title: '출발', me: true }, { lat: nearest.lat, lon: nearest.lon, title: `1. ${nearest.name}`, label: '1' }]} />
+                  <View style={[st.row, { marginTop: 6, gap: 6 }]}>
+                    <Icon name="walk" size={16} color={SOFT} />
+                    <Text style={st.small}>도보 {(routeNow.meters / 1000).toFixed(1)}km · 약 {Math.max(1, Math.round(routeNow.seconds / 60))}분 · 지도 서비스 추천 경로</Text>
+                  </View>
+                </>
+              )}
+            </View>
+            </View>
             <View style={[st.row, { alignItems: 'flex-end', gap: 12 }]}>
               <View style={{ flex: 1 }} accessible accessibilityLabel={`가장 가까운 대피소 ${nearest.name}, 직선 ${nearest.distance}킬로미터, ${nearest.addr}`}>
                 <View style={[st.row, { gap: 4, alignSelf: 'flex-start', backgroundColor: GO, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }]}>
@@ -500,27 +549,6 @@ function LightBtn({ title, icon, outline, a11y, onPress }: { title: string; icon
       <Icon name={icon} size={18} color={outline ? INK : '#0D1428'} />
       <Text style={{ color: outline ? INK : '#0D1428', fontWeight: '800', fontSize: 15, flexShrink: 1, textAlign: 'center' }}>{title}</Text>
     </Pressable>
-  );
-}
-
-// 대피소 거리 막대: 기준 위치(0)에서 직선거리만 표시 (방향은 알 수 없어 그리지 않음)
-function DistanceScale({ items }: { items: number[] }) {
-  const max = Math.max(1, Math.ceil(Math.max(...items)));
-  return (
-    <View style={{ marginTop: 24, marginRight: 24 }} accessible accessibilityLabel={`직선거리 ${items.map(d => `${d}킬로미터`).join(', ')}`}>
-      <View style={{ height: 28, justifyContent: 'center' }}>
-        <View style={{ height: 2, backgroundColor: 'rgba(241,245,242,0.25)' }} />
-        <View style={{ position: 'absolute', left: -6, width: 14, height: 14, borderRadius: 7, backgroundColor: INK }} />
-        {items.map((d, i) => (
-          <View key={i} style={{ position: 'absolute', left: `${(d / max) * 100}%`, marginLeft: i === 0 ? -9 : -6, width: i === 0 ? 18 : 12, height: i === 0 ? 18 : 12,
-            borderRadius: 9, backgroundColor: i === 0 ? GO : 'rgba(241,245,242,0.6)', borderWidth: i === 0 ? 2 : 0, borderColor: INK }} />
-        ))}
-      </View>
-      <View style={st.row}>
-        <Text style={[st.small, { flex: 1 }]}>내 기준 위치</Text>
-        <Text style={st.small}>{max}km · 직선거리</Text>
-      </View>
-    </View>
   );
 }
 

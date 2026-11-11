@@ -30,14 +30,14 @@ function Exit({ n }: { n: number }) {
     </View>
   );
 }
-function GoBtn({ id, name, big }: { id: number; name: string; big?: boolean }) {
+// 경로 버튼: 모든 대피소에서 같은 모양·크기 (채운 페트롤 블루, 오른쪽 열 맨 아래)
+function GoBtn({ id, name }: { id: number; name: string }) {
   const { C, s } = useTheme();
   return (
     <Pressable onPress={() => router.push(`/route/${id}`)} accessibilityRole="button" accessibilityLabel={`${name} 경로 안내`}
-      style={({ pressed }) => [s.row, { gap: 4, minHeight: 44, paddingHorizontal: 12, borderRadius: 10, justifyContent: 'center' },
-        big ? { flex: 1, backgroundColor: C.navy } : { borderWidth: 1.5, borderColor: C.text }, pressed && s.pressed]}>
-      <Icon name="navigate" size={big ? 18 : 15} color={big ? '#FFFFFF' : C.text} />
-      <Text style={[s.bold, { color: big ? '#FFFFFF' : C.text, fontSize: big ? 17 : 15 }]}>{big ? '경로 안내' : '경로'}</Text>
+      style={({ pressed }) => [s.row, { gap: 4, minHeight: 40, minWidth: 84, paddingHorizontal: 12, borderRadius: 10, justifyContent: 'center', backgroundColor: C.navy }, pressed && s.pressed]}>
+      <Icon name="navigate" size={16} color="#FFFFFF" />
+      <Text style={[s.bold, { color: '#FFFFFF', fontSize: 15 }]}>경로</Text>
     </Pressable>
   );
 }
@@ -85,39 +85,29 @@ export default function ShelterScreen() {
               <Text style={[s.small, { flex: 1 }]} numberOfLines={1}>{region}</Text>
             </View>
 
-            {list.map((sh, i) => i === 0 ? (
-              <View key={sh.id} style={[{ paddingVertical: 12 }, s.divTop]}>
-                <Dot kind="big" top={14} />
-                <View style={{ gap: 2 }} accessible accessibilityLabel={`1번 가장 가까운 대피소 ${sh.name}, 직선 ${sh.distance}킬로미터, ${sh.type}, ${sh.capacity ? `수용 ${sh.capacity}명` : '수용인원 정보 없음'}, ${sh.addr}`}>
-                  <View style={[s.row, { alignItems: 'flex-start' }]}>
-                    <Exit n={1} />
-                    <Text style={[s.h2, { flex: 1, fontWeight: '900' }]} lineBreakStrategyIOS="hangul-word">{sh.name}</Text>
-                    <Text style={[s.display, { fontSize: 28, lineHeight: 32 }]}>{sh.distance}<Text style={s.small}>km</Text></Text>
+            {/* 역마다 같은 틀: 왼쪽 = 번호·이름·정보, 오른쪽 열 = 직선거리 + 경로 버튼. 1번(가장 가까움)만 이름·거리를 크게 */}
+            {list.map((sh, i) => {
+              const first = i === 0;
+              return (
+                <View key={sh.id} style={[s.row, { alignItems: 'flex-start', gap: 10, paddingVertical: 12 }, s.divTop]}>
+                  <Dot kind={first ? 'big' : undefined} top={first ? 14 : 17} />
+                  <View style={{ flex: 1, gap: 2 }} accessible
+                    accessibilityLabel={`${i + 1}번${first ? ' 가장 가까운 대피소' : ''} ${sh.name}, 직선 ${sh.distance}킬로미터, ${sh.type}, ${sh.capacity ? `수용 ${sh.capacity}명` : '수용인원 정보 없음'}, ${sh.addr}`}>
+                    <View style={[s.row, { alignItems: 'flex-start' }]}>
+                      <Exit n={i + 1} />
+                      <Text style={[first ? s.h2 : s.bold, { flex: 1, fontWeight: '900' }]} lineBreakStrategyIOS="hangul-word">{sh.name}</Text>
+                    </View>
+                    <Text style={first ? s.muted : s.small}>{sh.type} · {sh.capacity ? `수용 ${sh.capacity.toLocaleString()}명` : '수용인원 정보 없음'}</Text>
+                    <Text style={s.small}>{sh.addr}</Text>
+                    <Text style={s.small}>행정안전부 · {sh.updatedAt ? `자료 갱신 ${sh.updatedAt}` : '자료 갱신일 없음'}</Text>
                   </View>
-                  <Text style={s.muted}>{sh.type} · {sh.capacity ? `수용 ${sh.capacity.toLocaleString()}명` : '수용인원 정보 없음'}</Text>
-                  <Text style={s.small}>{sh.addr}</Text>
-                  <Text style={s.small}>행정안전부 · {sh.updatedAt ? `자료 갱신 ${sh.updatedAt}` : '자료 갱신일 없음'}</Text>
-                </View>
-                <View style={[s.row, { marginTop: 10 }]}>
-                  <GoBtn id={sh.id} name={sh.name} big />
-                </View>
-              </View>
-            ) : (
-              <View key={sh.id} style={[s.row, { minHeight: 60, gap: 10 }, s.divTop]}>
-                <Dot top={21} />
-                <View style={[s.row, { flex: 1, gap: 8, minHeight: 44, paddingVertical: 8 }]} accessible
-                  accessibilityLabel={`${i + 1}번 ${sh.name}, ${sh.distance}킬로미터, ${sh.type}${sh.capacity ? `, 수용 ${sh.capacity}명` : ''}, ${sh.addr}`}>
-                  <Exit n={i + 1} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.bold}>{sh.name}</Text>
-                    <Text style={s.small}>{sh.type}{sh.capacity ? ` · 수용 ${sh.capacity.toLocaleString()}명` : ''}</Text>
-                    <Text style={s.small}>{sh.addr} · {sh.updatedAt ? `자료 갱신 ${sh.updatedAt}` : '자료 갱신일 없음'}</Text>
+                  <View style={{ alignItems: 'flex-end', gap: 8 }}>
+                    <Text style={[s.num, first ? [s.display, { fontSize: 28, lineHeight: 32 }] : [s.bold, { fontSize: 19, fontWeight: '900' }]]}>{sh.distance}<Text style={s.small}>km</Text></Text>
+                    <GoBtn id={sh.id} name={sh.name} />
                   </View>
-                  <Text style={[s.bold, s.num, { fontSize: 19, fontWeight: '900' }]}>{sh.distance}<Text style={s.small}>km</Text></Text>
                 </View>
-                <GoBtn id={sh.id} name={sh.name} />
-              </View>
-            ))}
+              );
+            })}
 
             {radius < MAX_RADIUS ? (
               <Pressable onPress={() => setFrom(radius + 1)} accessibilityRole="button" accessibilityLabel={`반경 ${radius + 1}킬로미터로 넓혀 보기`}

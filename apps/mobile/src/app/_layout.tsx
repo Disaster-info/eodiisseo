@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Pressable, Text, View, useColorScheme } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AppThemeProvider, useTheme } from '../components/ui';
 import { AppProvider, useApp } from '../store/AppContext';
@@ -73,11 +74,14 @@ function Navigator({ dark }: { dark: boolean }) {
 export default function RootLayout() {
   return (
     // KeyboardProvider: 키보드 애니메이션을 프레임 단위로 받아 입력창을 키보드와 동시에 움직임 (Expo Go 포함)
-    <KeyboardProvider>
-      <AppProvider>
-        <RootStack />
-      </AppProvider>
-    </KeyboardProvider>
+    // GestureHandlerRootView: 탭 좌우 스와이프(react-native-gesture-handler)가 동작하려면 앱 맨 바깥에 필요
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <KeyboardProvider>
+        <AppProvider>
+          <RootStack />
+        </AppProvider>
+      </KeyboardProvider>
+    </GestureHandlerRootView>
   );
 }
 

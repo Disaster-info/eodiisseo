@@ -41,7 +41,8 @@ export default function DisasterDetailScreen({ id }: { id: number }) {
   return (
     <View style={s.fill}>
       <Header title={`${d.region} ${d.type}`} />
-      <Page band={28}>
+      {/* 첫 카드(재난 승차권)의 색 띠가 헤더와 겹쳐 보이지 않게 띠 없이 헤더 바로 아래로 */}
+      <Page>
         {/* 상태 판 → (진행 중이면) 행동 → AI 요약 → 공식 원문 순 */}
         <DisasterCard d={d} header />
         {isActive(d) && actions}
