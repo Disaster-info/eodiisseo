@@ -54,8 +54,8 @@ public final class VerifiedCollectionOperationalEvidence implements CollectionOp
             if(!Objects.equals(jdbc.queryForObject("select current_user",String.class),p.get("worker_role"))||!Objects.equals(jdbc.queryForObject("select session_user",String.class),p.get("worker_role")))reasons.add("WRONG_RUNTIME_DATABASE_PRINCIPAL");
         }
         if(transport()==null)reasons.add("SIGNED_SAFE_SENDER_REQUIRED");if(archivePolicy()==null)reasons.add("SIGNED_ARCHIVE_POLICY_REQUIRED");
-        reasons.add("PRODUCTION_PRIVILEGED_WRITE_GATEWAY_NOT_IMPLEMENTED");
-        reasons.add("PRODUCTION_BARRIER_NOT_INSTALLED_AUDIT_1005_IS_NOT_PRODUCTION");
+        if(jdbc.queryForObject("select to_regnamespace('collection_production')::text",String.class)==null){reasons.add("PRODUCTION_PRIVILEGED_WRITE_GATEWAY_NOT_IMPLEMENTED");reasons.add("PRODUCTION_BARRIER_NOT_INSTALLED_AUDIT_1005_IS_NOT_PRODUCTION");}
+        else reasons.addAll(ProductionCollectionWriteGateway.preparationBlockers(jdbc));
         reasons.add("ARCHIVE_ERASURE_AND_AUDIT_RETENTION_CONTRACT_REQUIRED");
         for(UUID source:sources){var keys=jdbc.queryForList("select a.contract_key from data_source s join collection_source_assignment a on a.source_id=s.source_id and a.epoch=s.collection_assignment_epoch where s.source_id=?",source);for(var k:keys)reasons.addAll(new CollectionOfficialAdmissionCatalog().productionBlockers((String)k.get("contract_key")));}
         return List.copyOf(new LinkedHashSet<>(reasons));

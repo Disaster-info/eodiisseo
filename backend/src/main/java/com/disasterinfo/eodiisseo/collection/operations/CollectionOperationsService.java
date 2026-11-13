@@ -32,6 +32,7 @@ public final class CollectionOperationsService {
         this.jdbc=jdbc;this.transactions=new JdbcCollectionOwnershipStore(jdbc,manager);this.sessions=sessions;
         this.mode=Objects.requireNonNull(mode);this.evidence=evidence;mode.verify(jdbc.getDataSource());
     }
+    boolean usesDataSource(javax.sql.DataSource source){return jdbc.getDataSource()==source;}
     private <T>T authorized(MemberPrincipal actor,Supplier<T> work) {
         if(actor==null)throw ApiProblem.unauthorized();
         return transactions.transaction(tx->{

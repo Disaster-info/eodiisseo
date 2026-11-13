@@ -21,6 +21,7 @@ public final class JdbcCollectionAssurance {
     public JdbcCollectionAssurance(JdbcTemplate jdbc,PlatformTransactionManager manager,java.util.function.Supplier<CollectionOperationsService> ops,CollectionOperationMode mode,Verifier verifier){
         this.jdbc=jdbc;this.tx=new JdbcCollectionOwnershipStore(jdbc,manager);this.ops=ops;this.mode=mode;this.verifier=verifier;mode.verify(jdbc.getDataSource());requireSchema(jdbc);
     }
+    boolean usesDataSource(javax.sql.DataSource source){return jdbc.getDataSource()==source;}
     public static void requireSchema(JdbcTemplate jdbc){if(jdbc.queryForObject("select count(*) from flyway_schema_history where version='2026111006' and success",Long.class)!=1)throw new IllegalStateException("Assurance migration required");}
     public CollectionOperationMode mode(){return mode;}
     public void submit(MemberPrincipal actor,Artifact a){ops.get().withOps(actor,()->{
