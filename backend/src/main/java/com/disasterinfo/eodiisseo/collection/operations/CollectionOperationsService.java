@@ -25,19 +25,37 @@ public final class CollectionOperationsService {
     private final JdbcTemplate jdbc;
     private final JdbcCollectionOwnershipStore transactions;
     private final SessionAccessService sessions;
+    private final Runnable loginReview;
     private final CollectionOperationMode mode;
     private final CollectionOperationalEvidencePort evidence;
     public CollectionOperationsService(JdbcTemplate jdbc,PlatformTransactionManager manager,SessionAccessService sessions,
             CollectionOperationMode mode,CollectionOperationalEvidencePort evidence) {
-        this.jdbc=jdbc;this.transactions=new JdbcCollectionOwnershipStore(jdbc,manager);this.sessions=sessions;
+        this(jdbc,manager,Objects.requireNonNull(sessions),mode,evidence,()->{});
+    }
+    private CollectionOperationsService(JdbcTemplate jdbc,PlatformTransactionManager manager,SessionAccessService sessions,
+            CollectionOperationMode mode,CollectionOperationalEvidencePort evidence,Runnable loginReview) {
+        this.loginReview=Objects.requireNonNull(loginReview);this.jdbc=jdbc;this.transactions=new JdbcCollectionOwnershipStore(jdbc,manager);this.sessions=sessions;
         this.mode=Objects.requireNonNull(mode);this.evidence=evidence;mode.verify(jdbc.getDataSource());
     }
     boolean usesDataSource(javax.sql.DataSource source){return jdbc.getDataSource()==source;}
+    /** Production control-plane auth uses the existing Definer ACTIVE OPS lock contract.
+     * No direct auth table UPDATE privilege is granted to the OPS LOGIN. */
+    public static CollectionOperationsService production(JdbcTemplate jdbc,org.springframework.orm.jpa.JpaTransactionManager manager,
+            VerifiedCollectionOperationalEvidence evidence,Runnable loginReview) {
+        if(jdbc.getDataSource()!=manager.getDataSource())throw new IllegalArgumentException("Single OPS transaction required");
+        return new CollectionOperationsService(jdbc,manager,null,CollectionOperationMode.PRODUCTION,Objects.requireNonNull(evidence),Objects.requireNonNull(loginReview));
+    }
     private <T>T authorized(MemberPrincipal actor,Supplier<T> work) {
         if(actor==null)throw ApiProblem.unauthorized();
+        loginReview.run();
         return transactions.transaction(tx->{
             jdbc.queryForList("select pg_advisory_xact_lock(78161108)");
             var result=new java.util.concurrent.atomic.AtomicReference<T>();
+            if(sessions==null){
+                jdbc.queryForList("select collection_production.authorize_ops(?,?)",actor.memberId(),actor.sessionId());
+                loginReview.run();requireFreshSession(actor);result.set(work.get());requireFreshSession(actor);loginReview.run();
+                return result.get();
+            }
             sessions.runWithActiveSession(actor.memberId(),actor.sessionId(),()->{
                 if(jdbc.queryForList("select member_id from member_role where member_id=? and role='OPS' for share",actor.memberId()).size()!=1)
                     throw ApiProblem.forbidden();

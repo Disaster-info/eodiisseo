@@ -13,6 +13,7 @@ public final class VerifiedCollectionOperationalEvidence implements CollectionOp
     public VerifiedCollectionOperationalEvidence(JdbcCollectionAssurance store,CollectionFleetEvidencePort fleet,SenderBinding sender,Set<String> knownSecrets,Clock clock){this(store,fleet,sender,knownSecrets,clock,null);
     }
     public VerifiedCollectionOperationalEvidence(JdbcCollectionAssurance store,CollectionFleetEvidencePort fleet,SenderBinding sender,Set<String> knownSecrets,Clock clock,CollectionRawPrivacyPort privacy){this.store=store;this.fleet=fleet;this.sender=sender;this.secrets=Set.copyOf(knownSecrets);this.clock=clock;this.privacy=privacy;}
+    boolean usesDataSource(javax.sql.DataSource source){return store.usesDataSource(source);}
     private Optional<Artifact> artifact(CollectionAssurance.Kind k,String scope){return store.active(k,scope);}
     private boolean audit(){return store.mode()==CollectionOperationMode.DISPOSABLE_AUDIT;}
     @Override public Map<CollectionOperationalEvidencePort.Kind,Evidence> current(){
