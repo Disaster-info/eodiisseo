@@ -28,8 +28,8 @@ class CollectionProductionGatewayPostgresTest {
  static String[] locations(){return new String[]{"classpath:db/migration","classpath:db/owned-runtime","classpath:db/collection-executor","classpath:db/collection-projection","classpath:db/collection-operations","classpath:db/collection-cutover","classpath:db/collection-assurance","classpath:db/collection-production"};}
  @BeforeAll void open(){
   if(!"jdbc:postgresql://127.0.0.1:55433/postgres".equals(System.getenv("EODIISSEO_AUDIT_JDBC_URL"))||!"true".equals(System.getenv("EODIISSEO_AUDIT_DISPOSABLE")))throw new IllegalStateException("Approved disposable only");
-  f.admin=new JdbcTemplate(new DriverManagerDataSource(System.getenv("EODIISSEO_AUDIT_JDBC_URL"),"eodiisseo_audit",""));String suffix=UUID.randomUUID().toString().replace("-","");f.database="collection4c_"+suffix;String prefix="c4c_"+suffix;worker=prefix+"_w";gateway=prefix+"_g";operator=prefix+"_o";definer=prefix+"_d";legacy=prefix+"_l";
-  f.admin.execute("create database "+f.database);ds=new DriverManagerDataSource("jdbc:postgresql://127.0.0.1:55433/"+f.database,"eodiisseo_audit","");f.sql=new JdbcTemplate(ds);
+  f.admin=new JdbcTemplate(bootstrapSource());String suffix=UUID.randomUUID().toString().replace("-","");f.database="collection4c_"+suffix;String prefix="c4c_"+suffix;worker=prefix+"_w";gateway=prefix+"_g";operator=prefix+"_o";definer=prefix+"_d";legacy=prefix+"_l";
+  f.admin.execute("create database "+f.database);ds=databaseSource(f.database);f.sql=new JdbcTemplate(ds);
   var previous=Arrays.copyOf(locations(),7);Flyway.configure().dataSource(ds).locations(previous).load().migrate();
   f.upgradeSource=f.sql.queryForObject("select source_id from data_source where endpoint_key='KMA_EARTHQUAKE'",UUID.class);UUID preserved=UUID.randomUUID();f.sql.update("insert into collection_run(run_id,source_id,mode,started_at,status,trigger_type) values(?,?,'LIVE',now(),'RUNNING','MANUAL')",preserved,f.upgradeSource);
   Flyway.configure().dataSource(ds).locations(locations()).load().migrate();Flyway.configure().dataSource(ds).locations(locations()).load().validate();assertEquals("RUNNING",f.sql.queryForObject("select status from collection_run where run_id=?",String.class,preserved));
@@ -50,6 +50,10 @@ class CollectionProductionGatewayPostgresTest {
   gate=new JdbcTemplate(as(gateway));ops=new JdbcTemplate(as(operator));gatewayApp=context(gate.getDataSource());writes=new ProductionCollectionWriteGateway(gate,gatewayApp.getBean("transactionManager",JpaTransactionManager.class));ownership=new CollectionOwnership(new JdbcCollectionOwnershipStore(gate,gatewayApp.getBean("transactionManager",JpaTransactionManager.class)),new CollectionContractRegistry(),Duration.ofMinutes(1));
   System.out.println("STAGE4C_POSTGRES="+f.sql.queryForObject("show server_version",String.class));
  }
+ DataSource bootstrapSource(){return new DriverManagerDataSource(System.getenv("EODIISSEO_AUDIT_JDBC_URL"),"eodiisseo_audit","");}
+ DataSource databaseSource(String database){return new DriverManagerDataSource("jdbc:postgresql://127.0.0.1:55433/"+database,"eodiisseo_audit","");}
+ void approveFixture(){f.allApproved();}
+ void operationsFixture(){f.service=f.service(CollectionOperationMode.DISPOSABLE_AUDIT,f.evidence);}
  AnnotationConfigApplicationContext context(DataSource source){var c=new AnnotationConfigApplicationContext();c.getEnvironment().setActiveProfiles("collection-projection-audit-only");c.registerBean("dataSource",DataSource.class,()->source,b->b.setDestroyMethodName(""));c.register(OfficialCollectionProjectionPostgresTest.Config.class);c.refresh();return c;}
  void createRole(String role){f.sql.execute("create role "+role+" nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls");}
  void closeConnections(){}
@@ -59,7 +63,7 @@ class CollectionProductionGatewayPostgresTest {
  @BeforeEach void fixture(){
   f.sql.execute("delete from collection_production.installation");f.sql.execute("truncate collection_production.context,collection_production.worker,collection_production.domain_touch,collection_production.history cascade");f.sql.update("update collection_production.barrier set state='UNCONFIGURED',generation=0,review_id=null,artifacts='{}',policy_hash=null,valid_until=null");legacyFixture();f.sql.execute("truncate collection_production.context,collection_production.worker,collection_production.domain_touch,collection_production.history cascade");
   f.sql.execute("insert into collection_cutover_barrier values(true,'LEGACY',0,null,clock_timestamp()) on conflict do nothing");f.sql.execute("insert into collection_production.barrier(singleton,state,generation) values(true,'UNCONFIGURED',0) on conflict(singleton) do update set state='UNCONFIGURED',generation=0,review_id=null,artifacts='{}',policy_hash=null,valid_until=null");
-  f.allApproved();review=f.sql.queryForObject("select review_id from collection_transition_review where step='MIGRATIONS_VERIFIED'",UUID.class);
+  approveFixture();review=f.sql.queryForObject("select review_id from collection_transition_review where step='MIGRATIONS_VERIFIED'",UUID.class);
   f.sql.update("insert into collection_production.installation values(true,?,?,?,?::name[],true)",worker,gateway,operator,"{"+legacy+"}");
   artifacts=new ArrayList<>();for(String kind:List.of("FLEET","SENDER","DATABASE","ARCHIVE","DOMAIN_POLICY")){UUID id=UUID.randomUUID();artifacts.add(id);f.sql.update("insert into collection_assurance_artifact values(?,?, 'GLOBAL',?,'SYNTHETIC_SQL_FIXTURE','SYNTHETIC:DB_CONTROL','{}',?,decode(repeat('00',64),'hex'),now()-interval '1 minute',now()+interval '1 hour',true,?,?,now())",id,kind,id.toString(),"a".repeat(64),f.ops.memberId(),f.ops.sessionId());}
   permit=UUID.randomUUID();capability=UUID.randomUUID().toString()+UUID.randomUUID();
@@ -76,7 +80,7 @@ class CollectionProductionGatewayPostgresTest {
   f.sql.update("insert into collection_source_assignment values(?,?,'KMA_EARTHQUAKE',?,'KMA_PORTAL_EQK_MSG','SYNTHETIC-quota','COMMON_COLLECTION_V1','SYNTHETIC assignment',true,true)",f.source,f.epoch,f.target);
   f.sql.update("update data_source set collection_assignment_epoch=? where source_id=?",f.epoch,f.source);
   f.sql.update("insert into collection_quota_window values('SYNTHETIC-quota',now()-interval '1 hour',now()+interval '1 hour',10,0,0,now(),'SYNTHETIC quota approval')");
-  f.ops=f.member(true);f.service=f.service(CollectionOperationMode.DISPOSABLE_AUDIT,f.evidence);
+  f.ops=f.member(true);operationsFixture();
  }
  void freeze(){ops.queryForList("select collection_production.freeze(?,?,?)",f.ops.memberId(),f.ops.sessionId(),"SYNTHETIC:FROZEN");}
  void seal(){ops.queryForList("select collection_production.seal(?,?,?,?,?,?)",f.ops.memberId(),f.ops.sessionId(),review,artifacts.toArray(UUID[]::new),Timestamp.from(Instant.now().plusSeconds(300)),"SYNTHETIC:SEALED");}
