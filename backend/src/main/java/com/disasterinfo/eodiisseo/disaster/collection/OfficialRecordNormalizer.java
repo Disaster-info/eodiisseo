@@ -72,6 +72,8 @@ public class OfficialRecordNormalizer {
             """,source,zone);
         String hash=AuthService.hash(original);
         Instant start=warningTime(row.get("startTime")).orElse(null);
+        // getPwnCd announcement start is required; do not reuse a predecessor to fill a missing new start.
+        if("1".equals(command)&&start==null)return new Result("WARNING_PREDECESSOR_MISSING",null);
         boolean lift=Set.of("2","8").contains(command);
         if(old!=null&&OwnedDatabase.instant(old.get("source_updated_at"))!=null&&issued.isBefore(OwnedDatabase.instant(old.get("source_updated_at"))))
             return new Result("OUT_OF_ORDER_WARNING",null);

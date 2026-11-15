@@ -104,6 +104,8 @@ class OfficialCollectionProjectionPostgresTest {
         var provider=new OfficialCollectionProviderPlugin(contract,(key,request)->{
             state.httpCalls.incrementAndGet();
             Object envelope=key.startsWith("MOIS_")?Map.of("header",Map.of("resultCode","00"),"body",rows,"totalCount",rows.size()):Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("totalCount",rows.size(),"items",Map.of("item",rows))));
+            // Synthetic getPwnCd success fixtures explicitly declare the requested page metadata.
+            if(key.equals("KMA_RAIN_CODES"))envelope=Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("pageNo",request.page(),"numOfRows",request.rows(),"totalCount",rows.size(),"items",Map.of("item",rows))));
             return new Reply(200,JSON.writeValueAsBytes(envelope),Duration.ZERO);
         },new Evidence(true,true,true,true,"SYNTHETIC HTTP evidence - NOT domain admission"));
         return new CollectionCoordinator(ownership,store,List.of(provider),new CollectionCoordinator.Policy(true,2,1,2,Duration.ofSeconds(5),Duration.ZERO),new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC private retention",Set.of()),adapter);
@@ -308,6 +310,46 @@ class OfficialCollectionProjectionPostgresTest {
         assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"bad-location-test",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());var before=earthquakeSnapshot();
         var invalid=quake("2","20261101120200","SYNTHETIC correction");invalid.put("loc",switch(shape){case "OBJECT"->Map.of("region","not an official code");case "ARRAY"->List.of("not a region mapping");default->42;});allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,invalid,"bad-location-test",2);
         assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",invalid).state());assertEquals(before,earthquakeSnapshot());assertEquals(0,count("disaster_area"));
+    }
+
+    Map<String,Object> rainDomainSnapshot(){var snapshot=new LinkedHashMap<String,Object>();for(String table:List.of("disaster","source_disaster","source_disaster_revision","disaster_runtime_outbox","disaster_area","disaster_change","collection_raw_record","collection_raw_revision","collection_domain_cursor","collection_domain_coverage"))snapshot.put(table,sql.queryForList("select * from "+table+" order by 1"));return snapshot;}
+    void initialRain(){assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",rain("1","20261101120100","1")).state());}
+    @Test void rainMissingStartCannotReuseOldWarning(){
+        initialRain();var before=rainDomainSnapshot();var missing=rain("2","20261101120200","1");missing.put("startTime","0");assertEquals(State.FAILED,collect(rain,"KMA_RAIN_CODES",missing).state());assertEquals(before,rainDomainSnapshot());
+    }
+    Reply rainReply(Request request,int total,List<Map<String,Object>> rows){return new Reply(200,JSON.writeValueAsBytes(Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("pageNo",request.page(),"numOfRows",request.rows(),"totalCount",total,"items",Map.of("item",rows))))),Duration.ZERO);}
+    @ParameterizedTest @ValueSource(strings={"ZERO_WITH_ROWS","MISSING_META","WRONG_PAGE","TOTAL_CHANGE","DUPLICATE","CONTENT_CHANGE","PARTIAL_HTTP_FAILURE","EMPTY","SHORT_MIDDLE"})
+    void rainIncompletePagesNeverPromoteOrChangeExistingDomain(String scenario){
+        initialRain();var before=rainDomainSnapshot();long archives=count("collection_http_archive"),normal=sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Long.class);
+        var first=rain("2","20261101120200","7");var next=new LinkedHashMap<>(first);next.put("areaCode","Z_OTHER");
+        var provider=new OfficialCollectionProviderPlugin("KMA_RAIN_CODES",(contract,r)->{
+            if(scenario.equals("ZERO_WITH_ROWS"))return rainReply(r,0,List.of(first));
+            if(scenario.equals("EMPTY"))return rainReply(r,0,List.of());
+            if(scenario.equals("MISSING_META"))return new Reply(200,JSON.writeValueAsBytes(Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("totalCount",1,"items",Map.of("item",List.of(first)))))),Duration.ZERO);
+            if(scenario.equals("WRONG_PAGE"))return rainReply(new Request(r.from(),r.to(),2,r.rows(),r.timeout()),1,List.of(first));
+            if(scenario.equals("SHORT_MIDDLE"))return rainReply(r,3,List.of(first));
+            if(r.page()==1)return rainReply(r,2,List.of(first));
+            return switch(scenario){case "TOTAL_CHANGE"->rainReply(r,3,List.of(next));case "DUPLICATE"->rainReply(r,2,List.of(first));case "CONTENT_CHANGE"->{var changed=new LinkedHashMap<>(first);changed.put("warnStress","2");yield rainReply(r,2,List.of(changed));}default->new Reply(503,new byte[0],Duration.ZERO);};
+        },new Evidence(true,true,false,true,"SYNTHETIC finite paging - not operating evidence"));
+        int rows=scenario.equals("SHORT_MIDDLE")?2:1;var run=new CollectionCoordinator(ownership,store,List.of(provider),new CollectionCoordinator.Policy(true,2,1,2,Duration.ofSeconds(5),Duration.ZERO),new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC private retention",Set.of()),projection).collect(rain,DAY,DAY,rows);
+        assertNotEquals(State.COMPLETE,run.state());assertEquals(before,rainDomainSnapshot());int expectedPages=Set.of("TOTAL_CHANGE","DUPLICATE","CONTENT_CHANGE","PARTIAL_HTTP_FAILURE").contains(scenario)?2:1;assertEquals(archives+expectedPages,count("collection_http_archive"));if(expectedPages==2)assertEquals(1,sql.queryForObject("select count(*) from collection_http_attempt where run_id=? and state='VALIDATED'",Integer.class,run.run()));assertEquals(normal,sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Long.class));assertEquals(0,sql.queryForObject("select count(*) from collection_run where run_id=? and status='SUCCESS'",Integer.class,run.run()));
+    }
+    @Test void rainExpiredMappingRollsBackCorrectionAndReportsUnknown(){
+        initialRain();UUID disaster=sql.queryForObject("select disaster_id from disaster",UUID.class);var before=rainDomainSnapshot();var old=state.mappings.get("Z_TEST");state.mappings.put("Z_TEST",new OfficialWarningAreaMappingPort.Mapping(old.warningZone(),old.exactAdminAreaCodes(),old.evidenceUrl(),"expired-version",old.validFrom(),Instant.now().minusSeconds(1),true));
+        assertEquals(State.FAILED,collect(rain,"KMA_RAIN_CODES",rain("2","20261101120200","7")).state());assertEquals(before,rainDomainSnapshot());assertEquals(com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.UNKNOWN,app.getBean(com.disasterinfo.eodiisseo.disaster.adapter.VerifiedWarningImpactReader.class).find(disaster,Instant.now()).knowledge());
+    }
+    @Test void rainMonthlyNumberReuseDoesNotCreateGlobalIncidentIdentity(){
+        assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");var first=rain("1","20261031120100","1");first.put("startTime","20261031120000");LocalDate october=LocalDate.of(2026,10,31);assertEquals(State.COMPLETE,coordinator("KMA_RAIN_CODES",List.of(first),projection).collect(rain,october,october,10).state());
+        var next=rain("1","20261101120100","7");next.put("startTime","20261031120000");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",next).state());assertEquals(1,count("disaster"));assertEquals(2,count("source_disaster_revision"));assertEquals(2,count("collection_raw_record"));assertEquals(1,event("NEW"));
+    }
+    @Test void rainSameAnnouncementAcrossZonesRetainsBothExactMappings(){
+        assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");var first=rain("1","20261101120100","1");var other=new LinkedHashMap<>(first);other.put("areaCode","Z_OTHER");state.mappings.put("Z_OTHER",new OfficialWarningAreaMappingPort.Mapping("Z_OTHER",Set.of("SYNTHETIC_B"),URI.create("https://www.kma.go.kr/SYNTHETIC-test-only"),"map2",Instant.parse("2020-01-01T00:00:00Z"),state.until,true));
+        assertEquals(State.COMPLETE,coordinator("KMA_RAIN_CODES",List.of(first,other),projection).collect(rain,DAY,DAY,10).state());assertEquals(2,count("disaster"));assertEquals(2,count("disaster_area"));assertEquals(2,event("NEW"));
+    }
+    @ParameterizedTest @ValueSource(strings={"CANCEL","MISSING_END","WRONG_START","UNKNOWN_CODE","INVALID_TIME","INVALID_ZONE"})
+    void rainInvalidFollowupPreservesWarningRevisionAndArea(String scenario){
+        initialRain();var before=rainDomainSnapshot();var row=rain("2","20261101120200","7");switch(scenario){case "CANCEL"->row.put("cancel","1");case "MISSING_END"->{row.put("command","2");row.put("startTime","0");row.put("endTime","0");row.put("allEndTime","20261101120200");}case "WRONG_START"->row.put("startTime","20261101110000");case "UNKNOWN_CODE"->row.put("command","9");case "INVALID_TIME"->row.put("tmFc","202602301200");default->row.put("areaCode","Z_TEST:UNKNOWN");}
+        assertNotEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",row).state());assertEquals(before,rainDomainSnapshot());if(scenario.equals("CANCEL")){assertNotEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",row).state());assertEquals(before,rainDomainSnapshot());}
     }
 
 }

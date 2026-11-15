@@ -18,9 +18,11 @@ class CollectionProviderPluginTest {
         var row=Map.<String,Object>of("SN","1","ARCD","1","ACMDFCLTY_SN","2","tmFc","20261101120000","stnId","108","tmSeq","1","fcTp","3","areaCode","L100");
         Object body=contract.startsWith("MOIS_")?Map.of("header",Map.of("resultCode","00"),"totalCount",1,"body",List.of(row)):
             Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("totalCount",1,"items",Map.of("item",List.of(row)))));
+        if(contract.equals("KMA_RAIN_CODES"))body=Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("pageNo",REQUEST.page(),"numOfRows",REQUEST.rows(),"totalCount",1,"items",Map.of("item",List.of(row)))));
+        final Object wireBody=body;
         var calls=new AtomicInteger();var plugin=new OfficialCollectionProviderPlugin(contract,(actual,request)->{
             assertEquals(contract,actual);assertEquals(REQUEST,request);calls.incrementAndGet();
-            return new Reply(200,JsonMapper.builder().build().writeValueAsBytes(body),Duration.ZERO);
+            return new Reply(200,JsonMapper.builder().build().writeValueAsBytes(wireBody),Duration.ZERO);
         });
         var page=plugin.decode(plugin.exchange(REQUEST),REQUEST);
         assertEquals(1,page.total());assertEquals(1,page.items().size());assertFalse(plugin.identity(page.items().getFirst()).isBlank());assertEquals(1,calls.get());

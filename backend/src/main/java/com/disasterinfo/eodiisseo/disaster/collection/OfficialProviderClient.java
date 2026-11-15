@@ -28,7 +28,7 @@ public final class OfficialProviderClient {
         @Override public String toString(){return "OfficialPage[number="+number+", total="+total+", raw=redacted]";}
     }
     private static final JsonMapper JSON=JsonMapper.builder().build();
-    private static final JsonMapper EARTHQUAKE_JSON=JsonMapper.builder()
+    private static final JsonMapper STRICT_JSON=JsonMapper.builder()
         .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION)
         .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private final Provider provider; private final Transport transport; private final URI endpoint; private final String keyParameter;
@@ -75,12 +75,18 @@ public final class OfficialProviderClient {
         if(decoded.items().size()>rows)throw new CollectionFailure("ROW_LIMIT");
         return decoded;
     }
-    public Page decode(byte[] bytes,int expectedPage) {
+    /** Strict getPwnCd profile for the NEW explicit contract only. Legacy/parser and warning-list behavior stay unchanged. */
+    public Page decodeRainCodes(byte[] bytes,int expectedPage,int requestedRows){
+        if(provider!=Provider.HEAVY_RAIN||requestedRows<1||requestedRows>100)throw new CollectionFailure("SOURCE_CONTRACT");
+        return decode(bytes,expectedPage,true,requestedRows);
+    }
+    public Page decode(byte[] bytes,int expectedPage){return decode(bytes,expectedPage,false,0);}
+    private Page decode(byte[] bytes,int expectedPage,boolean strictRain,int requestedRows) {
         if(bytes==null||bytes.length==0||bytes.length>2_097_152)throw new CollectionFailure("EMPTY_OR_OVERSIZED");
         try {
             String text=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .decode(java.nio.ByteBuffer.wrap(bytes)).toString().strip();
-            Map<String,Object> root=text.startsWith("<")?xml(text):(provider==Provider.EARTHQUAKE?EARTHQUAKE_JSON:JSON).readValue(text,Map.class);
+            Map<String,Object> root=text.startsWith("<")?xml(text):(provider==Provider.EARTHQUAKE||strictRain?STRICT_JSON:JSON).readValue(text,Map.class);
             Map<String,Object> envelope=map(root.getOrDefault("response",root));
             Map<String,Object> header=map(envelope.get("header"));
             String code=Objects.toString(header.get("resultCode"),"");
@@ -98,6 +104,9 @@ public final class OfficialProviderClient {
                 if(rows==null || "".equals(rows))throw new CollectionFailure("SCHEMA");
             }else{
                 body=map(envelope.get("body"));total=body.get("totalCount");Object container=body.get("items");
+                if(strictRain && (!body.keySet().containsAll(Set.of("pageNo","numOfRows","totalCount","items"))
+                    ||container==null||(!(container instanceof Map<?,?>)&&!container.equals("")
+                        &&!(container instanceof List<?> emptyList&&emptyList.isEmpty()))))throw new CollectionFailure("SCHEMA");
                 rows=container instanceof Map<?,?>?((Map<?,?>)container).get("item"):null;
             }
             int count=number(total);if(count<0||count>10000)throw new CollectionFailure("PAGE_LIMIT");
@@ -108,9 +117,10 @@ public final class OfficialProviderClient {
             else if(rows!=null&&!rows.equals(""))throw new CollectionFailure("SCHEMA");
             if(items.size()>100 || (count>0&&items.isEmpty()))throw new CollectionFailure("PAGE_INCOMPLETE");
             // A declared total/page size cannot contradict actual rows. No count substitution or coverage inference.
-            if(provider==Provider.EARTHQUAKE && items.size()>count)throw new CollectionFailure("PAGE_TOTAL_INCONSISTENT");
+            if((provider==Provider.EARTHQUAKE||strictRain) && items.size()>count)throw new CollectionFailure("PAGE_TOTAL_INCONSISTENT");
             if(body.containsKey("numOfRows")){
                 int declared=number(body.get("numOfRows"));
+                if(strictRain && (declared<1||declared>requestedRows))throw new CollectionFailure("PAGE_MISMATCH");
                 if(declared<items.size() || declared<0 || (count>0 && declared==0))throw new CollectionFailure("PAGE_INCOMPLETE");
             }
             return new Page(expectedPage,count,items,bytes);
