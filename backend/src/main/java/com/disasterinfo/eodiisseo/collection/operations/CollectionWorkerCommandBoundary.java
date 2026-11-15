@@ -18,7 +18,7 @@ public final class CollectionWorkerCommandBoundary {
  /** Must verify pinned caller identity, signature, exact digest/scope, revocation and generation. No remote I/O. */
  public interface Authorizer {Authorization require(Heartbeat request);}
  /** INSERT command/digest in THIS transaction; conflict with different digest MUST fail. No autonomous commit. */
- public interface Journal {javax.sql.DataSource dataSource();boolean reserve(UUID command,String digest);}
+ public interface Journal {javax.sql.DataSource dataSource();boolean reserve(UUID command,String digest);default boolean reserve(UUID command,String digest,Instant until){return reserve(command,digest);}default void verifyWorker(UUID worker){} default void completed(UUID command,String digest){} default void failed(UUID command,String digest,String outcome){}}
  private final ProductionCollectionWriteGateway gateway;private final CollectionOwnership ownership;private final Authorizer authorizer;private final Journal journal;private final Clock clock;
  public CollectionWorkerCommandBoundary(JdbcTemplate jdbc,JpaTransactionManager manager,ProductionCollectionWriteGateway gateway,Authorizer authorizer,Journal journal,Duration lease,Clock clock){
   this.gateway=Objects.requireNonNull(gateway);this.authorizer=Objects.requireNonNull(authorizer);this.journal=Objects.requireNonNull(journal);this.clock=Objects.requireNonNull(clock);
@@ -30,10 +30,13 @@ public final class CollectionWorkerCommandBoundary {
   if(!request.until().isAfter(clock.instant())||!a.until().isAfter(clock.instant())||a.generation()!=request.generation()||!c.run().equals(request.run())||!c.claimId().equals(request.claim())||!c.assignment().source().equals(request.source())||c.fence()!=request.fence())throw new IllegalStateException("Command scope withdrawn or mismatched");return a;
  }
  public boolean heartbeat(Heartbeat request){
-  var a=authorized(request);
-  return gateway.write(a.permit(),request.source(),ProductionCollectionWriteGateway.Phase.EXECUTION,a.claim(),()->{
+  var a=authorized(request);journal.verifyWorker(request.worker());
+  try{return gateway.write(a.permit(),request.source(),ProductionCollectionWriteGateway.Phase.EXECUTION,a.claim(),()->{
    var fresh=authorized(request);if(!fresh.claim().equals(a.claim())||fresh.generation()!=a.generation())throw new IllegalStateException("Command authority changed");
-   boolean first=journal.reserve(request.command(),request.digest());if(first)ownership.heartbeat(a.claim());authorized(request);return first;
-  });
+   boolean first=journal.reserve(request.command(),request.digest(),request.until());if(first)ownership.heartbeat(a.claim());authorized(request);journal.completed(request.command(),request.digest());return first;
+  });}catch(RuntimeException failure){
+   String outcome="ROLLED_BACK";for(Throwable cause=failure;cause!=null;cause=cause.getCause())if(cause instanceof java.sql.SQLException sql&&sql.getSQLState()!=null&&sql.getSQLState().startsWith("08"))outcome="OUTCOME_UNKNOWN";
+   try{journal.failed(request.command(),request.digest(),outcome);}catch(RuntimeException unavailable){failure.addSuppressed(new IllegalStateException("Command failure audit unavailable"));}throw failure;
+  }
  }
 }

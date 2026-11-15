@@ -61,7 +61,7 @@ public final class VerifiedCollectionOperationalEvidence implements CollectionOp
             &&!now.isBefore(start)&&now.isBefore(end)&&limit==((Number)p.get("request_limit")).longValue()&&interval==((Number)p.get("min_interval_ms")).intValue();
     }
     @Override public List<String> productionBlockers(JdbcTemplate jdbc,Collection<UUID> sources){
-        var reasons=new ArrayList<String>();if(audit())reasons.add("AUDIT_ASSURANCE_ADAPTER_NOT_PRODUCTION");reasons.add("PROCESS_PRINCIPAL_ISOLATION_AND_FLEET_COMMIT_FENCE_REQUIRED");reasons.add("AUTHENTICATED_TYPED_GATEWAY_CHANNEL_AND_DURABLE_COMMAND_JOURNAL_REQUIRED");if(!fleetReady())reasons.add("FRESH_COMPLETE_FLEET_EXCLUSION_REQUIRED");
+        var reasons=new ArrayList<String>();if(audit())reasons.add("AUDIT_ASSURANCE_ADAPTER_NOT_PRODUCTION");reasons.add("PROCESS_PRINCIPAL_ISOLATION_AND_FLEET_COMMIT_FENCE_REQUIRED");reasons.add("REVIEWED_COMMAND_PEER_CHANNEL_AND_PROCESS_BINDING_REQUIRED");if(!fleetReady())reasons.add("FRESH_COMPLETE_FLEET_EXCLUSION_REQUIRED");
         var database=artifact(CollectionAssurance.Kind.DATABASE,"GLOBAL").orElse(null);
         if(database==null)reasons.add("SIGNED_DATABASE_ROLE_POLICY_REQUIRED");else{
             var p=database.payload();var result=new CollectionDatabasePrivilegeInspector(jdbc).inspect(new CollectionDatabasePrivilegeInspector.Policy((String)p.get("worker_role"),(String)p.get("ops_role"),(String)p.get("migration_role"),(String)p.get("schema_owner"),"public"));reasons.addAll(result.blockers());
