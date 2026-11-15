@@ -32,7 +32,13 @@ public class OfficialRecordNormalizer {
         if(text.isBlank()||"0".equals(text))return Optional.empty();
         return Optional.of(time(value));
     }    public static String identity(OfficialProviderClient.Provider provider,Map<String,Object> row){
-        if(provider==WILDFIRE_MESSAGES)return bounded(row.get("SN"));
+        if(provider==WILDFIRE_MESSAGES){
+            Object id=row.get("SN");
+            if(!(id instanceof String||id instanceof Byte||id instanceof Short||id instanceof Integer||id instanceof Long||id instanceof java.math.BigInteger))
+                throw new IllegalArgumentException("Stable message identifier required");
+            String text=bounded(id);if(text.chars().anyMatch(Character::isISOControl))throw new IllegalArgumentException("Stable message identifier required");
+            return text; // Exact integral text/leading zeros, never a global incident identity.
+        }
         if(!bounded(row.get("stnId")).matches("[0-9]{1,5}")||!bounded(row.get("tmSeq")).matches("[0-9]{1,4}"))throw new IllegalArgumentException("Invalid announcement identity");
         return bounded(row.get("stnId"))+":"+bounded(row.get("tmFc"))+":"+bounded(row.get("tmSeq"))+
             (provider==HEAVY_RAIN?":"+bounded(row.get("areaCode")):"");

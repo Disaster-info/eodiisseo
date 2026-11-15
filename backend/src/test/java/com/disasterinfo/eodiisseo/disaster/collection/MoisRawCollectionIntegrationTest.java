@@ -212,4 +212,18 @@ class MoisRawCollectionIntegrationTest {
             .isInstanceOfSatisfying(CollectionFailure.class,e->assertThat(e.code()).isEqualTo("UNSUPPORTED_END_DATE"));
         assertThat(calls.get()).isZero();assertThat(count("collection_run")).isZero();
         assertThat(count("owned_collection_cursor")).isZero();assertThat(count("collection_job_lock")).isZero();
-    }}
+    }
+    @ParameterizedTest @ValueSource(strings={"BOOLEAN","OBJECT","ARRAY","DECIMAL"})
+    void malformedSnIsRawInvalidNotAnInventedStableIdentity(String shape){
+        var r=row(0);r.put("SN",switch(shape){case "BOOLEAN"->true;case "OBJECT"->Map.of("id","SYNTHETIC");case "ARRAY"->List.of("SYNTHETIC");default->1.25;});archived(collect(r),1);
+        assertThat(sql.queryForObject("select provider_record_key from owned_collection_item",String.class)).startsWith("INVALID:");assertThat(sql.queryForObject("select classification from owned_collection_item",String.class)).isEqualTo("INVALID_FACTS");assertThat(sql.queryForObject("select canonical_json from owned_collection_item",String.class)).isEqualTo(OfficialProviderClient.canonical(r));
+    }
+    @Test void olderModificationTextAddsRawHistoryWithoutRewindingOrClaimingCompletion(){
+        var first=row(0);first.put("MDFCN_YMD","2026/11/01 10:00:02.900000000");archived(collect(first),1);String original=OfficialProviderClient.canonical(first);
+        var older=new LinkedHashMap<>(first);older.put("MDFCN_YMD","2026/11/01 10:00:01.000000001");older.put("MSG_CN","SYNTHETIC older or delayed correction, order unverified");archived(collect(older),1);archived(collect(first),1);assertThat(count("owned_collection_item")).isEqualTo(2);assertThat(count("owned_collection_page")).isEqualTo(3);assertThat(sql.queryForList("select canonical_json from owned_collection_item",String.class)).containsExactlyInAnyOrder(original,OfficialProviderClient.canonical(older));noIncidentOrCoverage();
+    }
+    @ParameterizedTest @ValueSource(strings={"산불","지진","호우"})
+    void disasterKeywordsAndRecipientFieldsAreNeverImpactOrIncidentEvidence(String hazard){
+        var r=row(0);r.put("DST_SE_NM",hazard);r.put("MSG_CN","SYNTHETIC 산불 지진 호우 발생 진화완료 대피");r.put("RCPTN_RGN_ID",List.of("SYNTHETIC-A","SYNTHETIC-B"));r.put("RCPTN_RGN_NM",Map.of("name","SYNTHETIC recipient only"));r.put("CRT_DT","2026/02/30 24:00:00");archived(collect(r),1);assertThat(sql.queryForObject("select canonical_json from owned_collection_item",String.class)).isEqualTo(OfficialProviderClient.canonical(r));assertThat(count("disaster_area")).isZero();noIncidentOrCoverage();
+    }
+}

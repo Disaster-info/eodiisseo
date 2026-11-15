@@ -43,6 +43,7 @@ public final class OfficialCollectionProviderPlugin implements CollectionProvide
     private Page decodeOfficial(Reply reply,Request request){
         if(!executable())throw new CollectionFailure("CONTRACT_REQUIRED");
         var page=contract.equals("KMA_RAIN_CODES")?decoder.decodeRainCodes(reply.body(),request.page(),request.rows())
+            :contract.equals("MOIS_MESSAGES")?decoder.decodeMessages(reply.body(),request.page(),request.rows())
             :decoder.decode(reply.body(),request.page());
         if(page.items().size()>request.rows())throw new CollectionFailure("ROW_LIMIT");
         for(var item:page.items()){

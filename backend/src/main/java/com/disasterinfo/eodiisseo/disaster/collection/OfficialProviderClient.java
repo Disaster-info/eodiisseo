@@ -78,15 +78,20 @@ public final class OfficialProviderClient {
     /** Strict getPwnCd profile for the NEW explicit contract only. Legacy/parser and warning-list behavior stay unchanged. */
     public Page decodeRainCodes(byte[] bytes,int expectedPage,int requestedRows){
         if(provider!=Provider.HEAVY_RAIN||requestedRows<1||requestedRows>100)throw new CollectionFailure("SOURCE_CONTRACT");
-        return decode(bytes,expectedPage,true,requestedRows);
+        return decode(bytes,expectedPage,true,false,requestedRows);
     }
-    public Page decode(byte[] bytes,int expectedPage){return decode(bytes,expectedPage,false,0);}
-    private Page decode(byte[] bytes,int expectedPage,boolean strictRain,int requestedRows) {
+    /** DSSP-IF-00247 only: no inferred required echo fields, date conversion or wildfire linkage. */
+    public Page decodeMessages(byte[] bytes,int expectedPage,int requestedRows){
+        if(provider!=Provider.WILDFIRE_MESSAGES||requestedRows<1||requestedRows>100)throw new CollectionFailure("SOURCE_CONTRACT");
+        return decode(bytes,expectedPage,false,true,requestedRows);
+    }
+    public Page decode(byte[] bytes,int expectedPage){return decode(bytes,expectedPage,false,false,0);}
+    private Page decode(byte[] bytes,int expectedPage,boolean strictRain,boolean strictMessages,int requestedRows) {
         if(bytes==null||bytes.length==0||bytes.length>2_097_152)throw new CollectionFailure("EMPTY_OR_OVERSIZED");
         try {
             String text=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .decode(java.nio.ByteBuffer.wrap(bytes)).toString().strip();
-            Map<String,Object> root=text.startsWith("<")?xml(text):(provider==Provider.EARTHQUAKE||strictRain?STRICT_JSON:JSON).readValue(text,Map.class);
+            Map<String,Object> root=text.startsWith("<")?xml(text):(provider==Provider.EARTHQUAKE||strictRain||strictMessages?STRICT_JSON:JSON).readValue(text,Map.class);
             Map<String,Object> envelope=map(root.getOrDefault("response",root));
             Map<String,Object> header=map(envelope.get("header"));
             String code=Objects.toString(header.get("resultCode"),"");
@@ -117,10 +122,10 @@ public final class OfficialProviderClient {
             else if(rows!=null&&!rows.equals(""))throw new CollectionFailure("SCHEMA");
             if(items.size()>100 || (count>0&&items.isEmpty()))throw new CollectionFailure("PAGE_INCOMPLETE");
             // A declared total/page size cannot contradict actual rows. No count substitution or coverage inference.
-            if((provider==Provider.EARTHQUAKE||strictRain) && items.size()>count)throw new CollectionFailure("PAGE_TOTAL_INCONSISTENT");
+            if((provider==Provider.EARTHQUAKE||strictRain||strictMessages) && items.size()>count)throw new CollectionFailure("PAGE_TOTAL_INCONSISTENT");
             if(body.containsKey("numOfRows")){
                 int declared=number(body.get("numOfRows"));
-                if(strictRain && (declared<1||declared>requestedRows))throw new CollectionFailure("PAGE_MISMATCH");
+                if((strictRain||strictMessages) && (declared<1||declared>requestedRows))throw new CollectionFailure("PAGE_MISMATCH");
                 if(declared<items.size() || declared<0 || (count>0 && declared==0))throw new CollectionFailure("PAGE_INCOMPLETE");
             }
             return new Page(expectedPage,count,items,bytes);
