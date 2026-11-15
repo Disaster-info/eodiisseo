@@ -44,6 +44,7 @@ public final class ProductionCollectionWriteGateway {
             return result;
         });
     }
+    boolean usesDataSource(javax.sql.DataSource source){return jdbc.getDataSource()==source;}
     public static List<String> preparationBlockers(JdbcTemplate jdbc){
         try{
             if(jdbc.queryForObject("select count(*) from flyway_schema_history where version='2026111301' and success",Long.class)!=1)return List.of("PRODUCTION_GATEWAY_MIGRATION_REQUIRED");
