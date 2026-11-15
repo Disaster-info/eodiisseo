@@ -23,9 +23,23 @@ public final class VerifiedCollectionOperationalEvidence implements CollectionOp
     }
     private boolean fleetReady(){
         var a=artifact(CollectionAssurance.Kind.FLEET,"GLOBAL").orElse(null);var o=fleet==null?null:fleet.current().orElse(null);Instant now=clock.instant();
-        if(a==null||o==null||o.instances().isEmpty()||!o.completeInventory()||!o.allStopped()||!o.restartBlocked()||!o.schedulersDisabled()||o.observedAt().isAfter(now)||!o.validUntil().isAfter(now)||(!audit()&&o.synthetic()))return false;
+        if(a==null||o==null||o.instances().isEmpty()||!o.completeInventory()||!o.allStopped()||!o.restartBlocked()||!o.schedulersDisabled()||o.observedAt().isAfter(now)||!o.validUntil().isAfter(now)||!o.validUntil().isAfter(o.observedAt())||(!audit()&&o.synthetic()))return false;
         var p=a.payload();if(!o.instances().equals(new HashSet<>((List<String>)p.get("instance_ids")))||o.observedAt().plusSeconds(((Number)p.get("observation_ttl_seconds")).longValue()).isBefore(now))return false;return Boolean.TRUE.equals(p.get("complete_inventory"))&&Boolean.TRUE.equals(p.get("stopped"))&&Boolean.TRUE.equals(p.get("restart_blocked"))&&Boolean.TRUE.equals(p.get("schedulers_disabled"))
             &&o.inventoryHash().equals(p.get("inventory_sha256"))&&o.deploymentHash().equals(p.get("deployment_sha256"))&&o.restartPolicyHash().equals(p.get("restart_policy_sha256"))&&o.pendingRequestsHash().equals(p.get("pending_requests_sha256"));
+    }
+    private static boolean sameFleet(CollectionFleetEvidencePort.Observation a,CollectionFleetEvidencePort.Observation b){
+        return a!=null&&b!=null&&a.instances().equals(b.instances())&&a.inventoryHash().equals(b.inventoryHash())&&a.deploymentHash().equals(b.deploymentHash())&&a.restartPolicyHash().equals(b.restartPolicyHash())&&a.pendingRequestsHash().equals(b.pendingRequestsHash())&&a.allStopped()==b.allStopped()&&a.restartBlocked()==b.restartBlocked()&&a.schedulersDisabled()==b.schedulersDisabled()&&a.completeInventory()==b.completeInventory()&&a.synthetic()==b.synthetic();
+    }
+    /** One short DB transaction; no network I/O. External supervisors still need a commit fence. */
+    public <T>T withStableFleet(java.util.function.Supplier<T> work){
+        return store.stable(view->{
+            var signed=view.find(CollectionAssurance.Kind.FLEET,"GLOBAL").orElseThrow(()->new IllegalStateException("Fleet approval required"));
+            var observed=fleet==null?null:fleet.current().orElse(null);
+            if(!fleetReady())throw new IllegalStateException("Fresh complete Fleet required");
+            T result=work.get();
+            if(!fleetReady()||!sameFleet(observed,fleet.current().orElse(null))||!view.find(CollectionAssurance.Kind.FLEET,"GLOBAL").map(a->a.id().equals(signed.id())).orElse(false))throw new IllegalStateException("Fleet changed during transaction");
+            return result;
+        });
     }
     @Override public boolean legacyWorkersStopped(){return fleetReady();}@Override public boolean legacySchedulersDisabled(){return fleetReady();}
     @Override public boolean completionVerified(UUID run,String snapshot,String reference){return artifact(CollectionAssurance.Kind.HTTP_COMPLETION,run.toString().toUpperCase(Locale.ROOT)).filter(a->a.reference().equals(reference)&&Boolean.TRUE.equals(a.payload().get("no_active_request"))&&run.toString().equals(a.payload().get("run_id"))&&snapshot.equals(a.payload().get("snapshot_sha256"))).isPresent()&&fleetReady();}
@@ -47,7 +61,7 @@ public final class VerifiedCollectionOperationalEvidence implements CollectionOp
             &&!now.isBefore(start)&&now.isBefore(end)&&limit==((Number)p.get("request_limit")).longValue()&&interval==((Number)p.get("min_interval_ms")).intValue();
     }
     @Override public List<String> productionBlockers(JdbcTemplate jdbc,Collection<UUID> sources){
-        var reasons=new ArrayList<String>();if(audit())reasons.add("AUDIT_ASSURANCE_ADAPTER_NOT_PRODUCTION");if(!fleetReady())reasons.add("FRESH_COMPLETE_FLEET_EXCLUSION_REQUIRED");
+        var reasons=new ArrayList<String>();if(audit())reasons.add("AUDIT_ASSURANCE_ADAPTER_NOT_PRODUCTION");reasons.add("PROCESS_PRINCIPAL_ISOLATION_AND_FLEET_COMMIT_FENCE_REQUIRED");reasons.add("AUTHENTICATED_TYPED_GATEWAY_CHANNEL_AND_DURABLE_COMMAND_JOURNAL_REQUIRED");if(!fleetReady())reasons.add("FRESH_COMPLETE_FLEET_EXCLUSION_REQUIRED");
         var database=artifact(CollectionAssurance.Kind.DATABASE,"GLOBAL").orElse(null);
         if(database==null)reasons.add("SIGNED_DATABASE_ROLE_POLICY_REQUIRED");else{
             var p=database.payload();var result=new CollectionDatabasePrivilegeInspector(jdbc).inspect(new CollectionDatabasePrivilegeInspector.Policy((String)p.get("worker_role"),(String)p.get("ops_role"),(String)p.get("migration_role"),(String)p.get("schema_owner"),"public"));reasons.addAll(result.blockers());

@@ -87,4 +87,21 @@ class CollectionAssurancePostgresTest {
     @Test void revokedOpsSessionCannotImportEvenValidSignature()throws Exception{var a=signed(Kind.FLEET,"GLOBAL",payload(Kind.FLEET));f.sql.update("update auth_session set revoked_at=now() where session_id=?",f.ops.sessionId());assertThrows(RuntimeException.class,()->store.submit(f.ops,a));assertEquals(0,f.count("collection_assurance_artifact"));}
     @Test void syntheticAdapterCannotSatisfyProductionReadiness()throws Exception{save(Kind.FLEET,"GLOBAL");assertTrue(adapter().productionBlockers(f.sql,List.of()).contains("AUDIT_ASSURANCE_ADAPTER_NOT_PRODUCTION"));assertTrue(adapter().productionBlockers(f.sql,List.of()).contains("PRODUCTION_BARRIER_NOT_INSTALLED_AUDIT_1005_IS_NOT_PRODUCTION"));}
     @Test void unreviewedDefinerFunctionIsRejected(){f.sql.execute("create function "+schema+".unreviewed_definer() returns integer language sql security definer as 'select 1'");try{assertTrue(new CollectionDatabasePrivilegeInspector(f.sql).inspect(policy()).blockers().contains("UNREVIEWED_DEFINER_EXECUTION"));}finally{f.sql.execute("drop function "+schema+".unreviewed_definer()");}}
+
+    @Test void fleetChangeDuringDatabaseWorkRollsBackAndUnchangedRefreshIsAccepted()throws Exception{
+        save(Kind.FLEET,"GLOBAL");var evidence=adapter();UUID id=UUID.randomUUID();
+        assertThrows(IllegalStateException.class,()->evidence.withStableFleet(()->{f.sql.update("insert into projection_tx_probe values(?)",id);restart=false;return true;}));
+        assertEquals(0,f.sql.queryForObject("select count(*) from projection_tx_probe where id=?",Integer.class,id));restart=true;
+        assertTrue(evidence.withStableFleet(()->true));
+    }
+    @Test void missingInstanceExpiredObservationAndFutureObservationAreRejected()throws Exception{
+        save(Kind.FLEET,"GLOBAL");Instant now=Instant.now();
+        for(var observation:List.of(
+            new CollectionFleetEvidencePort.Observation(Set.of("UNKNOWN"),H,H,H,H,true,true,true,true,now.minusSeconds(1),now.plusSeconds(30),true),
+            new CollectionFleetEvidencePort.Observation(Set.of("SYNTHETIC:VM_A"),H,H,H,H,true,true,true,true,now.minusSeconds(60),now.minusSeconds(1),true),
+            new CollectionFleetEvidencePort.Observation(Set.of("SYNTHETIC:VM_A"),H,H,H,H,true,true,true,true,now.plusSeconds(5),now.plusSeconds(30),true))){
+            var evidence=new VerifiedCollectionOperationalEvidence(store,()->Optional.of(observation),null,Set.of(),Clock.fixed(now,ZoneOffset.UTC));
+            assertFalse(evidence.legacyWorkersStopped());assertThrows(IllegalStateException.class,()->evidence.withStableFleet(()->true));
+        }
+    }
 }
