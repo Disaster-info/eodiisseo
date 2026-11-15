@@ -28,6 +28,9 @@ public final class OfficialProviderClient {
         @Override public String toString(){return "OfficialPage[number="+number+", total="+total+", raw=redacted]";}
     }
     private static final JsonMapper JSON=JsonMapper.builder().build();
+    private static final JsonMapper EARTHQUAKE_JSON=JsonMapper.builder()
+        .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+        .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private final Provider provider; private final Transport transport; private final URI endpoint; private final String keyParameter;
     public OfficialProviderClient(Provider provider,Transport transport){this(provider,transport,Objects.requireNonNull(provider).endpoint,"serviceKey");}
     private OfficialProviderClient(Provider provider,Transport transport,URI endpoint,String keyParameter){
@@ -77,7 +80,7 @@ public final class OfficialProviderClient {
         try {
             String text=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .decode(java.nio.ByteBuffer.wrap(bytes)).toString().strip();
-            Map<String,Object> root=text.startsWith("<")?xml(text):JSON.readValue(text,Map.class);
+            Map<String,Object> root=text.startsWith("<")?xml(text):(provider==Provider.EARTHQUAKE?EARTHQUAKE_JSON:JSON).readValue(text,Map.class);
             Map<String,Object> envelope=map(root.getOrDefault("response",root));
             Map<String,Object> header=map(envelope.get("header"));
             String code=Objects.toString(header.get("resultCode"),"");
@@ -104,7 +107,9 @@ public final class OfficialProviderClient {
             else if(rows instanceof Map<?,?>)items.add(Collections.unmodifiableMap(new TreeMap<>(map(rows))));
             else if(rows!=null&&!rows.equals(""))throw new CollectionFailure("SCHEMA");
             if(items.size()>100 || (count>0&&items.isEmpty()))throw new CollectionFailure("PAGE_INCOMPLETE");
-            if((provider==Provider.HEAVY_RAIN || provider==Provider.WILDFIRE_MESSAGES) && body.containsKey("numOfRows")){
+            // A declared total/page size cannot contradict actual rows. No count substitution or coverage inference.
+            if(provider==Provider.EARTHQUAKE && items.size()>count)throw new CollectionFailure("PAGE_TOTAL_INCONSISTENT");
+            if(body.containsKey("numOfRows")){
                 int declared=number(body.get("numOfRows"));
                 if(declared<items.size() || declared<0 || (count>0 && declared==0))throw new CollectionFailure("PAGE_INCOMPLETE");
             }

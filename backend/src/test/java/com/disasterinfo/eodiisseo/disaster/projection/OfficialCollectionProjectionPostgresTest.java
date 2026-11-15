@@ -289,4 +289,25 @@ class OfficialCollectionProjectionPostgresTest {
         assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());
         assertNotEquals(sql.queryForObject("select raw_hash from collection_projection_receipt",String.class),sql.queryForObject("select official_hash from collection_projection_receipt",String.class));
     }
+    List<Object> earthquakeSnapshot(){return List.of(count("disaster"),count("source_disaster_revision"),count("disaster_runtime_outbox"),count("collection_raw_record"),count("collection_raw_revision"),count("collection_domain_coverage"),count("collection_domain_cursor"),sql.queryForObject("select official_sequence from owned_incident_head",Long.class),sql.queryForList("select * from collection_domain_cursor order by target_id"),sql.queryForList("select * from collection_domain_coverage order by run_id"));}
+    @Test void earthquakeCancellationCannotReuseOccurredIncidentAdmission(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"cancellation-test",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());var before=earthquakeSnapshot();
+        var cancelled=quake("2","20261101120200","SYNTHETIC unverified cancellation");cancelled.put("cor","SYNTHETIC cancellation is not an official link rule");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,cancelled,"cancellation-test",2);
+        String key=quake+":"+OfficialRecordNormalizer.identity(OfficialProviderClient.Provider.EARTHQUAKE,cancelled)+":"+JdbcCollectionRawStore.hash(OfficialProviderClient.canonical(cancelled));var old=state.links.get(key);state.links.put(key,new VerifiedIncidentLinkPort.Link(old.source(),old.provider(),old.announcement(),old.contentSha256(),old.incidentId(),old.officialSequence(),old.issuedAt(),old.occurredAt(),VerifiedIncidentLinkPort.State.ENDED,Instant.parse("2026-11-01T03:01:00Z"),old.evidenceUrl(),old.contractVersion()));
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",cancelled).state());assertEquals(before,earthquakeSnapshot());assertEquals("OCCURRED",sql.queryForObject("select status from disaster",String.class));assertEquals(0,count("disaster_area"));
+    }
+    @Test void earthquakeReferenceAndCorrectionTextDoNotAuthorizeLinkOrProgress(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","SYNTHETIC reference");row.put("cnt","1");row.put("fcTp","5");row.put("cor","SYNTHETIC correction");assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(0,count("disaster"));assertEquals(0,count("source_disaster_revision"));assertEquals(0,count("disaster_runtime_outbox"));assertEquals(0,count("collection_domain_coverage"));assertEquals(0,count("collection_domain_cursor"));assertEquals(1,count("collection_http_archive"));assertEquals("EARTHQUAKE_UNLINKED",sql.queryForObject("select result from collection_projection_receipt",String.class));
+    }
+    @Test void earthquakeMonthlyBulletinNumberIsNotTheVerifiedIncidentSequence(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("99","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"external-sequence-test",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());
+        var next=quake("1","20261101120200","SYNTHETIC explicitly linked followup");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,next,"external-sequence-test",2);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",next).state());assertEquals(2,sql.queryForObject("select official_sequence from owned_incident_head",Long.class));assertEquals(1,event("NEW"));assertEquals(2,event("REVISION"));
+    }
+    @ParameterizedTest @ValueSource(strings={"OBJECT","ARRAY","NUMBER"})
+    void invalidEarthquakeLocationShapeCannotAdvanceVerifiedHead(String shape){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"bad-location-test",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());var before=earthquakeSnapshot();
+        var invalid=quake("2","20261101120200","SYNTHETIC correction");invalid.put("loc",switch(shape){case "OBJECT"->Map.of("region","not an official code");case "ARRAY"->List.of("not a region mapping");default->42;});allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,invalid,"bad-location-test",2);
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",invalid).state());assertEquals(before,earthquakeSnapshot());assertEquals(0,count("disaster_area"));
+    }
+
 }

@@ -24,6 +24,8 @@ public class DisasterService {
     public Optional<SavedEarthquakeRevision> saveEarthquakeRevision(UUID source,String key,Map<String,Object> payload,String original,Instant collectedAt){
         if(db.count("select count(*) from data_source where source_id=? and active and source_kind='DISASTER' and endpoint_key='KMA_EARTHQUAKE'",source)!=1)
             throw new IllegalArgumentException("An actual earthquake source is required");
+        // loc is source epicenter text, never a structured region/IMPACT mapping.
+        if(payload.get("loc")!=null && !(payload.get("loc") instanceof String))return Optional.empty();
         Object occurred=payload.get("tmEqk");
         // Preliminary/other announcements lacking occurrence facts remain raw records.
         if(occurred==null||!occurred.toString().matches("[0-9]{14}"))return Optional.empty();
