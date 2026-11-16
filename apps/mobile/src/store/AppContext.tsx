@@ -1,6 +1,8 @@
 // 앱 전역 상태 (화면 이동은 expo-router 가 담당)
-import { createContext, useContext, useState, ReactNode } from 'react';
+import * as Location from 'expo-location';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { GPS_LOCATION, INIT_GROUPS, Level, ME, MemberInfo, Provider } from '../data/mock';
+import { LatLon, Place, regionOf } from '../data/tmap';
 
 
 export type ThemeMode = 'system' | 'light' | 'dark';
@@ -17,8 +19,11 @@ function useAppState() {
   const [loginNotice, setLoginNotice] = useState('');              // 로그인 화면 안내 문구 (만료 등)
   const [noti, setNoti] = useState(INIT_NOTI);                     // 알림 설정
   const [locConsent, setLocConsentRaw] = useState(false);
-  const [location, setLocation] = useState(GPS_LOCATION);
+  const [picked, setPicked] = useState(GPS_LOCATION); // 직접 지정한 지역 (FS-LOC-003)
+  // 휴대폰 GPS 로 확인한 현재 위치. null = 확인 중, 'fail' = 권한 거부·확인 실패
+  const [gps, setGps] = useState<{ coords: LatLon; region: string } | 'fail' | null>(null);
   const [manualLoc, setManualLoc] = useState(false); // 사용자가 기준 위치를 직접 골랐는지 (FS-LOC-003)
+  const [place, setPlace] = useState<Place | null>(null); // 장소 검색으로 고른 곳 = 대피 경로 출발점. 지역만 고르면 null
   const [areas, setAreas] = useState(INIT_AREAS);
   const [areaNames, setAreaNames] = useState<Record<string, string>>({}); // FS-AREA-003: 관심지역 표시명 (지역 → 별칭)
   const [groups, setGroups] = useState(INIT_GROUPS);
@@ -33,10 +38,26 @@ function useAppState() {
   };
 
   // FS-LOC-003: 위치 직접 지정 / 현재 위치로 되돌리기
-  const pickLocation = (r: string) => { setLocation(r); setManualLoc(true); };
-  const resetToGps = () => { setLocation(GPS_LOCATION); setManualLoc(false); };
+  const pickLocation = (r: string, p: Place | null = null) => { setPicked(r); setManualLoc(true); setPlace(p); };
+  const resetToGps = () => { setManualLoc(false); setPlace(null); };
   // 동의가 없으면 현재 위치를 쓸 수 없으므로 항상 '직접 지정'
   const isManual = !locConsent || manualLoc;
+
+  // FS-LOC-001: 위치 동의 시 휴대폰 위치 권한을 받고 GPS 좌표 → 시·군·구 로 기본 기준 위치를 정함
+  useEffect(() => {
+    if (!locConsent) return;
+    let alive = true;
+    (async () => {
+      if (!(await Location.requestForegroundPermissionsAsync()).granted) return 'fail' as const;
+      const { coords } = await Location.getCurrentPositionAsync({});
+      const c = { lat: coords.latitude, lon: coords.longitude };
+      return { coords: c, region: await regionOf(c) };
+    })().then(v => alive && setGps(v), () => alive && setGps('fail'));
+    return () => { alive = false; };
+  }, [locConsent]);
+  // 기준 위치 이름. 확인 중·실패면 지역이 아닌 안내 문구 → 대피소·날씨는 '없음' 화면 (임의 지역으로 대신하지 않음)
+  const location = isManual ? picked : gps === null ? '현재 위치 확인 중' : gps === 'fail' ? '현재 위치 확인 불가' : gps.region;
+  const myPos = !isManual && gps && gps !== 'fail' ? gps.coords : null; // 지도에 표시할 내 위치
   // 동의도 없고 직접 지정도 안 함 = 기준 위치 없음. GPS 기본값을 '직접 지정'처럼 쓰지 않도록 지정 화면으로 보냄
   const needLocation = !locConsent && !manualLoc;
 
@@ -57,12 +78,12 @@ function useAppState() {
   // FS-AUTH-007: 인증정보·개인 데이터 삭제, 모든 그룹 탈퇴, 위치공유 중단
   const withdraw = () => {
     setGroups([]); setLinked([]); setAreas([]); setAreaNames({}); setChecked({}); setNoti({ ...INIT_NOTI, areas: [] });
-    setLocConsentRaw(false); setLocation(GPS_LOCATION); setManualLoc(false);
+    setLocConsentRaw(false); setPicked(GPS_LOCATION); setManualLoc(false); setPlace(null);
     setMember(null); setLoginNotice('회원 탈퇴가 완료되었습니다.');
   };
 
   return { needConsent, setNeedConsent, member, rename, provider, linked, setLinked, loginNotice, login, logout, expire,
-    noti, setNoti, areaNames, setAreaNames, locConsent, setLocConsent, location, pickLocation, resetToGps, isManual, needLocation, areas, setAreas, groups, setGroups,
+    noti, setNoti, areaNames, setAreaNames, locConsent, setLocConsent, location, myPos, place, pickLocation, resetToGps, isManual, needLocation, areas, setAreas, groups, setGroups,
     checked, setChecked, withdraw, adminBlockingGroups, theme, setTheme };
 }
 

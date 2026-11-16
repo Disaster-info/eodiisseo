@@ -45,7 +45,7 @@ const shadow = Platform.select({
 });
 
 // 테마: 루트 레이아웃이 AppThemeProvider 로 라이트/다크를 내려주고, 화면·부품은 useTheme() 으로 C(색)·s(스타일)를 읽음
-const THEMES = { light: { C: LIGHT, s: makeStyles(LIGHT) }, dark: { C: DARK, s: makeStyles(DARK) } };
+const THEMES = { light: { C: LIGHT, s: makeStyles(LIGHT), dark: false }, dark: { C: DARK, s: makeStyles(DARK), dark: true } };
 const ThemeCtx = createContext(THEMES.light);
 export const AppThemeProvider = ({ dark, children }: { dark: boolean; children: ReactNode }) =>
   <ThemeCtx.Provider value={dark ? THEMES.dark : THEMES.light}>{children}</ThemeCtx.Provider>;

@@ -49,7 +49,6 @@ jobs:
       - name: Build & Test
         run: ./gradlew build
         env:
-          SPRING_PROFILES_ACTIVE: test
           DB_URL: jdbc:postgresql://localhost:5432/eodiisseo_test
           DB_USERNAME: test
           DB_PASSWORD: test

@@ -3,6 +3,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { TmapView } from '../../components/map';
 import { ShelterSign } from '../../components/shelter';
 import { Btn, Card, Chip, Empty, Icon, Page, useTheme } from '../../components/ui';
 import { MAX_RADIUS, SHELTERS, searchShelters } from '../../data/mock';
@@ -10,7 +11,7 @@ import { useApp } from '../../store/AppContext';
 
 export default function ShelterScreen() {
   const { C, s } = useTheme();
-  const { location, isManual, areas, areaNames } = useApp();
+  const { location, myPos, isManual, areas, areaNames } = useApp();
   const [base, setBase] = useState(location);
   const [from, setFrom] = useState(1);
   const region = base === location || areas.includes(base) ? base : location;
@@ -29,22 +30,7 @@ export default function ShelterScreen() {
 
       {nearest && <ShelterSign region={region} secondary={{ title: '상세정보', onPress: () => router.push(`/shelters/${nearest.id}`) }} />}
 
-      {/* ponytail: 지도 SDK 연동 전 임시 마커. 실제 좌표 대신 순번으로 배치 */}
-      {nearest && (
-        <View style={[s.map, { height: 180 }]} accessible accessibilityLabel={`지도 자리 표시. 대피소 ${list.length}곳`}>
-          <View style={{ position: 'absolute', left: '48%', top: '45%' }}>
-            <Icon name="navigate-circle" size={28} color={C.primary} />
-          </View>
-          {list.map((sh, i) => (
-            <View key={sh.id} style={{ position: 'absolute', left: `${12 + ((i * 29) % 70)}%`, top: `${14 + ((i * 41) % 60)}%`,
-              width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center',
-              backgroundColor: i === 0 ? C.sign.green : C.card, borderWidth: 2, borderColor: C.sign.green }}>
-              <Text maxFontSizeMultiplier={1.2} style={[s.small, { fontWeight: '800', color: i === 0 ? C.onSign : C.success }]}>{i + 1}</Text>
-            </View>
-          ))}
-          <Text style={[s.small, { position: 'absolute', bottom: 8 }]}>지도 SDK 연동 예정 · 확대/이동 지원</Text>
-        </View>
-      )}
+      {nearest && <TmapView markers={[...list.map(sh => ({ lat: sh.lat, lon: sh.lon, title: sh.name })), ...(myPos && region === location ? [{ ...myPos, title: '내 위치', me: true }] : [])]} label={`대피소 ${list.length}곳 위치 지도`} />}
 
       {rest.length > 0 && (
         <View style={[s.row, { marginTop: 8 }]}>

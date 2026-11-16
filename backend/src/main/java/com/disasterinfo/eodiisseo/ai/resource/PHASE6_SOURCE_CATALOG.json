@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-11-04T00:00:00Z",
+  "notice": "Metadata only. No official body, content approval or runtime auto-import. Registration date is not an established content version.",
+  "sources": [
+    {
+      "sourceUrl": "https://www.mois.go.kr/frt/bbs/type001/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000015&nttId=114774",
+      "sourceTitle": "지진 국민행동요령(소책자)",
+      "publisher": "행정안전부",
+      "disasterType": "EARTHQUAKE",
+      "registeredDate": "2024-12-30",
+      "sourceVersion": "registration-2024-12-30_checked-2026-11-04",
+      "mediaType": "application/pdf",
+      "sections": [
+        {
+          "section": "PREPARE",
+          "sourceLocator": "게시물 목차 1 / 첨부 PDF 본문 위치 검토 필요"
+        },
+        {
+          "section": "DURING",
+          "sourceLocator": "게시물 목차 3 / 장소별 행동"
+        },
+        {
+          "section": "EVACUATE",
+          "sourceLocator": "게시물 목차 2 / 대피"
+        },
+        {
+          "section": "AFTER",
+          "sourceLocator": "게시물 목차 7 / 대피 후"
+        },
+        {
+          "section": "ASSISTANCE",
+          "sourceLocator": "게시물 목차 4, 5, 6 / 지원 필요 상황"
+        }
+      ],
+      "operation": "PLAN",
+      "checkedAt": "2026-11-04T00:00:00Z",
+      "rightsEvidenceUrl": "https://www.mois.go.kr/frt/sub/a08/copyrightPolicy/screen.do",
+      "rightsState": "PERMISSION_REQUIRED",
+      "approvalState": "METADATA_ONLY",
+      "contentFingerprint": null
+    },
+    {
+      "sourceUrl": "https://www.mois.go.kr/frt/bbs/type002/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000530&nttId=117736",
+      "sourceTitle": "호우·태풍 국민행동요령 포스터",
+      "publisher": "행정안전부",
+      "disasterType": "HEAVY_RAIN",
+      "registeredDate": "2025-05-15",
+      "sourceVersion": "registration-2025-05-15_checked-2026-11-04",
+      "mediaType": "text/html; image/jpeg",
+      "sections": [
+        {
+          "section": "PREPARE",
+          "sourceLocator": "본문 포스터 ALT 1 / 비 내리기 전"
+        },
+        {
+          "section": "DURING",
+          "sourceLocator": "본문 포스터 ALT 1, 2 / 산지·하천·차량·지하공간"
+        },
+        {
+          "section": "EVACUATE",
+          "sourceLocator": "본문 포스터 ALT 2 / 지하공간 대피"
+        },
+        {
+          "section": "DONT",
+          "sourceLocator": "본문 포스터 ALT 1 / 침수도로·지하차도 진입금지"
+        }
+      ],
+      "operation": "PLAN",
+      "checkedAt": "2026-11-04T00:00:00Z",
+      "rightsEvidenceUrl": "https://www.mois.go.kr/frt/sub/a08/copyrightPolicy/screen.do",
+      "rightsState": "PERMISSION_REQUIRED",
+      "approvalState": "METADATA_ONLY",
+      "contentFingerprint": null
+    },
+    {
+      "sourceUrl": "https://www.mois.go.kr/frt/bbs/type002/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000205&nttId=116554",
+      "sourceTitle": "산불 국민행동요령",
+      "publisher": "행정안전부",
+      "disasterType": "WILDFIRE",
+      "registeredDate": "2025-03-25",
+      "sourceVersion": "registration-2025-03-25_checked-2026-11-04",
+      "mediaType": "text/html; image/jpeg",
+      "sections": [
+        {
+          "section": "PREPARE",
+          "sourceLocator": "본문 카드뉴스 ALT 1, 2 / 준비"
+        },
+        {
+          "section": "DURING",
+          "sourceLocator": "본문 카드뉴스 ALT 1, 3 / 산행·야영"
+        },
+        {
+          "section": "EVACUATE",
+          "sourceLocator": "본문 카드뉴스 ALT 3 / 지역 안내와 대피"
+        },
+        {
+          "section": "ASSISTANCE",
+          "sourceLocator": "본문 카드뉴스 ALT 4, 5 / 지원 필요 상황"
+        }
+      ],
+      "operation": "PLAN",
+      "checkedAt": "2026-11-04T00:00:00Z",
+      "rightsEvidenceUrl": "https://www.mois.go.kr/frt/sub/a08/copyrightPolicy/screen.do",
+      "rightsState": "PERMISSION_REQUIRED",
+      "approvalState": "METADATA_ONLY",
+      "contentFingerprint": null
+    }
+  ],
+  "integratedReference": {
+    "sourceUrl": "https://www.safekorea.go.kr/safekorea-kor/acts/nacts/nationalActionTips.do?menuSn=4",
+    "sourceTitle": "국민안전24 국민행동요령",
+    "publisher": "행정안전부",
+    "checkedAt": "2026-11-04T00:00:00Z",
+    "approvalState": "METADATA_ONLY",
+    "contentFingerprint": null,
+    "rightsState": "UNCONFIRMED",
+    "scope": "Dynamic multi-hazard portal; stable per-document scope/version/rights remain unverified."
+  }
+}

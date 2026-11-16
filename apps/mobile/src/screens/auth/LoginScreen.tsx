@@ -1,8 +1,10 @@
 // FS-AUTH-001 Google 로그인, FS-AUTH-002 Kakao 로그인, FS-AUTH-004 만료 후 재인증 안내
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
+import { SocialButtons } from '../../components/social';
 import { Btn, Icon, useTheme } from '../../components/ui';
-import { mockAuthenticate, Provider } from '../../data/mock';
+import { useSocialLogin } from '../../data/auth';
+import { Provider } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
 export default function LoginScreen() {
@@ -11,15 +13,21 @@ export default function LoginScreen() {
   const [pending, setPending] = useState<Provider | null>(null);
   const [error, setError] = useState('');
   const attempt = useRef(0); // 취소된 인증 결과를 무시하기 위한 번호
+  const authenticate = useSocialLogin();
 
   const start = async (p: Provider) => {
     const my = ++attempt.current;
     setError(''); setPending(p);
     try {
-      const info = await mockAuthenticate(p);
-      if (my === attempt.current) login(p, info);
-    } catch {
-      if (my === attempt.current) { setPending(null); setError(`${p} 로그인에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.`); }
+      const info = await authenticate(p);
+      if (my !== attempt.current) return;
+      if (info) login(p, info);
+      else setPending(null); // 로그인 창을 닫음 → 화면 유지
+    } catch (e) {
+      if (my === attempt.current) {
+        setPending(null);
+        setError(e instanceof Error && e.message ? e.message : `${p} 로그인에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.`);
+      }
     }
   };
   // 인증 취소: 로그인하지 않고 현재 화면 유지
@@ -42,10 +50,7 @@ export default function LoginScreen() {
           <Btn title="취소" outline onPress={cancel} />
         </>
       ) : (
-        <>
-          <Btn title="Google로 시작하기" icon="logo-google" onPress={() => start('Google')} />
-          <Btn title="카카오로 시작하기" icon="chatbubble" color="#FEE500" textColor="#191919" onPress={() => start('Kakao')} />
-        </>
+        <SocialButtons onPress={start} />
       )}
     </View>
   );
