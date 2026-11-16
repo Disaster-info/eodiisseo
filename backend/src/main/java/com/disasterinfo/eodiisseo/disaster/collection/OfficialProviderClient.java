@@ -85,6 +85,11 @@ public final class OfficialProviderClient {
         if(provider!=Provider.WILDFIRE_MESSAGES||requestedRows<1||requestedRows>100)throw new CollectionFailure("SOURCE_CONTRACT");
         return decode(bytes,expectedPage,false,true,requestedRows);
     }
+    /** DSSP-IF-10943 envelope only. No status, CRS or snapshot guarantee is inferred. */
+    public Page decodeShelters(byte[] bytes,int expectedPage,int requestedRows){
+        if(provider!=Provider.WILDFIRE_MESSAGES||requestedRows<1||requestedRows>100)throw new CollectionFailure("SOURCE_CONTRACT");
+        return decode(bytes,expectedPage,false,true,requestedRows);
+    }
     public Page decode(byte[] bytes,int expectedPage){return decode(bytes,expectedPage,false,false,0);}
     private Page decode(byte[] bytes,int expectedPage,boolean strictRain,boolean strictMessages,int requestedRows) {
         if(bytes==null||bytes.length==0||bytes.length>2_097_152)throw new CollectionFailure("EMPTY_OR_OVERSIZED");

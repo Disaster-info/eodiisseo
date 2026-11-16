@@ -44,6 +44,7 @@ public final class OfficialCollectionProviderPlugin implements CollectionProvide
         if(!executable())throw new CollectionFailure("CONTRACT_REQUIRED");
         var page=contract.equals("KMA_RAIN_CODES")?decoder.decodeRainCodes(reply.body(),request.page(),request.rows())
             :contract.equals("MOIS_MESSAGES")?decoder.decodeMessages(reply.body(),request.page(),request.rows())
+            :contract.equals("MOIS_SHELTERS")?decoder.decodeShelters(reply.body(),request.page(),request.rows())
             :decoder.decode(reply.body(),request.page());
         if(page.items().size()>request.rows())throw new CollectionFailure("ROW_LIMIT");
         for(var item:page.items()){
@@ -58,7 +59,7 @@ public final class OfficialCollectionProviderPlugin implements CollectionProvide
     public String identity(Map<String,Object> item){
         return switch(contract){
             case "MOIS_MESSAGES"->OfficialRecordNormalizer.identity(OfficialProviderClient.Provider.WILDFIRE_MESSAGES,item);
-            case "MOIS_SHELTERS"->required(item,"ARCD")+":"+required(item,"ACMDFCLTY_SN");
+            case "MOIS_SHELTERS"->ShelterRecordValidation.identity(item);
             case "KMA_RAIN_CODES"->OfficialRecordNormalizer.identity(OfficialProviderClient.Provider.HEAVY_RAIN,item);
             case "KMA_WARNING_LIST"->OfficialRecordNormalizer.identity(OfficialProviderClient.Provider.EARTHQUAKE,item);
             case "KMA_PORTAL_EQK_MSG","KMA_HUB_EQK_MSG"->OfficialRecordNormalizer.identity(OfficialProviderClient.Provider.EARTHQUAKE,item)+":"+required(item,"fcTp");

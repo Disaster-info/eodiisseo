@@ -75,6 +75,17 @@ public final class OfficialCollectionProjection implements CollectionProjectionP
                 UUID sourceRecord=null,disaster=null,revision=null;String mapping=null,result;
                 if(c.assignment().contract().equals("MOIS_SHELTERS")){
                     if(jdbc.queryForObject("select count(*) from data_source where source_id=? and source_kind='SHELTER' and endpoint_key='SAFETYDATA_EARTHQUAKE_SHELTER' and active",Long.class,c.assignment().source())!=1)throw new IllegalStateException("Shelter source contract required");
+                    if(!"1".equals(Objects.toString(item.get("USE_SE_CD"),"")))throw new ReviewRequired("SHELTER_STATUS_CONTRACT_REQUIRED");
+                    try{ShelterRecordValidation.validateForProjection(item);}catch(IllegalArgumentException invalid){throw new ReviewRequired("SHELTER_FACTS_REQUIRE_REVIEW");}
+                    var existing=jdbc.queryForList("select active,address,capacity,ST_Y(point::geometry) as lat,ST_X(point::geometry) as lon from shelter where source_id=? and source_record_key=? for update",c.assignment().source(),"SAFETYDATA:DSSP-IF-10943:"+key);
+                    if(!existing.isEmpty()){
+                        if(!Boolean.TRUE.equals(existing.getFirst().get("active")))throw new ReviewRequired("SHELTER_REACTIVATION_CONTRACT_REQUIRED");
+                        if(existing.getFirst().get("capacity")!=null&&Objects.toString(item.get("VT_ACMD_PSBL_NMPR"),"").isBlank()
+                            ||!Objects.toString(existing.getFirst().get("address"),"").isBlank()&&Objects.toString(item.get("RN_DTL_ADRES"),Objects.toString(item.get("EQK_ACMDFCLTY_ADRES"),"")).isBlank())
+                            throw new ReviewRequired("SHELTER_ATTRIBUTES_REQUIRE_REVIEW");
+                        try{ShelterRecordValidation.requireSameKnownCoordinates(item,(Number)existing.getFirst().get("lat"),(Number)existing.getFirst().get("lon"));}
+                        catch(IllegalArgumentException changed){throw new ReviewRequired("SHELTER_COORDINATE_CHANGE_UNVERIFIED");}
+                    }
                     shelters.save(c.assignment().source(),"SAFETYDATA_EARTHQUAKE_SHELTER",List.of(new CollectedRecord(key,item)),now);
                     saved=raw.save(c.assignment().source(),key,item,now);result="SHELTER_APPLIED";
                 }else{
@@ -114,7 +125,7 @@ public final class OfficialCollectionProjection implements CollectionProjectionP
             case "KMA_WARNING_LIST"->value(row,"tmFc").substring(0,6)+":"+value(row,"stnId")+":"+value(row,"tmSeq");
             case "KMA_RAIN_CODES"->OfficialRecordNormalizer.identity(OfficialProviderClient.Provider.HEAVY_RAIN,row);
             case "MOIS_MESSAGES"->value(row,"SN");
-            case "MOIS_SHELTERS"->value(row,"ARCD")+":"+value(row,"ACMDFCLTY_SN");
+            case "MOIS_SHELTERS"->ShelterRecordValidation.identity(row);
             default->throw new IllegalStateException("Unsupported projection contract");
         };
     }
