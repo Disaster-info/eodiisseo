@@ -1,6 +1,6 @@
 // 공통 UI 컴포넌트 + 스타일
 import { ComponentProps, ReactNode, createContext, useContext, useState } from 'react';
-import { ActionSheetIOS, Alert, Modal, Platform, Pressable, PressableProps, ScrollViewProps, StyleSheet, Switch, SwitchProps, Text, View } from 'react-native';
+import { ActionSheetIOS, Alert, Linking, Modal, Platform, Pressable, PressableProps, ScrollViewProps, StyleSheet, Switch, SwitchProps, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { Stack } from 'expo-router';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
@@ -11,16 +11,39 @@ export { Ionicons as Icon };
 export type IconName = ComponentProps<typeof Ionicons>['name'];
 
 // 도로표지 팔레트 — 바탕은 중립 회색, 색은 표지판(상태·대피 안내)에만.
-// 표지판 색(sign)은 낮·밤 모두 같은 색 (실제 표지판처럼). 글자용 색(primary·danger 등)은 바탕 대비 4.5:1 이상
+// 표지판: sign = 판 색, signInk = 판 위 글자색, signLine = 판 테두리(빨강·청색·녹색은 안쪽, 노랑은 바깥). 글자/바탕 대비 4.5:1 이상
+// 반응형 폭 (Page·위치 동의·챗봇·헤더·탭 바가 함께 씀). 웹·앱(휴대폰·태블릿·가로 화면) 같은 규칙:
+// 폭 제한 없이 화면을 따라 넓어지고 좌우 여백만 화면 크기별로 고정 (768 미만 16 · 1024 미만 32 · 그 이상 48)
+// gutter = 본문 좌우 여백, column = 가운데 칸 스타일
+export function useLayout() {
+  const { width } = useWindowDimensions();
+  const gutter = width >= 1024 ? 48 : width >= 768 ? 32 : 16;
+  return { gutter, column: { width: '100%', alignSelf: 'center' } as const };
+}
 const SIGN = { blue: '#0B5CAD', green: '#0E7A4F', red: '#D7261E', yellow: '#F5C400' };
+const SIGN_INK = { blue: '#FFFFFF', green: '#FFFFFF', red: '#FFFFFF', yellow: '#16181B' };
+const SIGN_LINE = { blue: '#FFFFFF', green: '#FFFFFF', red: '#FFFFFF', yellow: SIGN.yellow };
+// 다크 모드 표지판 = '어두운 면': 원색 판은 어두운 화면에서 눈부셔서 어두운 색면 + 밝은 색 글자 + 색 테두리로 (네 판 모두 판 밝기 1.2~1.3 으로 맞춤)
+// 글자/판 대비: 경보 9.02 · 주의보 9.46 · 정보 8.68 · 대피 8.73
+const DARK_SIGN = {
+  sign: { blue: '#172A40', green: '#13301F', red: '#3A1D1B', yellow: '#33290F' },
+  signInk: { blue: '#A9CBF2', green: '#93D9B6', red: '#FFB4AC', yellow: '#F0CF6E' },
+  signLine: { blue: '#3F7FC6', green: '#2F9466', red: '#C4473F', yellow: '#B8932E' },
+};
 const LIGHT = {
-  primary: '#0B5CAD', fill: '#0B5CAD', primarySoft: '#DCE8F6', noticeText: '#0A4C8F', // primary: 글자·아이콘, fill: 흰 글자를 얹는 버튼 바탕
+  primary: '#0B5CAD', fill: '#0B4A6B', primarySoft: '#DCE8F6', noticeText: '#0A4C8F', // primary: 글자·아이콘, fill: 흰 글자를 얹는 버튼·선택 칩·스위치 바탕 (페트롤 블루)
   danger: '#B3201A', dangerSoft: '#FBE6E4', dangerText: '#B3201A',
   warning: '#8A5A00', success: '#0E7A4F',
-  text: '#16181B', sub: '#4E5B6A', border: '#D3DEEA', bg: '#E6EDF5', card: '#FFFFFF', // bg: 스카이 (옅은 하늘색)
+  text: '#16181B', sub: '#4E5B6A', border: '#D3DEEA', bg: '#E7EAF0', card: '#FFFFFF', // bg: C안(탑승권) 회청색 바탕
   bar: '#FFFFFF', barBorder: '#D3DEEA',
   rim: '#000000', // 아이콘·배지 테두리: 색이 바탕과 비슷해도 경계가 보이게 (바탕 대비 17.8:1)
-  sign: SIGN, onSign: '#FFFFFF', onYellow: '#16181B',
+  sign: SIGN, signInk: SIGN_INK, signLine: SIGN_LINE, onSign: '#FFFFFF',
+  emergency: SIGN.red, // 119 전화 버튼: 어느 테마·시안에서도 강한 빨강
+  // C안(탑승권): navy = 승차권 머리 띠·채운 버튼 색(페트롤 블루로 통일), 고정폭 숫자색, 절취선 / B안(노선도): 노선 녹색, 출구 번호 노랑
+  navy: '#0B4A6B', carbon: '#4A3C8C', perf: '#C3CAD6',
+  // 화면 상단(헤더 + 본문 위 띠) = 페트롤 블루. headSub = 띠 위 보조 글자, headLine = 띠 위 칩 테두리
+  head: '#0B4A6B', headSub: '#CFE3EE', headLine: '#4C82A3',
+  line: '#00A05A', exit: '#FFC629', tabOn: '#0B4A6B', // tabOn: 선택된 탭·테두리 버튼 글자색
 };
 const DARK: typeof LIGHT = {
   primary: '#7DB2EC', fill: '#1F67B5', primarySoft: '#16263A', noticeText: '#A9CBF2',
@@ -29,13 +52,18 @@ const DARK: typeof LIGHT = {
   text: '#EDEEEC', sub: '#A3A8AE', border: '#30353A', bg: '#121416', card: '#1C1F22',
   bar: '#1C1F22', barBorder: '#30353A',
   rim: '#C9CED6', // 어두운 하얀색 (바탕 대비 11.7:1)
-  sign: SIGN, onSign: '#FFFFFF', onYellow: '#16181B',
+  ...DARK_SIGN, onSign: '#FFFFFF',
+  emergency: SIGN.red,
+  navy: '#0B4A6B', carbon: '#B9AEF0', perf: '#3A4048',
+  head: '#0B4A6B', headSub: '#CFE3EE', headLine: '#4C82A3',
+  line: '#2F9466', exit: '#FFC629', tabOn: '#7DB2EC',
 };
 export type Colors = typeof LIGHT;
 
 // 위험수준 = 도로표지 종류: 정보는 청색 안내, 주의보는 노란 주의표지, 경보는 빨간 규제표지 (색 + 아이콘 모양 + 글자)
-export const levelFill = (C: Colors, l: Level) => ({ 경보: C.sign.red, 주의보: C.sign.yellow, 정보: C.sign.blue })[l];
-export const levelInk = (C: Colors, l: Level) => (l === '주의보' ? C.onYellow : C.onSign);
+export const LEVEL_TONE = { 경보: 'red', 주의보: 'yellow', 정보: 'blue' } as const;
+export const levelFill = (C: Colors, l: Level) => C.sign[LEVEL_TONE[l]];
+export const levelInk = (C: Colors, l: Level) => C.signInk[LEVEL_TONE[l]];
 export const impactColor = (C: Colors, i: Impact) =>
   i === '영향지역 포함' ? C.danger : i === '영향지역 밖' ? C.success : C.sub;
 
@@ -59,6 +87,11 @@ export function confirm(title: string, message: string, okText: string, onOk: ()
 export function notify(title: string, message = '') {
   if (Platform.OS === 'web') window.alert(message ? `${title}\n\n${message}` : title);
   else Alert.alert(title, message);
+}
+
+// 119 전화. 전화 기능이 없는 기기(태블릿·컴퓨터 등)는 실패하므로 안내로 대신 (홈·행동요령 화면이 함께 씀)
+export function dial119() {
+  Linking.openURL('tel:119').catch(() => notify('이 기기에서는 전화를 걸 수 없어요', '휴대폰으로 119에 전화하거나, 119로 문자를 보내 신고하세요.'));
 }
 
 // 행마다 붙는 보조 동작(이름 변경·삭제 등)을 '…' 버튼 하나로 모음. 작은 글자 링크를 나란히 두지 않음
@@ -88,7 +121,7 @@ export function ActionMenu({ title, items }: { title: string; items: MenuItem[] 
           <Text style={[s.small, { textAlign: 'center', paddingVertical: 8 }]}>{title}</Text>
           {[...items, { text: '취소', onPress: () => {} }].map((i, n) => (
             <Pressable key={i.text} onPress={() => pick(i)} accessibilityRole="button"
-              style={({ pressed }) => [{ minHeight: 56, justifyContent: 'center', paddingHorizontal: 24, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }, pressed && { backgroundColor: C.bg }]}>
+              style={({ pressed }) => [{ minHeight: 56, justifyContent: 'center', paddingHorizontal: 24 }, s.divTop, pressed && { backgroundColor: C.bg }]}>
               <Text style={[s.body, { color: i.destructive ? C.danger : C.text, fontWeight: n === items.length ? '700' : '400' }]}>{i.text}</Text>
             </Pressable>
           ))}
@@ -173,29 +206,31 @@ export function Chip({ text, on, onPress }: { text: string; on: boolean; onPress
 }
 
 // 도로표지 판. red = 경보(규제판), yellow = 주의보(주의판), blue = 평시 상태(안내판), green = 대피 안내
-// 빨강·청색·녹색은 안쪽 흰 테두리, 노랑은 바깥 빨간 테두리 (노랑만으로는 회색 바탕과 경계가 묻힘)
+// 빨강·청색·녹색은 안쪽 흰 테두리, 노랑은 판과 같은 색 테두리 (두께 3 은 유지해 판 크기가 변하지 않게)
 export type SignTone = 'red' | 'yellow' | 'blue' | 'green';
-export const signInk = (C: Colors, tone: SignTone) => (tone === 'yellow' ? C.onYellow : C.onSign);
+export const signInk = (C: Colors, tone: SignTone) => C.signInk[tone];
 export function Sign({ tone, children, onPress, label }: { tone: SignTone; children: ReactNode; onPress?: () => void; label?: string }) {
   const { C, s } = useTheme();
   const yellow = tone === 'yellow';
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label}
       style={({ pressed }) => [{ borderRadius: 12, overflow: 'hidden', backgroundColor: C.sign[tone] },
-        yellow ? { borderWidth: 3, borderColor: C.sign.red } : { padding: 4 }, pressed && s.pressed]}>
-      <View style={[{ gap: 4 }, yellow ? { padding: 12 } : { borderWidth: 2, borderColor: C.onSign, borderRadius: 8, padding: 14 }]}>{children}</View>
+        yellow ? { borderWidth: 3, borderColor: C.signLine.yellow } : { padding: 4 }, pressed && s.pressed]}>
+      <View style={[{ gap: 4 }, yellow ? { padding: 12 } : { borderWidth: 2, borderColor: C.signLine[tone], borderRadius: 8, padding: 14 }]}>{children}</View>
     </Pressable>
   );
 }
 
-// 표지판 안의 버튼. solid = 흰 바탕 + 판 색 글자 (주 행동), 아니면 흰 테두리 (보조 행동)
+// 표지판 안의 버튼. solid = 밝은 바탕 + 판 색 글자 (주 행동), 아니면 판 글자색 테두리 (보조 행동)
 export function SignBtn({ tone, title, icon, onPress, solid }: { tone: SignTone; title: string; icon?: IconName; onPress: () => void; solid?: boolean }) {
   const { C, s } = useTheme();
   const ink = signInk(C, tone);
-  const fg = solid ? (tone === 'yellow' ? C.onYellow : C.sign[tone]) : ink;
+  // solid 바탕: 판 글자색(라이트 흰색, 다크 밝은 색). 노란 판은 글자가 검정이라 흰 바탕 유지
+  const solidBg = tone === 'yellow' ? C.onSign : C.signInk[tone];
+  const fg = solid ? (tone === 'yellow' ? C.signInk.yellow : C.sign[tone]) : ink;
   return (
     <Pressable onPress={onPress} accessibilityRole="button"
-      style={({ pressed }) => [s.btn, { flex: 1, minHeight: 48 }, solid ? { backgroundColor: C.onSign } : { borderWidth: 2, borderColor: ink }, pressed && s.pressed]}>
+      style={({ pressed }) => [s.btn, { flex: 1, minHeight: 48 }, solid ? { backgroundColor: solidBg } : { borderWidth: 2, borderColor: ink }, pressed && s.pressed]}>
       {icon && <Ionicons name={icon} size={20} color={fg} />}
       <Text style={[s.btnText, { color: fg, fontWeight: '800' }]}>{title}</Text>
     </Pressable>
@@ -264,16 +299,22 @@ export const Header = ({ title }: { title: string }) => <Stack.Screen options={{
 // keyboardShouldPersistTaps: 키보드가 열린 상태에서도 버튼이 한 번에 눌리도록
 // 안드로이드는 화면이 하단 내비게이션 바 뒤까지 그려지므로(edge-to-edge) 그 높이만큼 아래 여백 추가
 // iPad·가로 넓은 창: 휴대폰 화면을 늘리지 않고 읽기 좋은 폭으로 가운데 정렬
-export const MAX_WIDTH = 640;
 // contentInsetAdjustmentBehavior: iOS 26+ 기본 헤더는 투명(Liquid Glass)이라 내용이 헤더 뒤에서 시작함.
 //   'automatic' 이면 iOS 가 헤더·홈 인디케이터만큼 안쪽 여백을 직접 넣어 가려지지 않음 (iOS 전용, 다른 OS 는 무시)
 //   → iOS 는 아래 여백을 시스템이 넣으므로 bottom 을 더하지 않음 (두 번 더해지지 않게)
 // refreshControl: 아래로 당겨 새로고침 (홈 등 필요한 화면만 넘김)
-export function Page({ children, refreshControl }: { children: ReactNode; refreshControl?: ScrollViewProps['refreshControl'] }) {
+// band: 상단 띠 높이. 헤더와 이어지는 페트롤 블루 면을 본문 맨 위에 깔아 첫 카드가 띠에 걸치게 함 (위로 당겨도 남색이 이어지게 위쪽으로 길게)
+export function Page({ children, refreshControl, band }: { children: ReactNode; refreshControl?: ScrollViewProps['refreshControl']; band?: number }) {
+  const { C } = useTheme();
   const { bottom } = useSafeAreaInsets();
+  const { gutter, column } = useLayout();
   return (
     <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" refreshControl={refreshControl}
-      contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 + (Platform.OS === 'ios' ? 0 : bottom), width: '100%', maxWidth: MAX_WIDTH, alignSelf: 'center' }}>
+      // 헤더가 색 면이라 위 끝에서 더 당겨지면 헤더가 끌려 내려오는 듯 보임 → 당겨지지 않게 (iOS 튕김 · 안드로이드 늘어남 · 웹 당김 모두 끔)
+      // 아래로 당겨 새로고침(refreshControl)을 쓰는 화면만 예외
+      {...(!refreshControl && { bounces: false, overScrollMode: 'never' as const, style: Platform.OS === 'web' ? ({ overscrollBehaviorY: 'none' } as object) : undefined })}
+      contentContainerStyle={[column, { paddingTop: 16, paddingHorizontal: gutter, gap: 12, paddingBottom: 32 + (Platform.OS === 'ios' ? 0 : bottom) }]}>
+      {!!band && <View style={{ position: 'absolute', left: 0, right: 0, top: -1000, height: 1000 + band, backgroundColor: C.head }} />}
       {children}
     </KeyboardAwareScrollView>
   );
@@ -289,6 +330,7 @@ export const freshness = (min?: number) =>
 // 글자 단계: display 34(큰 숫자) · h1 30 · h2 20 · section/body/bold 17 · muted 15 · small 13 (하한). 시스템 글자 크기 설정에 따라 함께 커짐
 function makeStyles(C: Colors) { return StyleSheet.create({
   fill: { flex: 1 },
+  divTop: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border }, // 목록 줄 사이 구분선 (두 번째 줄부터)
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   display: { fontSize: 34, lineHeight: 40, fontWeight: '900', color: C.text, fontVariant: ['tabular-nums'] },
   h1: { fontSize: 30, lineHeight: 36, fontWeight: '800', letterSpacing: -0.5, color: C.text },

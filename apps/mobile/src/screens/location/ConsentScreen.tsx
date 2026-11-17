@@ -1,13 +1,14 @@
 // FS-LOC-001: 위치정보 권한 및 이용 동의
 import { Text, View } from 'react-native';
-import { Btn, Card, Icon, InfoRow, Label, useTheme } from '../../components/ui';
+import { Btn, Card, Icon, InfoRow, Label, useLayout, useTheme } from '../../components/ui';
 import { useApp } from '../../store/AppContext';
 
 export default function ConsentScreen() {
   const { C, s } = useTheme();
+  const { gutter, column } = useLayout();
   const { setLocConsent, setNeedConsent } = useApp();
   return (
-    <View style={[s.center, { gap: 12, alignItems: 'stretch' }]}>
+    <View style={[s.center, column, { gap: 12, alignItems: 'stretch', paddingHorizontal: Math.max(24, gutter) }]}>
       <Icon name="navigate-circle" size={56} color={C.primary} style={{ alignSelf: 'center' }} />
       <Text style={[s.h1, { textAlign: 'center' }]}>위치정보 이용 동의</Text>
       <Card>

@@ -12,7 +12,8 @@ export type Disaster = {
   sources: { org: string; text: string }[]; // FS-DATA-003: 동일 재난 통합 시 기관별 원문 유지
 };
 export type Impact = '영향지역 포함' | '영향지역 밖' | '위치정보 미제공' | '판단 불가';
-export type Member = { id: number; name: string; admin: boolean; sharing: boolean; place?: string; updatedMin?: number; impact: Impact };
+// lat·lon: 위치 공유 중인 구성원의 마지막 좌표 (백엔드 GET /groups/{id}/members/locations 가 주는 값)
+export type Member = { id: number; name: string; admin: boolean; sharing: boolean; place?: string; lat?: number; lon?: number; updatedMin?: number; impact: Impact };
 export type Group = { id: number; name: string; category: string; code: string; createdByMe: boolean; members: Member[] };
 
 export const DISASTERS: Disaster[] = [
@@ -109,34 +110,65 @@ export const OPS_ERRORS = [
   { at: '09-27 09:30', target: '기상청 특보 API', cause: '원인 확인 불가' },
 ];
 
-export const CHECKLIST: Record<string, string[]> = {
-  지진: ['비상용 손전등 준비', '가구 고정 확인', '대피 장소 확인', '비상 식수 3일분'],
-  호우: ['배수구 점검', '비상 연락망 정리', '침수 위험지역 확인', '우비·장화 준비'],
-  산불: ['젖은 수건 준비', '대피 경로 2곳 확인', '마스크 준비', '차량 연료 확인'],
+// 관리자 화면 목업 (백엔드 연계 전 UI 확인용) — 이용 통계는 집계 숫자만 (개인 위치·구성원 정보는 보여주지 않음)
+export const OPS_STATS = { members: 1532, active7d: 812, groups: 421, sharingRate: 63 };
+// 재난 알림 발송 현황 (최근 7일). fails = 재발송이 필요한 발송 건
+export const OPS_PUSH = { sent: 1284, ok: 1271 };
+export const OPS_PUSH_FAILS = [
+  { id: 1, at: '09-28 13:46', title: '[산불 주의보] 강원 강릉시', count: 9, cause: '기기 토큰 만료' },
+  { id: 2, at: '09-25 14:20', title: '[호우 주의보] 서울 강남구', count: 4, cause: '푸시 서버 응답 시간 초과' },
+];
+// 운영 공지 발송 이력
+export const OPS_NOTICES = [
+  { id: 1, at: '09-27 10:00', region: '전체', level: '정보' as Level, title: '서비스 점검 안내', body: '09-28 02:00~04:00 서버 점검으로 알림이 늦을 수 있어요.' },
+];
+
+// 재난 행동 체크리스트 (C안 시안 구성): 재난 유형마다 '지금 바로 · 나서기 전 · 이동할 때' 시간 순서 칸
+// 출처: 행정안전부·산림청 국민행동요령을 줄여 옮김 (목업)
+export const CHECKLIST: Record<Disaster['type'], { when: string; items: string[] }[]> = {
+  호우: [
+    { when: '지금 바로', items: ['지하공간·저지대에서 나오기', '하천변·산비탈에서 멀어지기'] },
+    { when: '나서기 전', items: ['전기 차단기 내리고 가스 밸브 잠그기', '휴대폰 충전, 보조배터리 챙기기', '물·비상식량·상비약 챙기기'] },
+    { when: '이동할 때', items: ['지하차도·하천변 길 피하기', '가족에게 대피 사실 알리기', '대피소 도착하면 안심그룹에 알리기'] },
+  ],
+  지진: [
+    { when: '지금 바로', items: ['탁자 아래로 들어가 머리 보호하기', '흔들림이 멈출 때까지 기다리기'] },
+    { when: '나서기 전', items: ['전기·가스 차단하기', '문을 열어 출구 확보하기', '신발 신고 손전등 챙기기'] },
+    { when: '이동할 때', items: ['엘리베이터 대신 계단 이용하기', '건물·담장에서 떨어져 넓은 곳으로 가기', '가족에게 대피 사실 알리기'] },
+  ],
+  산불: [
+    { when: '지금 바로', items: ['산불 반대 방향의 낮은 곳으로 피하기', '젖은 수건으로 입과 코 막기'] },
+    { when: '나서기 전', items: ['창문·문 닫기', '가스 밸브 잠그기', '마스크·물 챙기기'] },
+    { when: '이동할 때', items: ['바람 방향 확인하며 이동하기', '마을회관 등 안전한 곳으로 가기', '가족에게 대피 사실 알리기'] },
+  ],
 };
 
 export type Provider = 'Google' | 'Kakao';
-// operator: 운영 관리 권한 (FS-OPS-000). 시연용으로 true
-export type MemberInfo = { name: string; email: string; joinedAt: string; operator: boolean };
-export const MOCK_MEMBER: MemberInfo = { name: '홍길동', email: 'hong@example.com', joinedAt: '2026-09-01', operator: true };
+// operator: 운영 관리 권한 (FS-OPS-000). 일반 로그인은 false, 로그인 화면의 '관리자 로그인'은 MOCK_ADMIN
+// id: 백엔드 회원 ID (기기에 저장한 위치 설정이 어느 회원 것인지 구분)
+export type MemberInfo = { id: string; name: string; email: string; joinedAt: string; operator: boolean };
+export const MOCK_MEMBER: MemberInfo = { id: 'mock-member', name: '홍길동', email: 'hong@example.com', joinedAt: '2026-09-01', operator: false };
+export const MOCK_ADMIN: MemberInfo = { id: 'mock-admin', name: '관리자', email: 'admin@example.com', joinedAt: '2026-09-01', operator: true };
 
 // 소셜 인증 흉내. 실제로는 Google/Kakao SDK 인증 → 백엔드 토큰 검증으로 교체
 export const mockAuthenticate = (_p: Provider) => new Promise<MemberInfo>(r => setTimeout(() => r(MOCK_MEMBER), 800));
+// ponytail: 관리자 인증 API 가 아직 없어 목업 관리자로 로그인. 백엔드에 관리자 로그인이 생기면 교체
+export const mockAdminAuthenticate = () => new Promise<MemberInfo>(r => setTimeout(() => r(MOCK_ADMIN), 800));
 
 export const CATEGORIES = ['가족', '친구', '직장', '기타'];
 export const ME = 0; // 로그인한 본인의 구성원 id
 export const INIT_GROUPS: Group[] = [
   { id: 1, name: '우리 가족', category: '가족', code: 'FAM-7K2Q', createdByMe: true, members: [
     { id: ME, name: '나', admin: true, sharing: true, place: '서울 강남구', updatedMin: 1, impact: '영향지역 포함' },
-    { id: 1, name: '엄마', admin: false, sharing: true, place: '경기 수원시', updatedMin: 4, impact: '영향지역 포함' },
-    { id: 2, name: '아빠', admin: false, sharing: true, place: '부산 해운대구', updatedMin: 95, impact: '영향지역 밖' },
+    { id: 1, name: '엄마', admin: false, sharing: true, place: '경기 수원시', lat: 37.26690601, lon: 127.00022192, updatedMin: 4, impact: '영향지역 포함' },
+    { id: 2, name: '아빠', admin: false, sharing: true, place: '부산 해운대구', lat: 35.1631, lon: 129.1636, updatedMin: 95, impact: '영향지역 밖' },
     { id: 3, name: '동생', admin: false, sharing: false, impact: '위치정보 미제공' },
   ] },
 ];
 // 초대 코드로 참여해 볼 수 있는 가짜 "서버" 그룹 (FULL-0000 은 10명 꽉 찬 그룹)
 export const JOINABLE_GROUPS: Group[] = [
   { id: 100, name: '대학 동기', category: '친구', code: 'FRD-1234', createdByMe: false, members: [
-    { id: 11, name: '민수', admin: true, sharing: true, place: '서울 마포구', updatedMin: 3, impact: '영향지역 밖' },
+    { id: 11, name: '민수', admin: true, sharing: true, place: '서울 마포구', lat: 37.565434, lon: 126.901462, updatedMin: 3, impact: '영향지역 밖' },
     { id: 12, name: '지영', admin: false, sharing: false, impact: '위치정보 미제공' },
   ] },
   { id: 101, name: '동아리', category: '친구', code: 'FULL-0000', createdByMe: false,

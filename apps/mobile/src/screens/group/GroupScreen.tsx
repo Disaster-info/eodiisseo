@@ -1,8 +1,9 @@
-// FS-GROUP-001 생성, 002 목록, 003 초대 코드 참여
+// FS-GROUP-001 생성, 002 목록, 003 초대 코드 참여 — C안 '탑승권': 그룹 한 개 = 승차권 한 장
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { Badge, Btn, Card, Chip, Icon, Label, Page, notify, knownImpact, useTheme } from '../../components/ui';
+import { Coupon, Field, MONO, Perf } from '../../components/ticket';
+import { Btn, Chip, Icon, Page, notify, knownImpact, useTheme } from '../../components/ui';
 import { CATEGORIES, Group, JOINABLE_GROUPS, ME } from '../../data/mock';
 import { useApp } from '../../store/AppContext';
 
@@ -42,41 +43,50 @@ export default function GroupScreen() {
   };
 
   return (
-    <Page>
-      <Text style={s.section}>참여 중인 그룹</Text>
-      {groups.length === 0 && <Text style={s.muted}>참여 중인 그룹이 없어요. 그룹을 만들거나 초대 코드로 참여하세요.</Text>}
-      {groups.map(g => (
-        <Card key={g.id} onPress={() => router.push(`/groups/${g.id}`)}>
-          <View style={[s.row, { gap: 12 }]}>
-            <View style={{ ...s.rim, width: 44, height: 44, borderRadius: 14, backgroundColor: C.primarySoft, justifyContent: 'center', alignItems: 'center' }}>
-              <Icon name="people" size={22} color={C.primary} />
+    // 띠는 제목 줄까지만: 그룹 승차권 머리 띠가 상단 띠와 같은 색이라 겹치면 한 덩어리로 보여서, 띠 바로 아래에 둠
+    <Page band={52}>
+      <Text style={[s.section, { color: '#FFFFFF', marginTop: 0, marginBottom: 8 }]} accessibilityRole="header">참여 중인 그룹 {groups.length}개</Text>
+      {groups.length === 0 && (
+        <Coupon dashed><Text style={s.muted}>참여 중인 그룹이 없어요. 그룹을 만들거나 초대 코드로 참여하세요.</Text></Coupon>
+      )}
+      {/* 그룹 = 탑승권 한 장: 머리 띠(이름·분류·관리자) → 칸(구성원·영향지역·확인 필요) → 절취선 → 초대 코드 */}
+      {groups.map(g => {
+        const n = hit(g);
+        const check = g.members.filter(m => { const k = knownImpact(m); return k === '판단 불가' || k === '위치정보 미제공'; }).length;
+        const admin = g.members.find(m => m.id === ME)?.admin;
+        return (
+          <Coupon key={g.id} head={g.name} headIcon="people" onPress={() => router.push(`/groups/${g.id}`)}
+            accessibilityLabel={`${g.name}, ${g.category}${admin ? ', 관리자' : ''}, 구성원 ${g.members.length}명, 영향지역 포함 ${n}명. 자세히`}
+            right={<View style={s.row}>
+              <Text style={[s.small, { color: '#FFFFFF', fontWeight: '700' }]}>{g.category}</Text>
+              {admin && <Text style={[s.small, { color: C.navy, backgroundColor: '#FFFFFF', fontWeight: '900', paddingHorizontal: 6, borderRadius: 4, overflow: 'hidden' }]}>관리자</Text>}
+              <Icon name="chevron-forward" size={18} color="#FFFFFF" />
+            </View>}>
+            <View style={[s.row, { gap: 12 }]}>
+              <Field label="구성원" value={`${g.members.length}/${MAX_MEMBERS}`} mono />
+              <Field label="영향지역 포함" value={`${n}명`} mono color={n ? C.danger : undefined} />
+              <Field label="확인 필요" value={`${check}명`} mono />
             </View>
-            <View style={{ flex: 1 }}>
-              <View style={s.row}>
-                <Text style={s.bold}>{g.name}</Text>
-                <Badge text={g.category} color={C.sub} />
-                {g.members.find(m => m.id === ME)?.admin && <Badge text="관리자" color={C.primary} />}
-              </View>
-              <Text style={s.muted}>구성원 {g.members.length}/{MAX_MEMBERS}{hit(g) ? '' : ' · 영향지역 포함 없음'}</Text>
-              {hit(g) > 0 && <Text style={[s.muted, { color: C.danger, fontWeight: '700' }]}>영향지역 포함 {hit(g)}명</Text>}
+            {!n && <Text style={s.small}>영향지역 포함 없음</Text>}
+            <Perf />
+            <View style={s.row}>
+              <Text style={[s.small, { flex: 1 }]}>초대 코드</Text>
+              <Text style={[s.bold, { fontFamily: MONO, color: C.carbon, letterSpacing: 1 }]}>{g.code}</Text>
             </View>
-            <Icon name="chevron-forward" size={18} color={C.sub} />
-          </View>
-        </Card>
-      ))}
-      <Card>
-        <Label icon="add-circle" text={`새 그룹 만들기 (${created}/${MAX_CREATE})`} />
+          </Coupon>
+        );
+      })}
+      <Coupon head={`새 그룹 만들기 (${created}/${MAX_CREATE})`} headIcon="add-circle">
         <TextInput accessibilityLabel="새 그룹 이름" style={s.input} placeholder="그룹 이름" placeholderTextColor={C.sub} value={name} onChangeText={setName} maxLength={20} />
         <View style={[s.row, { flexWrap: 'wrap' }]}>{CATEGORIES.map(c => <Chip key={c} text={c} on={category === c} onPress={() => setCategory(c)} />)}</View>
-        <Btn title="만들기" icon="add" onPress={create} />
-      </Card>
-      <Card>
-        <Label icon="key" text="초대 코드로 참여" />
+        <Btn title="만들기" icon="add" color={C.navy} onPress={create} />
+      </Coupon>
+      <Coupon head="초대 코드로 참여" headIcon="key">
         {/* 일부 안드로이드 키보드는 autoCapitalize 를 무시하므로 입력값을 직접 대문자로 변환 */}
-        <TextInput accessibilityLabel="초대 코드" style={[s.input, { letterSpacing: 1 }]} placeholder="예: FRD-1234" placeholderTextColor={C.sub} value={code}
+        <TextInput accessibilityLabel="초대 코드" style={[s.input, { letterSpacing: 1, fontFamily: MONO }]} placeholder="예: FRD-1234" placeholderTextColor={C.sub} value={code}
           onChangeText={t => setCode(t.toUpperCase())} autoCapitalize="characters" autoCorrect={false} maxLength={12} />
-        <Btn title="참여하기" icon="enter-outline" outline onPress={join} />
-      </Card>
+        <Btn title="참여하기" icon="enter-outline" outline color={C.tabOn} onPress={join} />
+      </Coupon>
     </Page>
   );
 }

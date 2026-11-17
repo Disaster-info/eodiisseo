@@ -1,6 +1,6 @@
 // FS-LOC-003: 위치 직접 지정 (지역 검색 + TMAP 장소 검색)
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { Card, Empty, Header, Icon, Page, useTheme } from '../../components/ui';
 import { REGIONS } from '../../data/mock';
@@ -14,10 +14,12 @@ export default function ManualLocationScreen() {
   const list = REGIONS.filter(r => r.includes(q.trim()));
   // 장소 검색 결과. null = 아직 검색 안 함 / 'loading' / 'error'
   const [pois, setPois] = useState<Poi[] | null | 'loading' | 'error'>(null);
+  const searchId = useRef(0); // 가장 최근 검색 번호 — 늦게 온 이전 검색 결과는 버림
   const search = () => {
     if (!q.trim()) return;
+    const my = ++searchId.current;
     setPois('loading');
-    searchPois(q.trim()).then(setPois, () => setPois('error'));
+    searchPois(q.trim()).then(r => my === searchId.current && setPois(r), () => my === searchId.current && setPois('error'));
   };
   const isPicked = (r: string) => isManual && !needLocation && r === location;
   const done = () => (router.canGoBack() ? router.back() : router.replace('/'));
@@ -27,7 +29,7 @@ export default function ManualLocationScreen() {
       <Page>
         {needLocation && <Text style={s.notice}>위치정보 이용에 동의하지 않아 기준 위치를 직접 지정해야 해요.</Text>}
         <Text style={s.muted}>기준으로 사용할 지역을 선택하세요 (시·군·구)</Text>
-        <TextInput accessibilityLabel="지역 검색" style={[s.input, { backgroundColor: C.card }]} value={q} onChangeText={v => { setQ(v); setPois(null); }}
+        <TextInput accessibilityLabel="지역 검색" style={[s.input, { backgroundColor: C.card }]} value={q} onChangeText={v => { setQ(v); setPois(null); searchId.current++; }}
           onSubmitEditing={search} returnKeyType="search" placeholder="지역·장소 검색 (예: 강남, 수원역)" placeholderTextColor={C.sub} />
         {locConsent && (
           <Card onPress={() => { resetToGps(); done(); }}>

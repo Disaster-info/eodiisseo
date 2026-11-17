@@ -1,0 +1,27 @@
+# OpenStack VM 에서 실행: cd deploy && docker compose up -d --build   (자세한 순서: deploy/README.md)
+# web     = 이 저장소의 웹 버전 (nginx, 80 포트로 외부 공개)
+# backend = 별도 저장소의 백엔드 이미지 (외부에 직접 공개하지 않음 — web 의 /api/ 를 거쳐서만 접근)
+# 값은 같은 폴더의 .env 에서 읽음 (.env.example 을 복사해 작성)
+services:
+  web:
+    build:
+      context: ..
+      args:
+        EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-}
+        EXPO_PUBLIC_TMAP_APP_KEY: ${EXPO_PUBLIC_TMAP_APP_KEY:-}
+        EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID:-}
+        EXPO_PUBLIC_KAKAO_REST_API_KEY: ${EXPO_PUBLIC_KAKAO_REST_API_KEY:-}
+    ports:
+      - "80:80"
+    restart: unless-stopped # 서버 재부팅·오류로 꺼지면 자동으로 다시 켬
+
+  backend:
+    # .env 의 COMPOSE_PROFILES=backend 일 때만 실행 (백엔드 이미지가 준비되기 전엔 웹만 띄울 수 있게)
+    profiles: ["backend"]
+    image: ${BACKEND_IMAGE:-}
+    env_file:
+      - path: backend.env # 백엔드 비밀값(DB 비밀번호, OAuth Client Secret 등). git 에 올리지 않음
+        required: false
+    expose:
+      - "8080" # 같은 compose 안(web)에서만 접근. 서버 밖으로는 열지 않음
+    restart: unless-stopped
