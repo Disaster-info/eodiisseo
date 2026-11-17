@@ -1,0 +1,412 @@
+package com.disasterinfo.eodiisseo.disaster.projection;
+
+import com.disasterinfo.eodiisseo.collection.execution.*;
+import com.disasterinfo.eodiisseo.collection.execution.CollectionProviderPort.*;
+import com.disasterinfo.eodiisseo.collection.execution.CollectionExecutionStore.State;
+import com.disasterinfo.eodiisseo.collection.ownership.*;
+import com.disasterinfo.eodiisseo.collection.ownership.CollectionOwnership.Claim;
+import com.disasterinfo.eodiisseo.disaster.collection.*;
+import com.disasterinfo.eodiisseo.disaster.service.*;
+import com.disasterinfo.eodiisseo.disaster.port.*;
+import com.disasterinfo.eodiisseo.disaster.adapter.VerifiedWarningImpactReader;
+import audit.collection.fixture.ProjectionTxProbe;
+import com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase;
+import com.disasterinfo.eodiisseo.collection.service.CollectionRecordWriter;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.context.annotation.*;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.*;
+import org.springframework.orm.jpa.*;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.TransactionDefinition;
+import tools.jackson.databind.json.JsonMapper;
+import javax.sql.DataSource;
+import jakarta.persistence.EntityManagerFactory;
+import java.net.URI;
+import java.time.*;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import static org.junit.jupiter.api.Assertions.*;
+
+/** Real default Spring JPA transaction manager + proxied existing services + PostgreSQL. No external I/O. */
+@EnabledIfEnvironmentVariable(named="EODIISSEO_LOCAL_DB_TESTS",matches="true")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS) @Timeout(90)
+class OfficialCollectionProjectionPostgresTest {
+    static final LocalDate DAY=LocalDate.of(2026,11,1);
+    static final JsonMapper JSON=JsonMapper.builder().build();
+    JdbcTemplate admin,sql;String database;AnnotationConfigApplicationContext app;JpaTransactionManager manager;
+    CollectionOwnership ownership;JdbcCollectionExecutionStore store;OfficialCollectionProjection projection;Fixture state;
+    UUID quake,rain,message,alias,shelter;long epoch;
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods=false)
+    @Profile("collection-projection-audit-only") @EnableTransactionManagement
+    static class Config {
+        @Bean JdbcTemplate jdbcTemplate(DataSource dataSource){return new JdbcTemplate(dataSource);}
+        @Bean OwnedDatabase ownedDatabase(JdbcTemplate jdbc){return new OwnedDatabase(jdbc);}
+        @Bean LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource dataSource){
+            var f=new LocalContainerEntityManagerFactoryBean();f.setDataSource(dataSource);f.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+            f.setPackagesToScan("audit.collection.fixture");f.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto","validate"));return f;
+        }
+        @Bean JpaTransactionManager transactionManager(EntityManagerFactory factory){return new JpaTransactionManager(factory);}
+        @Bean Fixture fixture(){return new Fixture();}
+        @Bean DisasterService disasterService(OwnedDatabase db){return new DisasterService(db);}
+        @Bean DisasterRuntimeEvents events(OwnedDatabase db){return new DisasterRuntimeEvents(db);}
+        @Bean VerifiedIncidentService incidents(OwnedDatabase db,DisasterService service,DisasterRuntimeEvents events,Fixture fixture){return new VerifiedIncidentService(db,service,events,Optional.of(fixture));}
+        @Bean VerifiedWarningImpactReader impactReader(OwnedDatabase db,Fixture fixture){return new VerifiedWarningImpactReader(db,Optional.of(fixture));}
+        @Bean OfficialImpactAreaSynchronizer impactSync(OwnedDatabase db,VerifiedWarningImpactReader reader){return new OfficialImpactAreaSynchronizer(db,reader);}
+        @Bean OfficialRecordNormalizer normalizer(OwnedDatabase db,DisasterService service,DisasterRuntimeEvents events,VerifiedIncidentService incidents){return new OfficialRecordNormalizer(db,service,events,incidents);}
+        @Bean CollectionRecordWriter shelterWriter(OwnedDatabase db,DisasterService service){return new CollectionRecordWriter(db,JSON,service);}
+    }
+    static class Fixture implements ProjectionAdmissionPort,VerifiedIncidentLinkPort,OfficialWarningAreaMappingPort {
+        final java.util.concurrent.atomic.AtomicInteger httpCalls=new java.util.concurrent.atomic.AtomicInteger();
+        final Map<String,Link> links=new ConcurrentHashMap<>();final Map<String,Mapping> mappings=new ConcurrentHashMap<>();
+        Runnable duringLink=()->{};boolean admitted=true,coverage=true,empty=false;String version="SYNTHETIC-domain-v1";UUID canonical;LocalDate initial=DAY;
+        final Instant until=Instant.parse("2099-01-01T00:00:00Z");
+        public Optional<Grant> resolve(Claim c,LocalDate from,LocalDate to,Instant now){return admitted?Optional.of(new Grant(c.assignment().target(),c.assignment().contract(),canonical,version,"SYNTHETIC independent domain evidence - NOT HTTP COMPLETE",initial,until,coverage,empty,true)):Optional.empty();}
+        public Optional<Link> resolve(UUID source,OfficialProviderClient.Provider provider,String announcement,String hash){duringLink.run();return Optional.ofNullable(links.get(source+":"+announcement+":"+hash));}
+        public Optional<Mapping> resolve(String zone,Instant issued,Instant asOf){return Optional.ofNullable(mappings.get(zone));}
+    }
+    @BeforeAll void open(){
+        String url=System.getenv("EODIISSEO_AUDIT_JDBC_URL");if(!"jdbc:postgresql://127.0.0.1:55433/postgres".equals(url)||!"true".equals(System.getenv("EODIISSEO_AUDIT_DISPOSABLE")))throw new IllegalStateException("Approved disposable audit only");
+        admin=new JdbcTemplate(new DriverManagerDataSource(url,"eodiisseo_audit",""));database="collection3_"+UUID.randomUUID().toString().replace("-","");admin.execute("create database "+database);
+        var ds=new DriverManagerDataSource("jdbc:postgresql://127.0.0.1:55433/"+database,"eodiisseo_audit","");
+        Flyway.configure().dataSource(ds).locations("classpath:db/migration","classpath:db/owned-runtime","classpath:db/collection-executor","classpath:db/collection-projection").load().migrate();
+        sql=new JdbcTemplate(ds);sql.execute("create table projection_tx_probe(id uuid primary key)");
+        sql.update("insert into data_source values(?,'SYNTHETIC rain','DISASTER','KMA_HEAVY_RAIN',5,true)",UUID.randomUUID());
+        sql.update("insert into data_source values(?,'SYNTHETIC alias','DISASTER','MOIS_DISASTER_MESSAGES',5,true)",UUID.randomUUID());
+        quake=source("KMA_EARTHQUAKE");rain=source("KMA_HEAVY_RAIN");message=source("SAFETYDATA_DISASTER_MESSAGE");alias=source("MOIS_DISASTER_MESSAGES");shelter=source("SAFETYDATA_EARTHQUAKE_SHELTER");
+        for(String key:List.of("KMA_PORTAL_EQK_MSG","KMA_RAIN_CODES","MOIS_MESSAGES","MOIS_SHELTERS"))sql.update("insert into collection_contract values(?,true)",key);
+        sql.update("insert into admin_area(area_code,name,level,active) values('SYNTHETIC_A','SYNTHETIC A','SIGUNGU',true),('SYNTHETIC_B','SYNTHETIC B','SIGUNGU',true)");
+        app=new AnnotationConfigApplicationContext();app.getEnvironment().setActiveProfiles("collection-projection-audit-only");app.registerBean("dataSource",DataSource.class,()->ds);app.register(Config.class);app.refresh();
+        manager=app.getBean("transactionManager",JpaTransactionManager.class);state=app.getBean(Fixture.class);
+        ownership=new CollectionOwnership(new JdbcCollectionOwnershipStore(sql,manager),new CollectionContractRegistry(),Duration.ofSeconds(30));store=new JdbcCollectionExecutionStore(sql,manager);
+        projection=new OfficialCollectionProjection(sql,app.getBean(OwnedDatabase.class),manager,app.getBean(OfficialRecordNormalizer.class),app.getBean(OfficialImpactAreaSynchronizer.class),app.getBean(VerifiedWarningImpactReader.class),app.getBean(CollectionRecordWriter.class),state);
+        System.out.println("STAGE3_POSTGRES_VERSION="+sql.queryForObject("show server_version",String.class)+" manager="+manager.getClass().getSimpleName());
+    }
+    UUID source(String endpoint){return sql.queryForObject("select source_id from data_source where endpoint_key=?",UUID.class,endpoint);}
+    @AfterAll void close(){if(app!=null)app.close();if(database!=null&&database.matches("collection3_[a-f0-9]{32}"))admin.execute("drop database "+database);}
+    @BeforeEach void fixture(){
+        sql.execute("truncate collection_run,disaster,collection_raw_record,projection_tx_probe,shelter cascade");sql.update("delete from collection_quota_window");sql.update("update data_source set collection_assignment_epoch=null");
+        epoch++;state.httpCalls.set(0);state.duringLink=()->{};state.links.clear();state.mappings.clear();state.admitted=true;state.coverage=true;state.empty=false;state.version="SYNTHETIC-domain-v1";state.initial=DAY;
+        sql.update("insert into collection_quota_window values('SYNTHETIC-quota',now()-interval '1 hour',now()+interval '1 hour',100,0,0,now(),'SYNTHETIC approval')");
+    }
+    void assign(UUID id,String contract){
+        String key=sql.queryForObject("select endpoint_key from data_source where source_id=?",String.class,id);UUID target=UUID.randomUUID();
+        sql.update("insert into collection_target values(?,?,?,true)",target,"SYNTHETIC-"+target,contract);assign(id,key,target,contract);state.canonical=id;
+    }
+    void assign(UUID id,String key,UUID target,String contract){sql.update("insert into collection_source_assignment values(?,?,?,?,?,'SYNTHETIC-quota','COMMON_COLLECTION_V1','SYNTHETIC assignment',true,true)",id,epoch,key,target,contract);sql.update("update data_source set collection_assignment_epoch=? where source_id=?",epoch,id);}
+    CollectionCoordinator coordinator(String contract,List<Map<String,Object>> rows,CollectionProjectionPort adapter){
+        var provider=new OfficialCollectionProviderPlugin(contract,(key,request)->{
+            state.httpCalls.incrementAndGet();
+            Object envelope=key.startsWith("MOIS_")?Map.of("header",Map.of("resultCode","00"),"body",rows,"totalCount",rows.size()):Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("totalCount",rows.size(),"items",Map.of("item",rows))));
+            // Synthetic getPwnCd success fixtures explicitly declare the requested page metadata.
+            if(key.equals("KMA_RAIN_CODES"))envelope=Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("pageNo",request.page(),"numOfRows",request.rows(),"totalCount",rows.size(),"items",Map.of("item",rows))));
+            return new Reply(200,JSON.writeValueAsBytes(envelope),Duration.ZERO);
+        },new Evidence(true,true,true,true,"SYNTHETIC HTTP evidence - NOT domain admission"));
+        return new CollectionCoordinator(ownership,store,List.of(provider),new CollectionCoordinator.Policy(true,2,1,2,Duration.ofSeconds(5),Duration.ZERO),new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC private retention",Set.of()),adapter);
+    }
+    CollectionCoordinator.Result collect(UUID id,String contract,Map<String,Object> row){return coordinator(contract,List.of(row),projection).collect(id,DAY,DAY,10);}
+    Map<String,Object> quake(String seq,String issued,String location){return new LinkedHashMap<>(Map.of("stnId","108","tmFc",issued,"tmSeq",seq,"fcTp","3","tmEqk","20261101120000","lat","37.1","lon","127.1","loc",location));}
+    void allow(UUID canonical,OfficialProviderClient.Provider provider,Map<String,Object> row,String incident,long sequence){
+        String original=OfficialProviderClient.canonical(row),announcement=OfficialRecordNormalizer.identity(provider,row);
+        Instant issued=provider==OfficialProviderClient.Provider.EARTHQUAKE?OfficialRecordNormalizer.time(row.get("tmFc")):Instant.parse("2026-11-01T03:01:00Z");
+        var link=new VerifiedIncidentLinkPort.Link(canonical,provider,announcement,JdbcCollectionRawStore.hash(original),incident,sequence,issued,Instant.parse("2026-11-01T03:00:00Z"),VerifiedIncidentLinkPort.State.OCCURRED,null,URI.create("https://www.kma.go.kr/SYNTHETIC-test-only"),"SYNTHETIC official contract fixture, not real proof");
+        state.links.put(canonical+":"+announcement+":"+JdbcCollectionRawStore.hash(original),link);
+    }
+    long count(String table){return sql.queryForObject("select count(*) from "+table,Long.class);}
+    long event(String kind){return sql.queryForObject("select count(*) from disaster_runtime_outbox where event_kind=?",Long.class,kind);}
+    @Test void sourceToIncidentRevisionOutboxReceiptCoverageAndCursor(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"synthetic-quake",1);
+        var result=collect(quake,"KMA_PORTAL_EQK_MSG",row);assertEquals(State.COMPLETE,result.state());assertEquals(1,event("NEW"));assertEquals(1,event("REVISION"));
+        assertEquals(1,count("collection_raw_record"));assertEquals(1,count("collection_raw_revision"));assertEquals(1,count("collection_projection_receipt"));assertEquals(1,count("collection_domain_coverage"));
+        assertEquals(DAY,sql.queryForObject("select through_date from collection_domain_cursor",java.sql.Date.class).toLocalDate());
+        assertEquals("DOMAIN_APPLIED",sql.queryForObject("select domain_phase from collection_http_execution where run_id=?",String.class,result.run()));
+        assertEquals(1,sql.queryForObject("select count(*) from collection_projection_receipt p join source_disaster_revision r on p.source_revision_id=r.revision_id where p.official_hash=r.content_hash",Integer.class));
+    }
+    @Test void correctionDuplicateAndOlderAnnouncementDoNotDuplicateOrRewind(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"q",1);
+        assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());
+        assertEquals(1,event("NEW"));assertEquals(1,event("REVISION"));assertEquals(1,count("collection_raw_revision"));
+        var corrected=quake("2","20261101120200","SYNTHETIC corrected");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,corrected,"q",2);
+        assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",corrected).state());assertEquals(2,event("REVISION"));assertEquals(2,count("source_disaster_revision"));
+        assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());assertEquals(2,event("REVISION"));
+        assertEquals(2L,sql.queryForObject("select official_sequence from owned_incident_head",Long.class));
+    }
+    @Test void invalidCoordinatesDoNotUpdateHeadOrOldRevision(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"q",1);collect(quake,"KMA_PORTAL_EQK_MSG",first);
+        var invalid=quake("2","20261101120200","invalid");invalid.put("lat","999");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,invalid,"q",2);
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",invalid).state());assertEquals(1,count("source_disaster_revision"));assertEquals(1,event("REVISION"));assertEquals(1L,sql.queryForObject("select official_sequence from owned_incident_head",Long.class));
+        assertEquals(1,count("collection_raw_record"));assertEquals(1,count("collection_domain_coverage"));
+    }
+    @Test void unlinkedThenNewOfficialEvidenceCanBeReprocessed(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","unlinked");
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(0,count("disaster"));assertEquals(0,count("collection_domain_cursor"));
+        assertEquals("EARTHQUAKE_UNLINKED",sql.queryForObject("select result from collection_projection_receipt",String.class));
+        allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(1,event("NEW"));
+    }
+    @Test void httpSyntheticEvidenceDoesNotAuthorizeDomain(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");state.admitted=false;var row=quake("1","20261101120100","unapproved");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(0,count("collection_raw_record"));assertEquals(0,event("NEW"));assertEquals(0,count("collection_domain_coverage"));
+        assertEquals(0,sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Integer.class));
+    }
+    @Test void entireBatchRollsBackWhenOneAnnouncementIsUnlinked(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","valid");var second=quake("2","20261101120200","unlinked");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"q",1);
+        var result=coordinator("KMA_PORTAL_EQK_MSG",List.of(first,second),projection).collect(quake,DAY,DAY,10);
+        assertEquals(State.FAILED,result.state());assertEquals(0,count("disaster"));assertEquals(0,count("collection_raw_record"));assertEquals(0,count("disaster_runtime_outbox"));assertEquals(2,count("collection_projection_receipt"));
+    }
+    Map<String,Object> rain(String seq,String issued,String command){var row=new LinkedHashMap<String,Object>();row.putAll(Map.of("stnId","108","tmFc",issued,"tmSeq",seq,"areaCode","Z_TEST","areaName","SYNTHETIC region","warnVar","2","warnStress","1","command",command,"startTime","20261101120000","cancel","0"));if(command.equals("2"))row.put("endTime",issued);return row;}
+    void mapping(String code,String version){state.mappings.put("Z_TEST",new OfficialWarningAreaMappingPort.Mapping("Z_TEST",Set.of(code),URI.create("https://www.kma.go.kr/SYNTHETIC-mapping"),version,Instant.parse("2020-01-01T00:00:00Z"),state.until,true));}
+    @Test void rainNewCorrectionConflictOlderAndLiftPreserveOfficialOrder(){
+        assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");var first=rain("1","20261101120100","1");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",first).state());
+        var conflict=rain("2","20261101120100","3");assertEquals(State.FAILED,collect(rain,"KMA_RAIN_CODES",conflict).state());assertEquals(1,count("source_disaster_revision"));
+        var change=rain("3","20261101120200","3");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",change).state());assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",first).state());assertEquals(2,count("source_disaster_revision"));
+        var lift=rain("4","20261101120300","2");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",lift).state());assertEquals("LIFTED",sql.queryForObject("select status from disaster",String.class));assertEquals(1,event("NEW"));
+    }
+    @ParameterizedTest @ValueSource(strings={"MISSING_MAPPING","PARTIAL_MAPPING","UNKNOWN_ADMIN","CANCEL","MISSING_PREDECESSOR"})
+    void invalidRainNeverPublishesFactsOrProgress(String scenario){
+        assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");var row=rain("1","20261101120100","1");
+        switch(scenario){case "MISSING_MAPPING"->state.mappings.clear();case "PARTIAL_MAPPING"->{var m=state.mappings.get("Z_TEST");state.mappings.put("Z_TEST",new OfficialWarningAreaMappingPort.Mapping(m.warningZone(),m.exactAdminAreaCodes(),m.evidenceUrl(),m.version(),m.validFrom(),m.validUntil(),false));}case "UNKNOWN_ADMIN"->mapping("NO_SUCH_ADMIN","map1");case "CANCEL"->row.put("cancel","1");case "MISSING_PREDECESSOR"->row.put("command","2");}
+        assertEquals(State.FAILED,collect(rain,"KMA_RAIN_CODES",row).state());assertEquals(0,count("disaster"));assertEquals(0,event("NEW"));assertEquals(0,count("collection_domain_coverage"));assertEquals(0,count("collection_domain_cursor"));
+    }
+    @Test void changedMappingRevalidatesDuplicateWithoutNewIncidentRevision(){
+        assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");var row=rain("1","20261101120100","1");collect(rain,"KMA_RAIN_CODES",row);
+        mapping("SYNTHETIC_B","map2");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",row).state());assertEquals(1,count("source_disaster_revision"));assertEquals(1,event("NEW"));assertEquals(1,event("REVISION"));
+        assertEquals(List.of("SYNTHETIC_B"),sql.queryForList("select area_code from disaster_area where basis='OFFICIAL' and area_role='IMPACT'",String.class));
+    }
+    @Test void messageClassificationCannotCreateFireFromSnOrText(){
+        assign(message,"MOIS_MESSAGES");state.coverage=false;
+        for(String hazard:List.of("산불","호우")){
+            var row=Map.<String,Object>of("SN",hazard,"DST_SE_NM",hazard,"MSG_CN","SYNTHETIC 산불 발생 keyword only","CRT_DT","2026/11/01 12:01:00");
+            assertEquals(State.FAILED,collect(message,"MOIS_MESSAGES",row).state());
+        }
+        assertEquals(0,count("disaster"));assertEquals(0,count("collection_domain_cursor"));assertEquals(2,count("collection_http_archive"));assertEquals(2,count("collection_projection_receipt"));
+    }
+    @Test void confirmedFireAliasesUseOneExplicitCanonicalDomainSource(){
+        assign(message,"MOIS_MESSAGES");UUID t=sql.queryForObject("select target_id from collection_source_assignment where source_id=? and epoch=?",UUID.class,message,epoch);assign(alias,"MOIS_DISASTER_MESSAGES",t,"MOIS_MESSAGES");state.canonical=message;
+        var row=Map.<String,Object>of("SN","SYNTHETIC-SN","DST_SE_NM","산불","MSG_CN","SYNTHETIC officially linked fixture","CRT_DT","2026-11-01 12:01:00");allow(message,OfficialProviderClient.Provider.WILDFIRE_MESSAGES,row,"synthetic-fire",1);
+        assertEquals(State.COMPLETE,collect(message,"MOIS_MESSAGES",row).state());assertEquals(State.COMPLETE,collect(alias,"MOIS_MESSAGES",row).state());assertEquals(1,event("NEW"));assertEquals(1,event("REVISION"));assertEquals(2,count("collection_raw_record"));
+    }
+    Map<String,Object> shelter(String active){return Map.of("ARCD","SYNTHETIC","ACMDFCLTY_SN","1","VT_ACMDFCLTY_NM","SYNTHETIC shelter","LA","37.1","LO","127.1","USE_SE_CD",active,"VT_ACMD_PSBL_NMPR","12");}
+    @Test void shelterUsesExistingIdentityAndRejectsUnverifiedDeactivation(){
+        assign(shelter,"MOIS_SHELTERS");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",shelter("1")).state());UUID before=sql.queryForObject("select shelter_id from shelter",UUID.class);
+        assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",shelter("1")).state());assertEquals(1,count("shelter"));assertEquals(1,count("collection_raw_revision"));
+        assertEquals(State.FAILED,collect(shelter,"MOIS_SHELTERS",shelter("0")).state());assertEquals(before,sql.queryForObject("select shelter_id from shelter",UUID.class));assertTrue(sql.queryForObject("select active from shelter",Boolean.class));assertEquals(1,count("collection_raw_revision"));assertEquals(0,count("disaster"));
+    }
+    @Test void jpaAndJdbcWritesRollbackTogetherWithDefaultServiceProxies(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","valid");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        var flushed=new java.util.concurrent.atomic.AtomicBoolean();
+        CollectionProjectionPort failing=c->{var result=projection.projectVerifiedArchive(c);var em=EntityManagerFactoryUtils.getTransactionalEntityManager(manager.getEntityManagerFactory());em.persist(new ProjectionTxProbe(UUID.randomUUID()));em.flush();assertEquals(1,count("projection_tx_probe"));flushed.set(true);throw new IllegalStateException("SYNTHETIC after JPA and JDBC writes");};
+        assertEquals(State.FAILED,coordinator("KMA_PORTAL_EQK_MSG",List.of(row),failing).collect(quake,DAY,DAY,10).state());
+        assertTrue(flushed.get(),"The ORM INSERT must actually execute before the rollback failure");
+        for(String table:List.of("disaster","source_disaster_revision","disaster_runtime_outbox","collection_raw_record","projection_tx_probe","collection_domain_coverage","collection_domain_cursor"))assertEquals(0,count(table),table);
+        assertEquals(1,count("collection_http_archive"));assertEquals(0,sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Integer.class));
+        assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(1,event("NEW"));
+    }
+    @Test void ownershipLossBeforeFinalCommitRollsBackProjection(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","valid");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        CollectionProjectionPort lost=c->{var result=projection.projectVerifiedArchive(c);sql.update("update collection_target_lease set lease_until=clock_timestamp()-interval '1 second' where run_id=?",c.run());sql.update("update collection_job_lock set lease_until=clock_timestamp()-interval '1 second' where run_id=?",c.run());return result;};
+        assertEquals(State.FAILED,coordinator("KMA_PORTAL_EQK_MSG",List.of(row),lost).collect(quake,DAY,DAY,10).state());
+        assertEquals(0,count("disaster"));assertEquals(0,event("NEW"));assertEquals(0,count("collection_domain_cursor"));
+    }
+    @Test void sameAnnouncementCorrectionAddsRawAndOfficialRevisionWithoutNewEvent(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());
+        var correction=quake("1","20261101120100","corrected same announcement");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,correction,"q",2);
+        assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",correction).state());assertEquals(1,count("collection_raw_record"));assertEquals(2,count("collection_raw_revision"));assertEquals(2,count("source_disaster_revision"));assertEquals(1,event("NEW"));assertEquals(2,event("REVISION"));
+    }
+    @Test void ormAndDomainJdbcCommitTogetherOnTheDefaultManager(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","committed");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        CollectionProjectionPort commit=c->{var result=projection.projectVerifiedArchive(c);var em=EntityManagerFactoryUtils.getTransactionalEntityManager(manager.getEntityManagerFactory());em.persist(new ProjectionTxProbe(UUID.randomUUID()));em.flush();return result;};
+        assertEquals(State.COMPLETE,coordinator("KMA_PORTAL_EQK_MSG",List.of(row),commit).collect(quake,DAY,DAY,10).state());assertEquals(1,count("projection_tx_probe"));assertEquals(1,count("disaster"));assertEquals(1,event("NEW"));
+    }
+    @Test void cursorDoesNotJumpOverMissingDays(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var last=quake("3","20261103120100","third day");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,last,"third",1);
+        assertEquals(State.COMPLETE,coordinator("KMA_PORTAL_EQK_MSG",List.of(last),projection).collect(quake,DAY.plusDays(2),DAY.plusDays(2),10).state());assertEquals(0,count("collection_domain_cursor"));
+        var first=quake("1","20261101120100","first day");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"first",1);collect(quake,"KMA_PORTAL_EQK_MSG",first);
+        assertEquals(DAY,sql.queryForObject("select through_date from collection_domain_cursor",java.sql.Date.class).toLocalDate());
+        var middle=quake("2","20261102120100","second day");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,middle,"middle",1);
+        assertEquals(State.COMPLETE,coordinator("KMA_PORTAL_EQK_MSG",List.of(middle),projection).collect(quake,DAY.plusDays(1),DAY.plusDays(1),10).state());
+        assertEquals(DAY.plusDays(2),sql.queryForObject("select through_date from collection_domain_cursor",java.sql.Date.class).toLocalDate());
+    }
+    @Test void independentCoverageDenialDoesNotAdvanceWatermark(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");state.coverage=false;var row=quake("1","20261101120100","manual only");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(1,event("NEW"));assertEquals(0,count("collection_domain_coverage"));assertEquals(0,count("collection_domain_cursor"));
+    }
+    @Test void domainMigrationPreservesOldHttpOnlySuccessAndArchive(){
+        String old="collection3_upgrade_"+UUID.randomUUID().toString().replace("-","");admin.execute("create database "+old);
+        try{
+            var ds=new DriverManagerDataSource("jdbc:postgresql://127.0.0.1:55433/"+old,"eodiisseo_audit","");
+            var locations=new String[]{"classpath:db/migration","classpath:db/owned-runtime","classpath:db/collection-executor"};
+            Flyway.configure().dataSource(ds).locations(locations).load().migrate();var db=new JdbcTemplate(ds);var tm=new DataSourceTransactionManager(ds);
+            UUID source=db.queryForObject("select source_id from data_source where endpoint_key='KMA_EARTHQUAKE'",UUID.class),target=UUID.randomUUID();
+            db.update("insert into collection_contract values('KMA_PORTAL_EQK_MSG',true)");db.update("insert into collection_target values(?,'synthetic-legacy','KMA_PORTAL_EQK_MSG',true)",target);
+            db.update("insert into collection_source_assignment values(?,1,'KMA_EARTHQUAKE',?,'KMA_PORTAL_EQK_MSG','q','COMMON_COLLECTION_V1','SYNTHETIC old approval',true,true)",source,target);db.update("update data_source set collection_assignment_epoch=1 where source_id=?",source);
+            db.update("insert into collection_quota_window values('q',now()-interval '1 hour',now()+interval '1 hour',1,0,0,now(),'SYNTHETIC quota')");
+            var owner=new CollectionOwnership(new JdbcCollectionOwnershipStore(db,tm),new CollectionContractRegistry(),Duration.ofSeconds(30));var journal=new JdbcCollectionExecutionStore(db,tm);var claim=owner.claim(source,"LIVE");
+            journal.start(claim,new Request(DAY,DAY,1,10,Duration.ofSeconds(3)),new Evidence(true,true,true,true,"SYNTHETIC old HTTP contract"));var attempt=journal.reserve(claim,1,1).orElseThrow();
+            var reply=new Reply(200,"SYNTHETIC old empty raw".getBytes(),Duration.ZERO);var policy=new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC old retention",Set.of());journal.received(attempt,reply,policy.inspect(reply.body()),policy);journal.validated(attempt,0,0);owner.finish(claim,CollectionOwnership.Outcome.SUCCESS,()->journal.terminal(claim,State.COMPLETE,"COMPLETE_RESPONSE"));
+            var before=db.queryForObject("select to_jsonb(e)::text from collection_http_execution e",String.class);var run=db.queryForObject("select to_jsonb(r)::text from collection_run r",String.class);var archive=db.queryForObject("select to_jsonb(a)::text from collection_http_archive a",String.class);
+            var flyway=Flyway.configure().dataSource(ds).locations("classpath:db/migration","classpath:db/owned-runtime","classpath:db/collection-executor","classpath:db/collection-projection").load();assertEquals(1,flyway.migrate().migrationsExecuted);flyway.validate();assertEquals(0,flyway.migrate().migrationsExecuted);
+            assertEquals(before,db.queryForObject("select (to_jsonb(e)-array['projection_required','domain_phase'])::text from collection_http_execution e",String.class));assertEquals(run,db.queryForObject("select to_jsonb(r)::text from collection_run r",String.class));assertEquals(archive,db.queryForObject("select to_jsonb(a)::text from collection_http_archive a",String.class));
+            assertNull(db.queryForObject("select domain_phase from collection_http_execution",String.class));assertEquals(0,db.queryForObject("select count(*) from collection_projection_receipt",Integer.class));
+        }finally{admin.execute("drop database "+old);}
+    }
+    @Test void realLeaseExpiryRejectsLateProjectionWithoutLateFailureWrites(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","expiry");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        var original=ownership;var reached=new java.util.concurrent.atomic.AtomicBoolean();
+        ownership=new CollectionOwnership(new JdbcCollectionOwnershipStore(sql,manager),new CollectionContractRegistry(),Duration.ofSeconds(5));
+        try{
+            CollectionProjectionPort late=c->{var result=projection.projectVerifiedArchive(c);assertEquals(1,count("disaster"));reached.set(true);try{Thread.sleep(5500);}catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException(e);}return result;};
+            assertEquals(State.HELD,coordinator("KMA_PORTAL_EQK_MSG",List.of(row),late).collect(quake,DAY,DAY,10).state());
+            assertTrue(reached.get());assertEquals(0,count("disaster"));assertEquals(0,event("NEW"));assertEquals(0,count("collection_domain_cursor"));assertEquals(0,count("collection_projection_receipt"));
+            assertEquals("RUNNING",sql.queryForObject("select status from collection_run",String.class));assertEquals(1,count("collection_http_archive"));
+        }finally{ownership=original;}
+    }
+    @Test void domainAdmissionRevokedDuringNormalizationRollsBackAllFacts(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","revoke");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);state.duringLink=()->state.admitted=false;
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(0,count("disaster"));assertEquals(0,count("collection_raw_record"));assertEquals(0,event("NEW"));assertEquals(0,count("collection_domain_coverage"));
+    }
+    @Test void emptyShelterResponseNeverDeactivatesMissingFacilities(){
+        assign(shelter,"MOIS_SHELTERS");collect(shelter,"MOIS_SHELTERS",shelter("1"));
+        assertEquals(State.FAILED,coordinator("MOIS_SHELTERS",List.of(),projection).collect(shelter,DAY,DAY,10).state());assertTrue(sql.queryForObject("select active from shelter",Boolean.class));
+        state.empty=true;assertEquals(State.COMPLETE,coordinator("MOIS_SHELTERS",List.of(),projection).collect(shelter,DAY,DAY,10).state());assertTrue(sql.queryForObject("select active from shelter",Boolean.class));
+    }
+    @Test void invalidShelterCoordinatesRollBackRawAndFacility(){
+        assign(shelter,"MOIS_SHELTERS");var row=new LinkedHashMap<>(shelter("1"));row.put("LA","999");
+        assertEquals(State.FAILED,collect(shelter,"MOIS_SHELTERS",row).state());assertEquals(0,count("shelter"));assertEquals(0,count("collection_raw_record"));assertEquals(0,count("collection_domain_cursor"));assertEquals(1,count("collection_http_archive"));
+    }
+    @Test void callerTransactionCannotRemainOpenAcrossHttp(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","ambient tx");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        var outer=new TransactionTemplate(manager);outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        var result=outer.execute(status->collect(quake,"KMA_PORTAL_EQK_MSG",row));
+        assertEquals(State.HELD,result.state());assertEquals("HTTP_REQUIRES_NO_AMBIENT_TRANSACTION",result.reason());
+        assertEquals(0,state.httpCalls.get());assertEquals(0,count("collection_run"));assertEquals(0,count("collection_http_attempt"));
+    }
+    @Test void commonRawAndOfficialHashesAreNotAssumedEqual(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","nested");var nested=new LinkedHashMap<String,Object>();nested.put("z","last");nested.put("a","first");row.put("SYNTHETIC_METADATA",nested);allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,row,"q",1);
+        assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());
+        assertNotEquals(sql.queryForObject("select raw_hash from collection_projection_receipt",String.class),sql.queryForObject("select official_hash from collection_projection_receipt",String.class));
+    }
+    List<Object> earthquakeSnapshot(){return List.of(count("disaster"),count("source_disaster_revision"),count("disaster_runtime_outbox"),count("collection_raw_record"),count("collection_raw_revision"),count("collection_domain_coverage"),count("collection_domain_cursor"),sql.queryForObject("select official_sequence from owned_incident_head",Long.class),sql.queryForList("select * from collection_domain_cursor order by target_id"),sql.queryForList("select * from collection_domain_coverage order by run_id"));}
+    @Test void earthquakeCancellationCannotReuseOccurredIncidentAdmission(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"cancellation-test",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());var before=earthquakeSnapshot();
+        var cancelled=quake("2","20261101120200","SYNTHETIC unverified cancellation");cancelled.put("cor","SYNTHETIC cancellation is not an official link rule");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,cancelled,"cancellation-test",2);
+        String key=quake+":"+OfficialRecordNormalizer.identity(OfficialProviderClient.Provider.EARTHQUAKE,cancelled)+":"+JdbcCollectionRawStore.hash(OfficialProviderClient.canonical(cancelled));var old=state.links.get(key);state.links.put(key,new VerifiedIncidentLinkPort.Link(old.source(),old.provider(),old.announcement(),old.contentSha256(),old.incidentId(),old.officialSequence(),old.issuedAt(),old.occurredAt(),VerifiedIncidentLinkPort.State.ENDED,Instant.parse("2026-11-01T03:01:00Z"),old.evidenceUrl(),old.contractVersion()));
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",cancelled).state());assertEquals(before,earthquakeSnapshot());assertEquals("OCCURRED",sql.queryForObject("select status from disaster",String.class));assertEquals(0,count("disaster_area"));
+    }
+    @Test void earthquakeReferenceAndCorrectionTextDoNotAuthorizeLinkOrProgress(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var row=quake("1","20261101120100","SYNTHETIC reference");row.put("cnt","1");row.put("fcTp","5");row.put("cor","SYNTHETIC correction");assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",row).state());assertEquals(0,count("disaster"));assertEquals(0,count("source_disaster_revision"));assertEquals(0,count("disaster_runtime_outbox"));assertEquals(0,count("collection_domain_coverage"));assertEquals(0,count("collection_domain_cursor"));assertEquals(1,count("collection_http_archive"));assertEquals("EARTHQUAKE_UNLINKED",sql.queryForObject("select result from collection_projection_receipt",String.class));
+    }
+    @Test void earthquakeMonthlyBulletinNumberIsNotTheVerifiedIncidentSequence(){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("99","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"external-sequence-test",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());
+        var next=quake("1","20261101120200","SYNTHETIC explicitly linked followup");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,next,"external-sequence-test",2);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",next).state());assertEquals(2,sql.queryForObject("select official_sequence from owned_incident_head",Long.class));assertEquals(1,event("NEW"));assertEquals(2,event("REVISION"));
+    }
+    @ParameterizedTest @ValueSource(strings={"OBJECT","ARRAY","NUMBER"})
+    void invalidEarthquakeLocationShapeCannotAdvanceVerifiedHead(String shape){
+        assign(quake,"KMA_PORTAL_EQK_MSG");var first=quake("1","20261101120100","SYNTHETIC first");allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,first,"bad-location-test",1);assertEquals(State.COMPLETE,collect(quake,"KMA_PORTAL_EQK_MSG",first).state());var before=earthquakeSnapshot();
+        var invalid=quake("2","20261101120200","SYNTHETIC correction");invalid.put("loc",switch(shape){case "OBJECT"->Map.of("region","not an official code");case "ARRAY"->List.of("not a region mapping");default->42;});allow(quake,OfficialProviderClient.Provider.EARTHQUAKE,invalid,"bad-location-test",2);
+        assertEquals(State.FAILED,collect(quake,"KMA_PORTAL_EQK_MSG",invalid).state());assertEquals(before,earthquakeSnapshot());assertEquals(0,count("disaster_area"));
+    }
+
+    Map<String,Object> rainDomainSnapshot(){var snapshot=new LinkedHashMap<String,Object>();for(String table:List.of("disaster","source_disaster","source_disaster_revision","disaster_runtime_outbox","disaster_area","disaster_change","collection_raw_record","collection_raw_revision","collection_domain_cursor","collection_domain_coverage"))snapshot.put(table,sql.queryForList("select * from "+table+" order by 1"));return snapshot;}
+    void initialRain(){assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",rain("1","20261101120100","1")).state());}
+    @Test void rainMissingStartCannotReuseOldWarning(){
+        initialRain();var before=rainDomainSnapshot();var missing=rain("2","20261101120200","1");missing.put("startTime","0");assertEquals(State.FAILED,collect(rain,"KMA_RAIN_CODES",missing).state());assertEquals(before,rainDomainSnapshot());
+    }
+    Reply rainReply(Request request,int total,List<Map<String,Object>> rows){return new Reply(200,JSON.writeValueAsBytes(Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("pageNo",request.page(),"numOfRows",request.rows(),"totalCount",total,"items",Map.of("item",rows))))),Duration.ZERO);}
+    @ParameterizedTest @ValueSource(strings={"ZERO_WITH_ROWS","MISSING_META","WRONG_PAGE","TOTAL_CHANGE","DUPLICATE","CONTENT_CHANGE","PARTIAL_HTTP_FAILURE","EMPTY","SHORT_MIDDLE"})
+    void rainIncompletePagesNeverPromoteOrChangeExistingDomain(String scenario){
+        initialRain();var before=rainDomainSnapshot();long archives=count("collection_http_archive"),normal=sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Long.class);
+        var first=rain("2","20261101120200","7");var next=new LinkedHashMap<>(first);next.put("areaCode","Z_OTHER");
+        var provider=new OfficialCollectionProviderPlugin("KMA_RAIN_CODES",(contract,r)->{
+            if(scenario.equals("ZERO_WITH_ROWS"))return rainReply(r,0,List.of(first));
+            if(scenario.equals("EMPTY"))return rainReply(r,0,List.of());
+            if(scenario.equals("MISSING_META"))return new Reply(200,JSON.writeValueAsBytes(Map.of("response",Map.of("header",Map.of("resultCode","00"),"body",Map.of("totalCount",1,"items",Map.of("item",List.of(first)))))),Duration.ZERO);
+            if(scenario.equals("WRONG_PAGE"))return rainReply(new Request(r.from(),r.to(),2,r.rows(),r.timeout()),1,List.of(first));
+            if(scenario.equals("SHORT_MIDDLE"))return rainReply(r,3,List.of(first));
+            if(r.page()==1)return rainReply(r,2,List.of(first));
+            return switch(scenario){case "TOTAL_CHANGE"->rainReply(r,3,List.of(next));case "DUPLICATE"->rainReply(r,2,List.of(first));case "CONTENT_CHANGE"->{var changed=new LinkedHashMap<>(first);changed.put("warnStress","2");yield rainReply(r,2,List.of(changed));}default->new Reply(503,new byte[0],Duration.ZERO);};
+        },new Evidence(true,true,false,true,"SYNTHETIC finite paging - not operating evidence"));
+        int rows=scenario.equals("SHORT_MIDDLE")?2:1;var run=new CollectionCoordinator(ownership,store,List.of(provider),new CollectionCoordinator.Policy(true,2,1,2,Duration.ofSeconds(5),Duration.ZERO),new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC private retention",Set.of()),projection).collect(rain,DAY,DAY,rows);
+        assertNotEquals(State.COMPLETE,run.state());assertEquals(before,rainDomainSnapshot());int expectedPages=Set.of("TOTAL_CHANGE","DUPLICATE","CONTENT_CHANGE","PARTIAL_HTTP_FAILURE").contains(scenario)?2:1;assertEquals(archives+expectedPages,count("collection_http_archive"));if(expectedPages==2)assertEquals(1,sql.queryForObject("select count(*) from collection_http_attempt where run_id=? and state='VALIDATED'",Integer.class,run.run()));assertEquals(normal,sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Long.class));assertEquals(0,sql.queryForObject("select count(*) from collection_run where run_id=? and status='SUCCESS'",Integer.class,run.run()));
+    }
+    @Test void rainExpiredMappingRollsBackCorrectionAndReportsUnknown(){
+        initialRain();UUID disaster=sql.queryForObject("select disaster_id from disaster",UUID.class);var before=rainDomainSnapshot();var old=state.mappings.get("Z_TEST");state.mappings.put("Z_TEST",new OfficialWarningAreaMappingPort.Mapping(old.warningZone(),old.exactAdminAreaCodes(),old.evidenceUrl(),"expired-version",old.validFrom(),Instant.now().minusSeconds(1),true));
+        assertEquals(State.FAILED,collect(rain,"KMA_RAIN_CODES",rain("2","20261101120200","7")).state());assertEquals(before,rainDomainSnapshot());assertEquals(com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.UNKNOWN,app.getBean(com.disasterinfo.eodiisseo.disaster.adapter.VerifiedWarningImpactReader.class).find(disaster,Instant.now()).knowledge());
+    }
+    @Test void rainMonthlyNumberReuseDoesNotCreateGlobalIncidentIdentity(){
+        assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");var first=rain("1","20261031120100","1");first.put("startTime","20261031120000");LocalDate october=LocalDate.of(2026,10,31);assertEquals(State.COMPLETE,coordinator("KMA_RAIN_CODES",List.of(first),projection).collect(rain,october,october,10).state());
+        var next=rain("1","20261101120100","7");next.put("startTime","20261031120000");assertEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",next).state());assertEquals(1,count("disaster"));assertEquals(2,count("source_disaster_revision"));assertEquals(2,count("collection_raw_record"));assertEquals(1,event("NEW"));
+    }
+    @Test void rainSameAnnouncementAcrossZonesRetainsBothExactMappings(){
+        assign(rain,"KMA_RAIN_CODES");mapping("SYNTHETIC_A","map1");var first=rain("1","20261101120100","1");var other=new LinkedHashMap<>(first);other.put("areaCode","Z_OTHER");state.mappings.put("Z_OTHER",new OfficialWarningAreaMappingPort.Mapping("Z_OTHER",Set.of("SYNTHETIC_B"),URI.create("https://www.kma.go.kr/SYNTHETIC-test-only"),"map2",Instant.parse("2020-01-01T00:00:00Z"),state.until,true));
+        assertEquals(State.COMPLETE,coordinator("KMA_RAIN_CODES",List.of(first,other),projection).collect(rain,DAY,DAY,10).state());assertEquals(2,count("disaster"));assertEquals(2,count("disaster_area"));assertEquals(2,event("NEW"));
+    }
+    @ParameterizedTest @ValueSource(strings={"CANCEL","MISSING_END","WRONG_START","UNKNOWN_CODE","INVALID_TIME","INVALID_ZONE"})
+    void rainInvalidFollowupPreservesWarningRevisionAndArea(String scenario){
+        initialRain();var before=rainDomainSnapshot();var row=rain("2","20261101120200","7");switch(scenario){case "CANCEL"->row.put("cancel","1");case "MISSING_END"->{row.put("command","2");row.put("startTime","0");row.put("endTime","0");row.put("allEndTime","20261101120200");}case "WRONG_START"->row.put("startTime","20261101110000");case "UNKNOWN_CODE"->row.put("command","9");case "INVALID_TIME"->row.put("tmFc","202602301200");default->row.put("areaCode","Z_TEST:UNKNOWN");}
+        assertNotEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",row).state());assertEquals(before,rainDomainSnapshot());if(scenario.equals("CANCEL")){assertNotEquals(State.COMPLETE,collect(rain,"KMA_RAIN_CODES",row).state());assertEquals(before,rainDomainSnapshot());}
+    }
+
+    Reply messageReply(Request request,int total,List<Map<String,Object>> rows){return new Reply(200,JSON.writeValueAsBytes(Map.of("header",Map.of("resultCode","00"),"pageNo",request.page(),"numOfRows",request.rows(),"totalCount",total,"body",rows)),Duration.ZERO);}
+    @ParameterizedTest @ValueSource(strings={"NO_INCREMENTAL","MISSING_ECHO","LATE_DATE","ZERO_WITH_ROWS","WRONG_PAGE","TOTAL_CHANGE","DUPLICATE","CONTENT_CHANGE","PARTIAL_HTTP_FAILURE","EMPTY","INVALID_ID"})
+    void messageUnconfirmedCollectionKeepsQuarantineAndCannotCreateIncidentsOrWatermarks(String scenario){
+        assign(message,"MOIS_MESSAGES");var first=new LinkedHashMap<String,Object>(Map.of("SN","0001","DST_SE_NM","산불","MSG_CN","SYNTHETIC fire is not an incident","CRT_DT","2026/10/31 23:59:59","MDFCN_YMD","2026/11/01 10:00:00.123456789"));var next=new LinkedHashMap<>(first);next.put("SN","0002");
+        var provider=new OfficialCollectionProviderPlugin("MOIS_MESSAGES",(contract,r)->{
+            if(scenario.equals("MISSING_ECHO"))return new Reply(200,JSON.writeValueAsBytes(Map.of("header",Map.of("resultCode","00"),"totalCount",1,"body",List.of(first))),Duration.ZERO);
+            if(scenario.equals("LATE_DATE"))return messageReply(r,1,List.of(first));if(scenario.equals("EMPTY"))return messageReply(r,0,List.of());if(scenario.equals("ZERO_WITH_ROWS"))return messageReply(r,0,List.of(first));
+            if(scenario.equals("WRONG_PAGE"))return messageReply(new Request(r.from(),r.to(),2,r.rows(),r.timeout()),1,List.of(first));if(scenario.equals("INVALID_ID")){var bad=new LinkedHashMap<>(first);bad.put("SN",true);return messageReply(r,1,List.of(bad));}
+            if(r.page()==1)return messageReply(r,2,List.of(first));return switch(scenario){case "TOTAL_CHANGE"->messageReply(r,3,List.of(next));case "DUPLICATE"->messageReply(r,2,List.of(first));case "CONTENT_CHANGE"->{var changed=new LinkedHashMap<>(first);changed.put("MSG_CN","SYNTHETIC different content");changed.put("MDFCN_YMD","2026/10/30 01:00:00.000000001");yield messageReply(r,2,List.of(changed));}case "PARTIAL_HTTP_FAILURE"->new Reply(503,new byte[0],Duration.ZERO);default->messageReply(r,2,List.of(next));};
+        },new Evidence(true,true,false,false,"SYNTHETIC observation only; incremental contract intentionally absent"));
+        var run=new CollectionCoordinator(ownership,store,List.of(provider),new CollectionCoordinator.Policy(true,2,1,2,Duration.ofSeconds(5),Duration.ZERO),new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC private retention",Set.of()),projection).collect(message,DAY,DAY,1);
+        assertNotEquals(State.COMPLETE,run.state());if(Set.of("NO_INCREMENTAL","MISSING_ECHO","LATE_DATE").contains(scenario))assertEquals("INCREMENTAL_CONTRACT_REQUIRED",run.reason());
+        int expectedPages=Set.of("NO_INCREMENTAL","TOTAL_CHANGE","DUPLICATE","CONTENT_CHANGE","PARTIAL_HTTP_FAILURE").contains(scenario)?2:1;assertEquals(expectedPages,count("collection_http_archive"));if(expectedPages==2&&!scenario.equals("NO_INCREMENTAL"))assertEquals(1,sql.queryForObject("select count(*) from collection_http_attempt where run_id=? and state='VALIDATED'",Integer.class,run.run()));
+        for(String table:List.of("disaster","source_disaster_revision","owned_incident_head","disaster_runtime_outbox","disaster_area","collection_raw_record","collection_raw_revision","collection_domain_cursor","collection_domain_coverage"))assertEquals(0,count(table),table);assertEquals(0,sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Integer.class));assertEquals(0,sql.queryForObject("select count(*) from collection_run where status='SUCCESS'",Integer.class));
+    }
+    @Test void wildfireAndMessagesUseIndependentSourceAndTargetAndCannotMergeMatchingIds(){
+        assign(message,"MOIS_MESSAGES");UUID messageTarget=sql.queryForObject("select target_id from collection_source_assignment where source_id=? and epoch=?",UUID.class,message,epoch);var msg=Map.<String,Object>of("SN","SYNTHETIC-SAME-ID","DST_SE_NM","산불","MSG_CN","SYNTHETIC same place/time is not a relationship","CRT_DT","2026/11/01 12:01:00","LINK_MSG_ID","SYNTHETIC-SAME-ID","FRSTFR_INFO_ID","SYNTHETIC-SAME-ID");assertEquals(State.FAILED,collect(message,"MOIS_MESSAGES",msg).state());
+        UUID fire=UUID.randomUUID();sql.update("insert into data_source values(?,'SYNTHETIC disabled wildfire','DISASTER','SAFETYDATA_WILDFIRE',5,true)",fire);sql.update("insert into collection_contract values('MOIS_WILDFIRE',true) on conflict do nothing");assign(fire,"MOIS_WILDFIRE");assertNotEquals(message,fire);assertNotEquals(messageTarget,sql.queryForObject("select target_id from collection_source_assignment where source_id=? and epoch=?",UUID.class,fire,epoch));var calls=new java.util.concurrent.atomic.AtomicInteger();var disabled=new OfficialCollectionProviderPlugin("MOIS_WILDFIRE",(c,r)->{calls.incrementAndGet();throw new AssertionError("Disabled wildfire must not call HTTP");});
+        var result=new CollectionCoordinator(ownership,store,List.of(disabled),new CollectionCoordinator.Policy(true,1,1,1,Duration.ofSeconds(5),Duration.ZERO),new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC private retention",Set.of()),projection).collect(fire,DAY,DAY,1);assertEquals(State.FAILED,result.state());assertEquals("CONTRACT_REQUIRED",result.reason());assertEquals(0,calls.get());assertEquals(1,count("collection_http_archive"));assertEquals(0,count("disaster"));assertEquals(0,count("disaster_runtime_outbox"));assertEquals(0,count("collection_domain_cursor"));
+    }
+
+
+    Map<String,Object> shelterSnapshot(){var snapshot=new LinkedHashMap<String,Object>();for(String table:List.of("shelter","collection_raw_record","collection_raw_revision","disaster","source_disaster_revision","disaster_runtime_outbox","collection_domain_cursor","collection_domain_coverage"))snapshot.put(table,sql.queryForList("select * from "+table+" order by 1"));return snapshot;}
+    @Test void shelterNameAddressAndCapacityChangesKeepIdentityAndReachUserRepository(){
+        assign(shelter,"MOIS_SHELTERS");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",shelter("1")).state());UUID id=sql.queryForObject("select shelter_id from shelter",UUID.class);var row=new LinkedHashMap<>(shelter("1"));row.put("VT_ACMDFCLTY_NM","SYNTHETIC renamed facility");row.put("RN_DTL_ADRES","SYNTHETIC new address");row.put("VT_ACMD_PSBL_NMPR","24");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",row).state());assertEquals(id,sql.queryForObject("select shelter_id from shelter",UUID.class));assertEquals(2,count("collection_raw_revision"));
+        var repository=new com.disasterinfo.eodiisseo.shelter.repository.JdbcShelterRepository(sql);var visible=repository.findById(id).orElseThrow();assertEquals("SYNTHETIC renamed facility",visible.name());assertEquals("SYNTHETIC new address",visible.address());assertEquals(24,visible.capacity());assertEquals(37.1,visible.latitude(),0.000001);assertEquals(127.1,visible.longitude(),0.000001);assertEquals(com.disasterinfo.eodiisseo.shelter.entity.ShelterType.EARTHQUAKE_OUTDOOR,visible.type());assertTrue(repository.findWithin(37.1,127.1,100).stream().anyMatch(x->x.id().equals(id)));assertEquals(0,count("disaster_runtime_outbox"));
+    }
+    @Test void shelterSameAddressOrSerialDoesNotMergeDistinctCompositeKeys(){
+        assign(shelter,"MOIS_SHELTERS");var a=new LinkedHashMap<>(shelter("1"));a.put("ACMDFCLTY_SN","0001");a.put("RN_DTL_ADRES","SYNTHETIC same address");var b=new LinkedHashMap<>(a);b.put("ARCD","OTHER");var c=new LinkedHashMap<>(a);c.put("ACMDFCLTY_SN","0002");assertEquals(State.COMPLETE,coordinator("MOIS_SHELTERS",List.of(a,b,c),projection).collect(shelter,DAY,DAY,10).state());assertEquals(3,count("shelter"));assertEquals(3,sql.queryForObject("select count(distinct shelter_id) from shelter",Integer.class));assertEquals(0,count("disaster_runtime_outbox"));
+    }
+    @ParameterizedTest @ValueSource(strings={"ZERO_USE","UNKNOWN_USE","MISSING_USE","MISSING_COORDS","ZERO_COORD","SWAPPED","MOVE_COORD","BAD_CAPACITY","FRACTION_CAPACITY","BAD_AREA","BAD_ID"})
+    void shelterInvalidCorrectionPreservesFacilityRawRevisionsAndWatermarks(String scenario){
+        assign(shelter,"MOIS_SHELTERS");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",shelter("1")).state());var before=shelterSnapshot();var row=new LinkedHashMap<>(shelter("1"));switch(scenario){case "ZERO_USE"->row.put("USE_SE_CD","0");case "UNKNOWN_USE"->row.put("USE_SE_CD","9");case "MISSING_USE"->row.remove("USE_SE_CD");case "MISSING_COORDS"->{row.remove("LA");row.remove("LO");}case "ZERO_COORD"->row.put("LO","0");case "SWAPPED"->{row.put("LA","127.1");row.put("LO","37.1");}case "MOVE_COORD"->row.put("LO","128.1");case "BAD_CAPACITY"->row.put("VT_ACMD_PSBL_NMPR",-1);case "FRACTION_CAPACITY"->row.put("VT_ACMD_PSBL_NMPR","1.2");case "BAD_AREA"->row.put("FCLTY_AR",-1);default->row.put("ACMDFCLTY_SN",true);}
+        assertNotEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",row).state());assertEquals(before,shelterSnapshot());assertEquals(2,count("collection_http_archive"));assertEquals(1,sql.queryForObject("select count(*) from collection_http_archive where classification='QUARANTINE'",Integer.class));
+    }
+    @ParameterizedTest @ValueSource(strings={"ZERO_WITH_ROWS","TOTAL_CHANGE","DUPLICATE","CONTENT_CHANGE","HTTP_FAILURE","SHORT_PAGE","WRONG_PAGE","EMPTY_UNVERIFIED","NO_SNAPSHOT","MISSING_TOTAL"})
+    void shelterIncompleteSnapshotCannotDeactivateOrReplaceExistingFacilities(String scenario){
+        assign(shelter,"MOIS_SHELTERS");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",shelter("1")).state());var before=shelterSnapshot();var first=new LinkedHashMap<>(shelter("1"));first.put("VT_ACMDFCLTY_NM","SYNTHETIC changed during paging");var next=new LinkedHashMap<>(first);next.put("ACMDFCLTY_SN","2");
+        var provider=new OfficialCollectionProviderPlugin("MOIS_SHELTERS",(c,r)->{
+            if(scenario.equals("EMPTY_UNVERIFIED"))return messageReply(r,0,List.of());if(scenario.equals("ZERO_WITH_ROWS"))return messageReply(r,0,List.of(first));if(scenario.equals("WRONG_PAGE"))return messageReply(new Request(r.from(),r.to(),2,r.rows(),r.timeout()),1,List.of(first));if(scenario.equals("SHORT_PAGE"))return messageReply(r,3,List.of(first));if(scenario.equals("MISSING_TOTAL"))return new Reply(200,JSON.writeValueAsBytes(Map.of("header",Map.of("resultCode","00"),"body",List.of(first))),Duration.ZERO);if(scenario.equals("NO_SNAPSHOT"))return messageReply(r,1,List.of(first));if(r.page()==1)return messageReply(r,2,List.of(first));return switch(scenario){case "TOTAL_CHANGE"->messageReply(r,3,List.of(next));case "DUPLICATE"->messageReply(r,2,List.of(first));case "CONTENT_CHANGE"->{var changed=new LinkedHashMap<>(first);changed.put("VT_ACMDFCLTY_NM","SYNTHETIC conflict");yield messageReply(r,2,List.of(changed));}default->new Reply(503,new byte[0],Duration.ZERO);};
+        },new Evidence(true,!scenario.equals("NO_SNAPSHOT"),false,true,"SYNTHETIC bounded test only"));
+        var run=new CollectionCoordinator(ownership,store,List.of(provider),new CollectionCoordinator.Policy(true,2,1,2,Duration.ofSeconds(5),Duration.ZERO),new CollectionArchivePolicy(Duration.ofHours(1),"SYNTHETIC retention",Set.of()),projection).collect(shelter,DAY,DAY,scenario.equals("SHORT_PAGE")?2:1);assertNotEquals(State.COMPLETE,run.state());assertEquals(before,shelterSnapshot());assertTrue(count("collection_http_archive")>1);assertEquals(1,sql.queryForObject("select count(*) from collection_http_archive where classification='NORMAL'",Integer.class));
+    }
+    @Test void shelterSecondItemFailureRollsBackFirstItemAndKeepsQuarantine(){
+        assign(shelter,"MOIS_SHELTERS");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",shelter("1")).state());var before=shelterSnapshot();sql.execute("create function synthetic_shelter_failure() returns trigger language plpgsql as $$ begin if NEW.name='SYNTHETIC DB failure' then raise exception 'SYNTHETIC failure'; end if; return NEW; end $$");sql.execute("create trigger synthetic_shelter_failure before insert or update on shelter for each row execute function synthetic_shelter_failure()");
+        try{var a=new LinkedHashMap<>(shelter("1"));a.put("VT_ACMDFCLTY_NM","SYNTHETIC first update");var b=new LinkedHashMap<>(a);b.put("ACMDFCLTY_SN","2");b.put("VT_ACMDFCLTY_NM","SYNTHETIC DB failure");assertEquals(State.FAILED,coordinator("MOIS_SHELTERS",List.of(a,b),projection).collect(shelter,DAY,DAY,10).state());assertEquals(before,shelterSnapshot());assertEquals(1,sql.queryForObject("select count(*) from collection_http_archive where classification='QUARANTINE'",Integer.class));}finally{sql.execute("drop trigger synthetic_shelter_failure on shelter");sql.execute("drop function synthetic_shelter_failure()");}
+    }
+
+
+    @Test void shelterPreviouslyInactiveFacilityCannotBeImplicitlyRedesignated(){
+        assign(shelter,"MOIS_SHELTERS");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",shelter("1")).state());sql.update("update shelter set active=false");var before=shelterSnapshot();var run=collect(shelter,"MOIS_SHELTERS",shelter("1"));assertEquals(State.FAILED,run.state());assertEquals("SHELTER_REACTIVATION_CONTRACT_REQUIRED",run.reason());assertEquals(before,shelterSnapshot());assertEquals(1,sql.queryForObject("select count(*) from collection_http_archive where classification='QUARANTINE'",Integer.class));
+    }
+
+    @ParameterizedTest @ValueSource(strings={"CAPACITY","ADDRESS","BLANK_PRIMARY_ADDRESS"})
+    void shelterOmittedOptionalFactCannotClearKnownFacilityInformation(String missing){
+        assign(shelter,"MOIS_SHELTERS");var row=new LinkedHashMap<>(shelter("1"));row.put("RN_DTL_ADRES","SYNTHETIC known address");assertEquals(State.COMPLETE,collect(shelter,"MOIS_SHELTERS",row).state());var before=shelterSnapshot();row.remove(missing.equals("CAPACITY")?"VT_ACMD_PSBL_NMPR":"RN_DTL_ADRES");if(missing.equals("BLANK_PRIMARY_ADDRESS")){row.put("RN_DTL_ADRES","");row.put("EQK_ACMDFCLTY_ADRES","SYNTHETIC fallback would be ignored by legacy writer");}var run=collect(shelter,"MOIS_SHELTERS",row);assertEquals(State.FAILED,run.state());assertEquals("SHELTER_ATTRIBUTES_REQUIRE_REVIEW",run.reason());assertEquals(before,shelterSnapshot());
+    }
+}

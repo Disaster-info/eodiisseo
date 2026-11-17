@@ -1,0 +1,52 @@
+{
+  "isTest": true,
+  "schemaVersion": "2.0.0",
+  "fixtureValuesAreSynthetic": true,
+  "scenarioFiles": [
+    "earthquake.json",
+    "heavy-rain.json",
+    "wildfire.json"
+  ],
+  "sharedResponseFiles": [
+    "earthquake-shelters.json",
+    "earthquake-shelters-empty.json",
+    "tmap-pedestrian.json",
+    "tmap-pedestrian-empty.json",
+    "weather-no-data.json"
+  ],
+  "sources": [
+    {
+      "api": "DSSP-IF-00247",
+      "scope": "SN, CRT_DT, MSG_CN, RCPTN_RGN_NM, EMRG_STEP_NM",
+      "reference": "https://www.safetydata.go.kr/disaster-data/view?dataSn=228",
+      "verification": "공식 조회 필드와 프로젝트 외부 API 정리본 기준. 이 프로젝트에서 실응답 타입·코드값 검증 전."
+    },
+    {
+      "api": "getUltraSrtNcst / getUltraSrtFcst",
+      "scope": "T1H, PTY / SKY",
+      "reference": "backend/src/main/java/com/disasterinfo/eodiisseo/weather/client/KmaWeatherProvider.java"
+    },
+    {
+      "api": "DSSP-IF-10943",
+      "scope": "현재 EarthquakeShelterItem DTO 필드",
+      "reference": "backend/src/main/java/com/disasterinfo/eodiisseo/integration/safetydata/EarthquakeShelterItem.java"
+    },
+    {
+      "api": "TMAP 보행자 경로",
+      "scope": "FeatureCollection, geometry, totalDistance, totalTime, description 등",
+      "reference": "backend/src/main/java/com/disasterinfo/eodiisseo/integration/tmap/TmapResponseDto.java"
+    }
+  ],
+  "limits": [
+    "CRT_DT는 문자 생성시각이며 재난 발생시각이 아니다.",
+    "RCPTN_RGN_NM은 수신지역이며 피해·영향 경계가 아니다.",
+    "EMRG_STEP_NM은 문자 긴급단계이며 재난 심각도 등급이 아니다.",
+    "회원·그룹·개인 GPS·체크리스트 완료·알림 발송·AI 결과·수집 상태는 제공하지 않는다.",
+    "산불 피해면적·대응단계·진화율, 임의 재난 상태·종료시각·영향 폴리곤은 생성하지 않는다.",
+    "지진 규모·진앙은 별도 기상청 지진 응답 계약을 검증하기 전에는 생성하지 않는다.",
+    "초단기실황의 격자는 날씨 조회 지점이며 재난 위치가 아니다.",
+    "지진 옥외대피장소를 호우·산불용 시설로 간주하지 않는다.",
+    "시설 수용인원은 현재 남은 자리 수가 아니다.",
+    "가상 TMAP 좌표·거리·시간은 응답 파싱용이며 실제 통행·재난 안전성 검증이 아니다."
+  ]
+}

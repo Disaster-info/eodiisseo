@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "approvalState": "PENDING",
+  "notice": "Metadata and fingerprints only. No official body or automatic import/approval.",
+  "sources": [
+    {
+      "operation": "PLAN",
+      "sourceUrl": "https://nonsan.go.kr/kor/html/sub05/050610.html?mode=V&no=b3a79c4a1274bdfe06e9cd3418efd51f",
+      "sourceTitle": "여름철 자연재난(호우·태풍 등) 행동요령 (행정안전부 표기·논산시 게시)",
+      "publisher": "논산시",
+      "disasterType": "HEAVY_RAIN",
+      "registeredDate": "2026-06-09",
+      "sourceVersion": "registered-2026-06-09_checked-2026-11-04",
+      "checkedAt": "2026-11-04T00:00:00Z",
+      "mediaType": "text/html; inspected text-only export",
+      "approvalState": "PENDING",
+      "rightsState": "TYPE1_SCOPED_VERIFIED",
+      "rightsEvidenceUrl": "https://nonsan.go.kr/kor/html/sub05/050610.html?mode=V&no=b3a79c4a1274bdfe06e9cd3418efd51f",
+      "rightsEvidence": "Explicit KOGL Type 1 on source article; scope: safety text only; publishing institution and original agency credit retained. Third-party logos, screenshots, QR and graphics excluded.",
+      "contentFingerprint": "33a01c3e3a68dfb118f99cd3c821de8eb207ce7895797d80c511a266c31876cf",
+      "sections": [
+        {
+          "section": "EVACUATE",
+          "sourceLocator": "Attached file_id=222656; top-left and bottom-left safety text"
+        },
+        {
+          "section": "PLACE",
+          "sourceLocator": "Attached file_id=222656; three visual rows, six complete text blocks"
+        },
+        {
+          "section": "DONT",
+          "sourceLocator": "Attached file_id=222656; road/underpass and river/slope cautions"
+        }
+      ]
+    },
+    {
+      "operation": "PLAN",
+      "sourceUrl": "https://www.rda.go.kr/board/board.do?dataNo=100000801828&mode=view&prgId=con_cardnews",
+      "sourceTitle": "산불 국민행동요령 (산림청 표기·농촌진흥청 게시)",
+      "publisher": "농촌진흥청",
+      "disasterType": "WILDFIRE",
+      "registeredDate": "2025-03-28",
+      "sourceVersion": "registered-2025-03-28_checked-2026-11-04",
+      "checkedAt": "2026-11-04T00:00:00Z",
+      "mediaType": "text/html; inspected text-only export",
+      "approvalState": "PENDING",
+      "rightsState": "TYPE1_SCOPED_VERIFIED",
+      "rightsEvidenceUrl": "https://www.rda.go.kr/board/board.do?dataNo=100000801828&mode=view&prgId=con_cardnews",
+      "rightsEvidence": "Explicit KOGL Type 1 on source article; scope: safety text only; publishing institution and original agency credit retained. Third-party logos, screenshots, QR and graphics excluded.",
+      "contentFingerprint": "952a2f0de3b88c65bc9245da8a4994a9759501b61f261ab6dc32b80bd9e8bfbb",
+      "sections": [
+        {
+          "section": "PREPARE",
+          "sourceLocator": "RDA article main IMG ALT, Unicode range 10:87; compared with supplied poster section 1"
+        },
+        {
+          "section": "DURING",
+          "sourceLocator": "RDA article main IMG ALT, Unicode range 87:163; compared with supplied poster section 2"
+        },
+        {
+          "section": "EVACUATE",
+          "sourceLocator": "RDA article main IMG ALT, Unicode range 290:354; compared with supplied poster section 3"
+        },
+        {
+          "section": "AFTER",
+          "sourceLocator": "RDA article main IMG ALT, Unicode range 354:413; compared with supplied poster section 4"
+        }
+      ]
+    }
+  ],
+  "earthquake": {
+    "sourceUrl": "https://www.mois.go.kr/frt/bbs/type010/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000008&nttId=89696",
+    "publisher": "행정안전부",
+    "approvalState": "METADATA_ONLY",
+    "rightsState": "TYPE1_ARTICLE_ONLY",
+    "contentFingerprint": null,
+    "exclusion": "2022 press-release PDF; general-policy text and small embedded figures, not a validated current general-action text corpus. COVID-specific obsolete guidance excluded."
+  }
+}

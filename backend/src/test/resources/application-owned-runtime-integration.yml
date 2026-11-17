@@ -1,0 +1,25 @@
+spring:
+  config:
+    import: optional:classpath:/owned-runtime-no-local-secrets.properties
+  flyway:
+    enabled: true
+    locations: classpath:db/migration,classpath:db/owned-runtime
+  jpa:
+    hibernate:
+      ddl-auto: validate
+AUTH_BRIDGES_ENABLED: true
+EODIISSEO_AI_OLLAMA_ENABLED: false
+eodiisseo:
+  owned-http:
+    enabled: true
+  owned-runtime:
+    enabled: true
+  runtime:
+    enabled: false
+  notification:
+    persistence:
+      enabled: true
+    crypto:
+      enabled: true
+  fcm:
+    enabled: false
