@@ -70,26 +70,6 @@ export default function RouteScreen({ id }: { id: number }) {
   if (!sh) return <View style={s.fill}><Header title="대피 경로" /><Text style={s.center}>대피소 정보를 찾을 수 없습니다.</Text></View>;
   const startName = picked ? `${picked.m.name}님 위치` : myName;
 
-  const key = `${id}|${useCurrent ? 'gps' : place ? `${place.lat},${place.lon}` : location}|${tries}`;
-  const result = res?.key === key ? res.value : 'loading';
-
-  useEffect(() => {
-    if (!sh || blocked) return;
-    let alive = true; // 화면을 떠나거나 조건이 바뀌면 늦게 온 응답은 버림
-    (async (): Promise<Found | 'denied'> => {
-      let from: LatLon;
-      if (useCurrent) {
-        if (!(await Location.requestForegroundPermissionsAsync()).granted) return 'denied';
-        const { coords } = await Location.getCurrentPositionAsync({});
-        from = { lat: coords.latitude, lon: coords.longitude };
-      } else from = place ?? (await coordsOf(location)); // 장소 검색으로 고른 곳, 지역만 골랐으면 그 지역 대표 좌표
-      return { ...(await searchRoute(from, sh)), from };
-    })().then(value => alive && setRes({ key, value }), () => alive && setRes({ key, value: 'error' }));
-    return () => { alive = false; };
-  }, [key, sh, useCurrent, place, location, blocked]);
-
-  if (!sh) return <View style={s.fill}><Header title="대피 경로" /><Text style={s.center}>대피소 정보를 찾을 수 없습니다.</Text></View>;
-  const startName = useCurrent ? '현재 위치' : place?.name ?? location;
 
   return (
     <View style={s.fill}>
