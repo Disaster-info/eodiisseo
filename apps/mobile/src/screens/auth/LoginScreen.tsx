@@ -1,17 +1,18 @@
 // FS-AUTH-001 Google 로그인, FS-AUTH-002 Kakao 로그인, FS-AUTH-004 만료 후 재인증 안내
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { SocialButtons } from '../../components/social';
-import { Btn, Icon, useLayout, useTheme } from '../../components/ui';
+import { Btn, Icon, confirm, useLayout, useTheme } from '../../components/ui';
+import { WithdrawalPending, endSession, sessionAccount } from '../../data/api';
 import { useSocialLogin } from '../../data/auth';
-import { Provider, mockAdminAuthenticate } from '../../data/mock';
+import { MemberInfo, Provider } from '../../data/types';
 import { useApp } from '../../store/AppContext';
 
 export default function LoginScreen() {
   const { C, s } = useTheme();
   const { column } = useLayout();
   const { login, loginNotice } = useApp();
-  const [pending, setPending] = useState<string | null>(null); // 진행 중인 로그인 이름 (Google·Kakao·관리자)
+  const [pending, setPending] = useState<string | null>(null); // 진행 중인 로그인 이름 (Google·Kakao). 운영자도 같은 소셜 로그인 (서버의 OPS 권한으로 구분)
   const [error, setError] = useState('');
   const attempt = useRef(0); // 취소된 인증 결과를 무시하기 위한 번호
   const authenticate = useSocialLogin();
@@ -20,23 +21,35 @@ export default function LoginScreen() {
     const my = ++attempt.current;
     setError(''); setPending(p);
     try {
-      const info = await authenticate(p);
-      if (my !== attempt.current) return;
-      if (info) login(p, info);
-      else setPending(null); // 로그인 창을 닫음 → 화면 유지
+      const cancelled = () => my !== attempt.current;
+      const info = await authenticate(p, cancelled); // 취소하면 토큰을 저장하지 않음
+      if (!info) { if (!cancelled()) setPending(null); return; } // 로그인 창을 닫음 → 화면 유지
+      const mine = sessionAccount(); // 이 시도가 저장한 세션
+      // 인증이 끝난 뒤(또는 저장된 설정을 읽는 사이) 취소했으면 이 시도가 저장한 토큰을 지움 (다시 열었을 때 취소한 계정으로 로그인되지 않게)
+      // 그 사이 다른 로그인이 세션을 바꿨으면 그 세션은 건드리지 않음
+      if (cancelled() || !(await login(p, info, cancelled))) { if (sessionAccount() === mine) await endSession(); }
     } catch (e) {
-      if (my === attempt.current) {
-        setPending(null);
-        setError(e instanceof Error && e.message ? e.message : `${p} 로그인에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.`);
+      if (my !== attempt.current) return;
+      setPending(null);
+      setError(e instanceof Error && e.message ? e.message : `${p} 로그인에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.`);
+      // FS-AUTH-007: 탈퇴 유예 중인 계정 → 복구할지 물음 (앱 로그인만 가능, 웹은 위 안내 문구만)
+      if (e instanceof WithdrawalPending && e.recover) {
+        const recover = e.recover;
+        confirm('계정 복구', `${e.until ? `${e.until}까지 ` : ''}탈퇴를 취소하고 계정을 복구할 수 있어요.\n탈퇴할 때 나간 안심그룹은 복구되지 않아요. 복구할까요?`, '복구', () => recoverNow(p, recover));
       }
     }
   };
-  // 관리자 로그인 (관리자 설정 탭이 있는 관리자 UI). 제공자 표시는 Google 로 둠 (목업)
-  const adminLogin = async () => {
+  const recoverNow = async (p: Provider, recover: (isCancelled: () => boolean) => Promise<MemberInfo>) => {
     const my = ++attempt.current;
-    setError(''); setPending('관리자');
-    const info = await mockAdminAuthenticate();
-    if (my === attempt.current) login('Google', info);
+    const cancelled = () => my !== attempt.current;
+    setError(''); setPending(`${p} 계정 복구`);
+    try {
+      const info = await recover(cancelled);
+      const mine = sessionAccount();
+      if (cancelled() || !(await login(p, info, cancelled))) { if (sessionAccount() === mine) await endSession(); }
+    } catch (e) {
+      if (my === attempt.current) { setPending(null); setError(e instanceof Error && e.message ? e.message : '계정을 복구하지 못했어요.'); }
+    }
   };
   // 인증 취소: 로그인하지 않고 현재 화면 유지
   const cancel = () => { attempt.current++; setPending(null); };
@@ -60,15 +73,7 @@ export default function LoginScreen() {
           <Btn title="취소" outline onPress={cancel} />
         </>
       ) : (
-        <>
-          <SocialButtons onPress={start} />
-          {/* 목업 관리자 로그인은 개발 빌드에서만 (배포판에는 버튼이 없음). 관리자 인증 API 가 생기면 교체 */}
-          {__DEV__ && (
-            <Pressable onPress={adminLogin} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', marginTop: 16 }}>
-              <Text style={[s.small, { textDecorationLine: 'underline' }]}>관리자 로그인 (개발용)</Text>
-            </Pressable>
-          )}
-        </>
+        <SocialButtons onPress={start} />
       )}
       </View>
     </View>

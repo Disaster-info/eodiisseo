@@ -1,9 +1,13 @@
 // TMAP (SK open API) — 장소 검색·도보 경로·주소↔좌표 변환·지도 HTML (앱 키: .env.local 의 EXPO_PUBLIC_TMAP_APP_KEY)
+import { fetchText } from './api';
+
 const KEY = process.env.EXPO_PUBLIC_TMAP_APP_KEY ?? '';
+
 // REST 호출 공통: 앱 키 헤더 + JSON 요청(Accept 가 없으면 일부 API 가 빈 응답). body 가 있으면 POST. 실패 상태면 Error
+// 본문 수신까지 15초 제한 (응답이 멈춰도 화면이 '찾는 중'에 머물지 않고 오류·다시 시도로)
 async function tmap(path: string, body?: object) {
   const headers = { Accept: 'application/json', appKey: KEY };
-  const res = await fetch(`https://apis.openapi.sk.com/tmap/${path}`, body
+  const res = await fetchText(`https://apis.openapi.sk.com/tmap/${path}`, body
     ? { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     : { headers });
   if (!res.ok) throw new Error(`TMAP ${res.status}`);
@@ -21,14 +25,15 @@ export async function searchPois(keyword: string): Promise<Poi[]> {
   const res = await tmap(`pois?${q}`);
   if (res.status === 204) return []; // 검색 결과 없음 (본문 없이 옴)
   const json = await res.json();
-  return (json.searchPoiInfo.pois.poi as RawPoi[]).map(p => ({
+  return ((json?.searchPoiInfo?.pois?.poi ?? []) as RawPoi[]).map(p => ({
     id: p.id, name: p.name,
     addr: [p.upperAddrName, p.middleAddrName, p.lowerAddrName].filter(Boolean).join(' '),
     // 앱의 기준 위치 형식(시·도 + 시·군·구)에 맞춤: '수원시 팔달구' → '경기 수원시'
     region: `${p.upperAddrName} ${p.middleAddrName.split(' ')[0]}`,
     lat: Number(p.frontLat), lon: Number(p.frontLon),
-  }));
+  })).filter(p => validLatLon(p)); // 좌표가 비었거나 숫자가 아닌 장소는 빼고 (0,0 으로 가지 않게)
 }
+const validLatLon = (c: { lat: number; lon: number }) => Number.isFinite(c.lat) && Number.isFinite(c.lon) && Math.abs(c.lat) <= 90 && Math.abs(c.lon) <= 180 && !(c.lat === 0 && c.lon === 0);
 
 // TMAP 보행자 경로안내 — 도보 기본 경로 그대로 사용 (FS-ROUTE-001)
 export type LatLon = { lat: number; lon: number };
@@ -46,21 +51,23 @@ type Feature = { geometry: { type: string; coordinates: number[][] }; properties
 export async function searchRoute(from: LatLon, to: LatLon): Promise<Route> {
   const res = await tmap('routes/pedestrian?version=1', { startX: from.lon, startY: from.lat, endX: to.lon, endY: to.lat,
     startName: '출발', endName: '도착', reqCoordType: 'WGS84GEO', resCoordType: 'WGS84GEO' });
-  const { features } = (await res.json()) as { features: Feature[] };
-  return {
-    meters: features[0].properties.totalDistance ?? 0,
-    seconds: features[0].properties.totalTime ?? 0,
-    // 구간(LineString)들을 이어 붙여 경로선 하나로. TMAP 좌표 순서는 [경도, 위도]
-    path: features.filter(f => f.geometry.type === 'LineString').flatMap(f => f.geometry.coordinates.map(([lon, lat]) => ({ lat, lon }))),
-  };
+  const features = ((await res.json()) as { features?: Feature[] } | null)?.features ?? [];
+  const { totalDistance, totalTime } = features[0]?.properties ?? {};
+  // 구간(LineString)들을 이어 붙여 경로선 하나로. TMAP 좌표 순서는 [경도, 위도]
+  const path = features.filter(f => f.geometry?.type === 'LineString').flatMap(f => f.geometry.coordinates.map(([lon, lat]) => ({ lat, lon })));
+  // 거리·시간·경로선 중 하나라도 없으면 '0km·1분' 같은 가짜 결과 대신 실패로 (화면이 다시 시도 안내)
+  if (typeof totalDistance !== 'number' || typeof totalTime !== 'number' || !path.length) throw new Error('TMAP 경로 응답이 불완전해요');
+  return { meters: totalDistance, seconds: totalTime, path };
 }
 
 // TMAP 주소 지오코딩: '서울 강남구' 같은 지역 이름 → 대표 좌표 (구청·시청 부근). 지역만 고른 지정 위치의 경로 출발점
 export async function coordsOf(addr: string): Promise<LatLon> {
   const q = new URLSearchParams({ version: '1', fullAddr: addr, coordType: 'WGS84GEO' });
   const res = await tmap(`geo/fullAddrGeo?${q}`);
-  const c = (await res.json()).coordinateInfo.coordinate[0] as { lat: string; lon: string; newLat: string; newLon: string };
-  return { lat: Number(c.lat || c.newLat), lon: Number(c.lon || c.newLon) }; // 지번 좌표가 없으면 도로명 좌표
+  const c = (await res.json())?.coordinateInfo?.coordinate?.[0] as { lat: string; lon: string; newLat: string; newLon: string } | undefined;
+  const out = { lat: Number(c?.lat || c?.newLat), lon: Number(c?.lon || c?.newLon) }; // 지번 좌표가 없으면 도로명 좌표
+  if (!validLatLon(out)) throw new Error('지역 좌표를 찾지 못했어요');
+  return out;
 }
 
 // TMAP 리버스 지오코딩: 좌표 → 앱의 기준 위치 형식 '서울 강남구'. 시·도는 전체 이름('서울특별시')으로 와서 줄임
@@ -69,12 +76,17 @@ const SIDO: Record<string, string> = {
   세종특별자치시: '세종', 경기도: '경기', 강원특별자치도: '강원', 강원도: '강원', 충청북도: '충북', 충청남도: '충남',
   전북특별자치도: '전북', 전라북도: '전북', 전라남도: '전남', 경상북도: '경북', 경상남도: '경남', 제주특별자치도: '제주',
 };
-export async function regionOf({ lat, lon }: LatLon): Promise<string> {
+// code = 시·군·구 코드 (법정동 코드 앞 5자리 + 00000, 행정안전부 대피소 자료의 ARCD 와 같은 10자리 형식)
+// ponytail: 백엔드 admin_area.area_code 형식이 아직 문서로 확정되지 않음. 등록이 400 이면 이 형식을 백엔드와 맞춰야 함
+export async function regionInfoOf({ lat, lon }: LatLon): Promise<{ region: string; code: string }> {
   const q = new URLSearchParams({ version: '1', lat: String(lat), lon: String(lon), coordType: 'WGS84GEO', addressType: 'A10' });
   const res = await tmap(`geo/reversegeocoding?${q}`);
-  const { city_do, gu_gun } = (await res.json()).addressInfo as { city_do: string; gu_gun: string };
-  return `${SIDO[city_do] ?? city_do} ${gu_gun.split(' ')[0]}`; // '수원시 팔달구' → '수원시' (POI 검색과 같은 규칙)
+  const info = (await res.json())?.addressInfo as { city_do?: string; gu_gun?: string; legalDongCode?: string } | undefined;
+  if (!info?.city_do) throw new Error('이 위치의 지역을 확인하지 못했어요.');
+  const gu = (info.gu_gun ?? '').split(' ')[0]; // '수원시 팔달구' → '수원시' (POI 검색과 같은 규칙). 세종시는 구가 없음
+  return { region: `${SIDO[info.city_do] ?? info.city_do}${gu ? ` ${gu}` : ''}`, code: info.legalDongCode ? `${info.legalDongCode.slice(0, 5)}00000` : '' };
 }
+export const regionOf = async (c: LatLon) => (await regionInfoOf(c)).region;
 
 // TMAP 지도(JavaScript SDK v2)를 띄우는 HTML. 앱은 WebView, 웹은 iframe 으로 같은 HTML 을 그림
 // SDK 로더가 document.write 로 본체를 불러오므로 <script> 태그로 문서 안에 직접 넣어야 함

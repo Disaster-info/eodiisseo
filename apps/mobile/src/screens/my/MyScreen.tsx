@@ -5,7 +5,8 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { AppSwitch, Badge, Btn, Icon, IconName, Page, Segmented, confirm, notify, useTheme } from '../../components/ui';
-import { Provider } from '../../data/mock';
+import { errText } from '../../data/server';
+import { Provider } from '../../data/types';
 import { ThemeMode, useApp } from '../../store/AppContext';
 import { AdminSections } from './AdminSections';
 import { Group, Row } from './rows';
@@ -18,7 +19,7 @@ const PROVIDER_ICON: Record<Provider, IconName> = { Google: 'logo-google', Kakao
 
 export default function MyScreen() {
   const { C, s } = useTheme();
-  const { member, rename, provider, linked, setLinked, noti, locConsent, setLocConsent, isManual, location, areas,
+  const { member, rename, provider, linked, noti, locConsent, setLocConsent, isManual, location, areas,
     logout, expire, withdraw, adminBlockingGroups, theme, setTheme } = useApp();
   const [nameDraft, setNameDraft] = useState<string | null>(null); // null = 보기 모드
   if (!member) return null;
@@ -31,8 +32,9 @@ export default function MyScreen() {
   };
 
   // FS-AUTH-003: 추가 인증을 거친 뒤에만 연결 (이메일이 같아도 자동 통합하지 않음)
-  const connect = (p: Provider) => confirm('소셜 계정 연결', `${p} 계정으로 추가 인증을 진행합니다.\n이미 다른 회원에 연결된 계정은 연결할 수 없습니다.`, '인증하기',
-    () => { setLinked(l => [...l, p]); notify('연결 완료', `${p} 계정이 연결되었습니다.`); });
+  // ponytail: 서버 API(/auth/social-accounts/{provider}/link)는 있지만 앱에서 제공자 인증 정보만 받아 넘기는 흐름이 아직 없음.
+  // 연결된 것처럼 보이지 않게 안내만. 소셜 SDK 의 토큰을 링크 API 로 보내는 흐름을 만들면 교체
+  const connect = (p: Provider) => notify('계정 연결 준비 중', `${p} 계정 연결은 아직 지원하지 않아요.`);
 
   // FS-LOC-001: 철회는 모든 그룹 공유를 끄므로 확인 후 처리. 다시 동의해도 그룹 공유는 자동으로 켜지지 않음
   const toggleConsent = (on: boolean) => on ? setLocConsent(true)
@@ -40,8 +42,10 @@ export default function MyScreen() {
 
   const requestWithdraw = () => {
     if (adminBlockingGroups.length)
-      return notify('탈퇴 전 관리자 권한 이전 필요', `${adminBlockingGroups.map(g => g.name).join(', ')} 그룹의 관리자 권한을 다른 구성원에게 먼저 넘겨주세요.`);
-    confirm('회원 탈퇴', '로그인 정보, 관심지역, 체크리스트, 알림 설정, 위치정보가 삭제되고 모든 그룹에서 탈퇴됩니다.\n이 작업은 되돌릴 수 없습니다.', '탈퇴', withdraw);
+      return notify('탈퇴 전 그룹 정리 필요', adminBlockingGroups.map(g => (g.members.length > 1
+        ? `${g.name}: 관리자 권한을 다른 구성원에게 넘겨 주세요.` : `${g.name}: 혼자인 그룹이라 그룹 삭제(그룹 탈퇴)를 먼저 해 주세요.`)).join('\n'));
+    confirm('회원 탈퇴', '로그인 정보, 관심지역, 체크리스트, 알림 설정, 위치정보가 삭제되고 모든 그룹에서 탈퇴됩니다.\n이 작업은 되돌릴 수 없습니다.', '탈퇴',
+      () => withdraw().catch(e => notify('탈퇴하지 못했어요', errText(e)))); // 서버가 실패하면 로그인 상태 유지
   };
 
   const notiSummary = noti.on ? `${noti.minLevel} 이상 · 야간 ${noti.night ? '허용' : '차단'}` : '꺼짐';

@@ -43,6 +43,7 @@ function TabSwipe({ order, name, go, children }: { order: string[]; name: string
     onActivate: () => { ignoreClickUntil = Number.MAX_SAFE_INTEGER; }, // 쓸기로 인정된 순간부터 click 무시 (그냥 누름은 여기 오지 않음)
     onDeactivate: e => {
       ignoreClickUntil = Date.now() + 300; // 손 뗀 직후 click 한 번까지만 버리고 풀어 줌 (쓸기였던 경우에만 여기 옴)
+      if (e.canceled) return; // 시스템 제스처 등으로 취소된 쓸기는 탭을 바꾸지 않음
       if (Math.abs(e.translationX) < 70 && Math.abs(e.velocityX) < 600) return;
       const next = order[order.indexOf(name) + (e.translationX < 0 ? 1 : -1)];
       if (next) go(next);

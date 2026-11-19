@@ -1,21 +1,15 @@
 // FS-CHAT-001: AI 재난 대응 안내 — 공식 행동요령 검색 → 근거가 있을 때만 AI 답변, 없으면 기본 행동요령
 // C안: 남색 띠 위에 안내 문구, 내 질문은 남색 말풍선, AI 답변은 점선 쿠폰(공식 정보와 구분)
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, ScrollView, Text, TextInput, View, type ScrollViewInstance } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Badge, Btn, Chip, Header, Icon, dial119, useLayout, useTheme } from '../../components/ui';
-import { BASIC_GUIDE, GUIDES } from '../../data/mock';
+import { askGuidance, errText } from '../../data/server';
 
-type Msg = { id: number; me: boolean; text: string; sources?: string[]; fallback?: boolean };
+type Msg = { id: number; me: boolean; text: string; sources?: string[]; fallback?: boolean; failed?: boolean };
 const SUGGEST = ['지진이 나면 어떻게 해요?', '집 앞이 침수되고 있어요', '산불 연기가 보여요'];
 
-// ponytail: 키워드 매칭으로 검색 흉내. 실제로는 서버에서 공식자료 검색 + AI 생성
-function answer(q: string): Omit<Msg, 'id' | 'me'> {
-  const hits = GUIDES.filter(g => g.keys.some(k => q.includes(k)));
-  if (!hits.length) return { text: `질문과 관련된 공식 자료를 찾지 못했어요. 기본 행동요령을 안내합니다.\n\n${BASIC_GUIDE}`, fallback: true };
-  return { text: hits.map(g => g.text).join('\n\n'), sources: hits.map(g => `${g.org} · ${g.title}`) };
-}
 
 export default function ChatScreen() {
   const { C, s } = useTheme();
@@ -25,18 +19,26 @@ export default function ChatScreen() {
   const [pending, setPending] = useState(false);
   const scroll = useRef<ScrollViewInstance>(null); // RN 0.88: ref 타입은 컴포넌트가 아닌 인스턴스 타입
   const { bottom } = useSafeAreaInsets();
+  const alive = useRef(true); // 화면을 떠난 뒤 도착한 답은 버림
+  useEffect(() => { // 다시 붙을 때(개발 모드 재실행·Fast Refresh)도 켜 둠 — 꺼진 채 남으면 이후 답을 모두 버림
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   const ask = (text: string) => {
     const t = text.trim();
     if (!t || pending) return;
     setMsgs(m => [...m, { id: Date.now(), me: true, text: t }]);
     setQ(''); setPending(true);
-    setTimeout(() => { // AI 응답 흉내
-      const a = answer(t);
-      setMsgs(m => [...m, { id: Date.now(), me: false, ...a }]);
-      AccessibilityInfo.announceForAccessibility(a.fallback ? '기본 행동요령을 안내했어요' : '행동요령 답변이 도착했어요');
-      setPending(false);
-    }, 700);
+    // 서버가 공식 자료를 검색해 근거가 있을 때만 AI 답변, 없으면 기본 행동요령(FALLBACK)
+    askGuidance(t).then(a => ({ id: Date.now(), me: false, ...a }), e => ({ id: Date.now(), me: false, failed: true, fallback: true,
+      text: `답변을 받지 못했어요. (${errText(e)})\n위급하면 바로 119에 신고하고 공식 재난문자·방송 안내를 따르세요.` }))
+      .then((a: Msg) => {
+        if (!alive.current) return;
+        setMsgs(m => [...m, a]);
+        AccessibilityInfo.announceForAccessibility(a.failed ? '답변을 받지 못했어요' : a.fallback ? '기본 행동요령을 안내했어요' : '행동요령 답변이 도착했어요');
+        setPending(false);
+      });
   };
 
   return (
@@ -62,7 +64,7 @@ export default function ChatScreen() {
         ) : (
           <View key={m.id} style={[s.card, { maxWidth: '92%', borderWidth: 1.5, borderStyle: 'dashed', borderColor: m.fallback ? C.perf : C.tabOn }]}>
             <View style={{ alignSelf: 'flex-start', marginBottom: 6 }}>
-              <Badge text={m.fallback ? '기본 행동요령' : 'AI 생성 안내'} icon={m.fallback ? 'book-outline' : 'sparkles'} color={m.fallback ? C.sub : C.tabOn} />
+              <Badge text={m.failed ? '응답 실패' : m.fallback ? '기본 행동요령' : 'AI 생성 안내'} icon={m.failed ? 'cloud-offline-outline' : m.fallback ? 'book-outline' : 'sparkles'} color={m.failed ? C.danger : m.fallback ? C.sub : C.tabOn} />
             </View>
             <Text style={s.body} lineBreakStrategyIOS="hangul-word">{m.text}</Text>
             {m.sources?.map(src => (

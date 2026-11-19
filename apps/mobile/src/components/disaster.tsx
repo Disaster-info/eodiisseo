@@ -3,7 +3,7 @@
 // FS-DASH-002·003: 위험수준은 색 + 아이콘 모양 + 글자. 공식 등급이 없으면 만들지 않고 "공식 등급 없음"
 // 끝난 재난은 지우지 않고 '종료·해제' 도장 (끝난 재난이 위험해 보이지 않게 띠는 남색)
 import { Text, View } from 'react-native';
-import { Disaster, LEVEL_ICON, TYPE_ICON, isActive } from '../data/mock';
+import { Disaster, LEVEL_ICON, TYPE_ICON, isActive } from '../data/types';
 import { Coupon, Field, Perf, Stamp } from './ticket';
 import { Badge, Icon, useTheme } from './ui';
 
@@ -24,7 +24,7 @@ export function StaleNote({ d }: { d: Disaster }) {
 // header: 상세 화면 맨 위 (요약 없이 등급·지역·시각만, 누르지 않음)
 export function DisasterCard({ d, starred, onPress, header }: { d: Disaster; starred?: boolean; onPress?: () => void; header?: boolean }) {
   const { C, s } = useTheme();
-  const ai = d.ai.status === '완료' && d.ai.text;
+  const ai = d.ai?.status === '완료' && d.ai.text;
   const level = signLevel(d);
   const tone = level === '경보' ? 'red' : level === '주의보' ? 'yellow' : 'navy';
   const fg = tone === 'yellow' ? '#16181B' : '#FFFFFF';
@@ -44,7 +44,7 @@ export function DisasterCard({ d, starred, onPress, header }: { d: Disaster; sta
       {!header && (
         <Text style={[s.body, { marginTop: 4 }]} numberOfLines={2} lineBreakStrategyIOS="hangul-word">
           {ai ? <Text style={{ color: C.tabOn, fontWeight: '700' }}>AI 요약 · </Text> : null}
-          {ai || d.sources[0]?.text || '공식 원문을 불러오는 중이에요.'}
+          {ai || d.sources[0]?.text || d.title || '자세히 보면 공식 원문을 확인할 수 있어요.'}
         </Text>
       )}
       <Perf />
@@ -52,8 +52,8 @@ export function DisasterCard({ d, starred, onPress, header }: { d: Disaster; sta
         <Field label="발생" value={d.occurredAt} mono />
         <Field label="갱신" value={d.updatedAt} mono />
       </View>
-      {/* AI 요약 옆에는 항상 원문 출처 */}
-      <Text style={[s.small, { marginTop: 6 }]}>공식 원문 {d.sources.length}건 · {d.sources.map(x => x.org).join(', ')}</Text>
+      {/* AI 요약 옆에는 항상 원문 출처 (목록에는 원문이 없어 상세에서만) */}
+      {d.sources.length > 0 && <Text style={[s.small, { marginTop: 6 }]}>공식 원문 {d.sources.length}건 · {d.sources.map(x => x.org).join(', ')}</Text>}
       <StaleNote d={d} />
     </Coupon>
   );

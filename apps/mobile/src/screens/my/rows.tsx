@@ -9,7 +9,8 @@ export function Row({ icon, title, sub, value, right, onPress, danger }:
   { icon: IconName; title: string; sub?: string; value?: string; right?: ReactNode; onPress?: () => void; danger?: boolean }) {
   const { C, s } = useTheme();
   return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}
+    // 누를 수 없고 오른쪽에 스위치 등이 있으면 한 덩어리로 묶지 않음 → 스크린 리더가 스위치를 따로 조작
+    <Pressable onPress={onPress} disabled={!onPress} accessible={!!onPress || !right} accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={value ? `${title}, ${value}` : undefined}
       style={({ pressed }) => [s.row, { gap: 12, paddingVertical: 8, minHeight: 52 }, pressed && s.pressed]}>
       <Icon name={icon} size={22} color={danger ? C.danger : C.sub} />

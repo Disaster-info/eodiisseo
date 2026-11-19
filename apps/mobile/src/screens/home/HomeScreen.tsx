@@ -10,10 +10,9 @@ import { router, useIsFocused } from 'expo-router';
 import { ReactNode, createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Icon, IconName, STALE_MIN, confirm, dial119, knownImpact, useLayout, useTheme } from '../../components/ui';
-import {
-  DISASTERS, Disaster, IMPACT_ICON, Impact, LEVEL_ICON, MAX_RADIUS, ME, SHELTERS, TYPE_ICON, WEATHER, WEATHER_ICON, WEATHER_TIP, isActive, searchShelters,
-} from '../../data/mock';
+import { Icon, IconName, STALE_MIN, ageMin, confirm, dial119, freshness, knownImpact, notify, useLayout, useTheme } from '../../components/ui';
+import { fetchDisasters, fetchWeather, sameRegion, useLoad, useShelters } from '../../data/server';
+import { Disaster, IMPACT_ICON, Impact, LEVEL_ICON, MAX_RADIUS, TYPE_ICON, WEATHER_ICON, isActive } from '../../data/types';
 import { TmapView } from '../../components/map';
 import { LatLon, Route, coordsOf, searchRoute } from '../../data/tmap';
 import { useApp } from '../../store/AppContext';
@@ -32,6 +31,8 @@ const NOW_FIELD = {
   light: { 경보: { bg: '#AE3429', glow: '#D0463A' }, 주의보: { bg: '#FFD43B', glow: '#FFE27A' }, 안전: { bg: '#28714F', glow: '#359769' } },
   dark: { 경보: { bg: '#672823', glow: '#85342D' }, 주의보: { bg: '#6C571D', glow: '#8C7126' }, 안전: { bg: '#2B5F47', glow: '#387B5C' } },
 };
+// 기준 위치를 모를 때(GPS 확인 중·실패): 안전(초록)으로 보이지 않게 회색
+const UNKNOWN_FIELD = { light: { bg: '#4A5563', glow: '#5E6B7B' }, dark: { bg: '#2E343C', glow: '#3D4550' } };
 const FIELD = {
   shelter: { bg: '#0B4A6B', glow: '#1C6E96' }, family: { bg: '#18223D', glow: '#2A3A63' }, // 대피소 = 페트롤 블루 (1쪽 초록과 구분되는 '보호' 색)
 };
@@ -56,7 +57,7 @@ let toFirstPage = () => {};
 export const goHomeFirstPage = () => toFirstPage();
 
 export default function HomeScreen() {
-  const { location, isManual, areas, areaNames, groups, member, myPos, place } = useApp();
+  const { location, locState, isManual, areas, groups, groupsState, reloadGroups, member, basePos, myPos } = useApp();
   const insets = useSafeAreaInsets();
   const { gutter } = useLayout();
   const { dark } = useTheme(); // 1쪽 상태 색은 기기 테마(라이트·다크)를 따름
@@ -66,49 +67,67 @@ export default function HomeScreen() {
   const [picked, setPicked] = useState(CURRENT); // 날씨 지역
   const [gi, setGi] = useState(0);               // 가족 쪽에서 보는 그룹
   const [copied, setCopied] = useState(false);
-  // 아래로 당겨 새로고침. ponytail: 목업이라 잠시 기다린 뒤 끝냄 — 백엔드 연동 시 재난·날씨·그룹 위치 재조회로 교체
+  useEffect(() => { // '복사됨' 2초 뒤 해제. 화면을 떠나면 타이머도 정리
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(t);
+  }, [copied]);
   const [refreshing, setRefreshing] = useState(false);
-  const refresh = () => {
-    setRefreshing(true);
-    setTimeout(() => { setRefreshing(false); AccessibilityInfo.announceForAccessibility('재난 정보를 새로고침했어요'); }, 800);
-  };
 
   // 1쪽 주인공 = 현재 위치(기준 위치) 지역의 경보·주의보 (위험한 순 첫 번째). 같은 지역의 나머지 재난(정보·등급 없음 포함)은 그 아래 칩
-  const mine = (r: string) => r === location || areas.includes(r);
-  const active = DISASTERS.filter(isActive);
+  // 진행 중 재난 (서버). 못 받았으면 '평온'으로 보이지 않게 위치를 모를 때처럼 회색 + 안내
+  const disasters = useLoad('active', () => fetchDisasters());
+  const known = locState === 'ok';
+  const inArea = (d: Disaster) => areas.some(a => sameRegion(d.region, a.region));
+  const isHere = (d: Disaster) => known && sameRegion(d.region, location);
+  const mine = (d: Disaster) => isHere(d) || inArea(d);
+  const active = (disasters.data ?? []).filter(isActive);
   const severe = (d: Disaster) => d.level === '경보' || d.level === '주의보';
-  const here = active.filter(d => d.region === location).sort((a, b) => rank(a) - rank(b));
+  const here = active.filter(isHere).sort((a, b) => rank(a) - rank(b));
   const top = here[0] && severe(here[0]) ? here[0] : undefined;
   const hereRest = here.filter(d => d !== top);
   // 아래 카드 = 관심지역(현재 위치 제외)의 경보·주의보
-  const areaAlerts = active.filter(d => d.region !== location && areas.includes(d.region) && severe(d)).sort((a, b) => rank(a) - rank(b));
+  const areaAlerts = active.filter(d => !isHere(d) && inArea(d) && severe(d)).sort((a, b) => rank(a) - rank(b));
   const nationwideCalm = !active.some(severe); // 전국 어디에도 경보·주의보 없음
-  const elsewhere = active.filter(d => !mine(d.region));
+  // 서버가 영향지역을 알려 주지 않은 경보·주의보: 내 지역·관심지역일 수도 있으므로 '평온'으로 단정하지 않음
+  // (제목이 다른 지역 이름과 맞아도 실제 발령 지역은 모르므로 모두 포함)
+  const unsure = active.filter(d => severe(d) && !d.regionKnown);
+  const elsewhere = active.filter(d => !mine(d));
 
   // 날씨: 기준 위치 / 관심지역 선택 (없으면 조회 실패 — 임의 값을 만들지 않음)
-  const others = areas.filter(a => a !== location);
-  const base = others.includes(picked) ? picked : CURRENT;
-  const region = base === CURRENT ? location : base;
-  const w = WEATHER[region];
-  const tip = w && WEATHER_TIP[w.cond];
+  const others = areas.filter(a => !sameRegion(a.region, location));
+  const pickedArea = others.find(a => a.id === picked);
+  const base = pickedArea ? picked : CURRENT;
+  const region = pickedArea ? pickedArea.name : location;
+  const weather = useLoad(pickedArea ? `a:${pickedArea.id}` : known ? (basePos ? `p:${basePos.lat},${basePos.lon}` : `r:${location}`) : null,
+    async () => fetchWeather(pickedArea ? { areaId: pickedArea.id } : basePos ?? (await coordsOf(location))));
+  const w = weather.data;
+  const tip = w?.tip;
 
-  const { list: shelters } = searchShelters(SHELTERS, location);
+  const sheltersRes = useShelters(known ? { pos: basePos, region: location } : null);
+  const shelters = sheltersRes.data?.list ?? [];
   const nearest = shelters[0];
+  // 아래로 당겨 새로고침: 재난·날씨·대피소·그룹 위치를 다시 받음
+  const refresh = () => {
+    setRefreshing(true);
+    Promise.all([disasters.reload(), weather.reload(), sheltersRes.reload(), member?.operator ? null : reloadGroups()]).finally(() => {
+      setRefreshing(false);
+      if (focusedRef.current) AccessibilityInfo.announceForAccessibility('재난 정보를 새로고침했어요'); // 다른 화면으로 갔으면 안내하지 않음
+    });
+  };
 
   // 2쪽 지도: 기준 위치 → 가장 가까운 대피소 도보 경로 (TMAP). 출발 = GPS 위치 > 장소 검색으로 고른 곳 > 지역 대표 좌표
   // 2쪽을 처음 볼 때 불러옴 (홈을 열 때마다 지도 API 를 부르지 않게). key 가 같으면 다시 부르지 않음
   const [route, setRoute] = useState<{ key: string; value: (Route & { from: LatLon }) | 'error' } | null>(null);
   const [sawShelter, setSawShelter] = useState(false);
   if (page === 1 && !sawShelter) setSawShelter(true);
-  const routeKey = nearest ? `${nearest.id}|${myPos ? `${myPos.lat},${myPos.lon}` : place ? `${place.lat},${place.lon}` : location}` : '';
+  const start = sheltersRes.data?.from;
+  const routeKey = nearest && start ? `${nearest.id}|${start.lat},${start.lon}` : '';
   const routeNow = route?.key === routeKey ? route.value : 'loading';
   useEffect(() => {
-    if (!nearest || !sawShelter || route?.key === routeKey) return;
+    if (!nearest || !start || !sawShelter || route?.key === routeKey) return;
     let alive = true;
-    (async () => {
-      const from = myPos ?? place ?? (await coordsOf(location));
-      return { ...(await searchRoute(from, nearest)), from };
-    })().then(value => alive && setRoute({ key: routeKey, value }), () => alive && setRoute({ key: routeKey, value: 'error' }));
+    (async () => ({ ...(await searchRoute(start, nearest)), from: start }))().then(value => alive && setRoute({ key: routeKey, value }), () => alive && setRoute({ key: routeKey, value: 'error' }));
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- routeKey 가 출발지·대피소를 모두 담음
   }, [routeKey, sawShelter]);
@@ -136,8 +155,12 @@ export default function HomeScreen() {
   const call119 = () => confirm('119 신고', '119에 전화를 걸까요?', '전화 걸기', dial119);
 
   // 1쪽 바탕: 현재 위치 경보 = 빨강, 주의보 = 노랑, 없음 = 초록
+  // 기준 위치를 모르면(확인 중·실패) 안전으로 판정하지 않음 → 회색 바탕 + 위치 설정 안내
+  const unsureHere = !top && known && !!disasters.data && unsure.length > 0;
+  const unknownLoc = !top && (locState !== 'ok' || !disasters.data || unsureHere);
+  const loadFail = !top && known && !!disasters.error; // 위치는 알지만 재난 정보를 못 받음
   const level = top?.level === '경보' ? '경보' : top ? '주의보' : '안전';
-  const field = NOW_FIELD[dark ? 'dark' : 'light'][level];
+  const field = unknownLoc ? UNKNOWN_FIELD[dark ? 'dark' : 'light'] : NOW_FIELD[dark ? 'dark' : 'light'][level];
   // 1쪽 글자 톤: 라이트 노랑 = 어두운 글자, 라이트 빨강·초록 = 밝은 글자, 다크 = 한 톤 낮춘 밝은 글자
   // 1쪽 글자 톤: 라이트 노랑 = 어두운 글자, 라이트 빨강·초록 = 밝은 글자, 다크 = 한 톤 낮춘 밝은 글자
   const c = dark ? DIM_TONE : level === '주의보' ? LIGHT_TONE : NOW_TONE;
@@ -151,9 +174,9 @@ export default function HomeScreen() {
   const totalHits = groups.reduce((n, x) => n + x.members.filter(m => knownImpact(m) === '영향지역 포함').length, 0);
   const copyCode = async () => {
     if (!g) return;
-    await Clipboard.setStringAsync(g.code);
+    // 웹은 https 가 아니거나 권한이 없으면 복사가 실패함 → 코드를 직접 보여 줌
+    if (!(await Clipboard.setStringAsync(g.code).catch(() => false))) return notify('복사하지 못했어요', `초대 코드: ${g.code}`);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   // 오른쪽은 쪽 표시 자리만큼 더 띄움
@@ -170,28 +193,27 @@ export default function HomeScreen() {
             <Text style={[p.h3, { flexShrink: 1 }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{location}</Text>
             <Text style={p.pill} maxFontSizeMultiplier={1.3}>{isManual ? '직접 지정' : '현재 위치'}</Text>
           </Pressable>
-          {w && <View style={[p.row, { marginLeft: 'auto', gap: 4 }]} accessible accessibilityLabel={`${region} ${w.cond} ${w.temp}도`}>
-            <Icon name={WEATHER_ICON[w.cond]} size={18} color={c.ink} />
-            <Text style={[p.b, { fontVariant: ['tabular-nums'] }]} maxFontSizeMultiplier={1.3}>{w.cond} {w.temp}°</Text>
+          {w && <View style={[p.row, { marginLeft: 'auto', gap: 4 }]} accessible accessibilityLabel={`${region} ${w.text}${w.temp !== null ? ` ${w.temp}도` : ''}`}>
+            <Icon name={WEATHER_ICON[w.code] ?? 'partly-sunny'} size={18} color={c.ink} />
+            <Text style={[p.b, { fontVariant: ['tabular-nums'] }]} maxFontSizeMultiplier={1.3}>{w.text}{w.temp !== null ? ` ${w.temp}°` : ''}</Text>
           </View>}
         </View>
 
         {/* 날씨 지역 선택: 기준 위치 + 관심지역 (없으면 관심지역 추가) */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ marginTop: 6, flexGrow: 0 }}>
-          {[CURRENT, ...others].map(a => (
-            <DarkChip key={a} text={a === CURRENT ? (isManual ? '지정 위치' : '현재 위치') : areaNames[a] ?? a} on={base === a} onPress={() => setPicked(a)} />
-          ))}
+          <DarkChip text={isManual ? '지정 위치' : '현재 위치'} on={base === CURRENT} onPress={() => setPicked(CURRENT)} />
+          {others.map(a => <DarkChip key={a.id} text={a.name} on={base === a.id} onPress={() => setPicked(a.id)} />)}
           {others.length === 0 && <DarkChip text="관심지역 추가" icon="add" on={false} onPress={() => router.push('/areas')} />}
         </ScrollView>
         {w ? (
           <View style={{ marginTop: 6 }}>
             {!!tip && <Text style={p.body} lineBreakStrategyIOS="hangul-word">{tip}</Text>}
-            <Text style={p.small}>날씨 · {region} · {w.at} 기준</Text>
+            <Text style={p.small}>날씨 · {region} · {w.at} 기준{w.stale ? ' · 최신 자료 아님' : ''}</Text>
           </View>
         ) : (
           <View style={[p.row, { marginTop: 6 }]}>
             <Icon name="cloud-offline-outline" size={18} color={c.soft} />
-            <Text style={[p.small, { flex: 1 }]}>{region}의 날씨 정보를 확인할 수 없어요.</Text>
+            <Text style={[p.small, { flex: 1 }]}>{base === CURRENT && !known ? '현재 위치를 확인하면 날씨를 보여 드려요.' : weather.loading ? '날씨를 불러오는 중…' : `${region}의 날씨 정보를 확인할 수 없어요.`}</Text>
           </View>
         )}
 
@@ -209,12 +231,12 @@ export default function HomeScreen() {
                 <Text style={p.hero} maxFontSizeMultiplier={1.25} adjustsFontSizeToFit numberOfLines={1}>{top.type}{top.level}</Text>
                 <Text style={[p.b, { marginTop: 4 }]}>{top.region} · {top.occurredAt} 발령</Text>
                 <Text style={[p.body, { marginTop: 6 }]} numberOfLines={3} lineBreakStrategyIOS="hangul-word">
-                  {top.ai.status === '완료' && top.ai.text ? top.ai.text : top.sources[0]?.text ?? '공식 원문을 불러오는 중이에요.'}
+                  {top.title || '눌러서 공식 원문과 AI 요약을 확인하세요.'}
                 </Text>
                 <View style={[p.row, { gap: 4, marginTop: 6 }]}>
                   <Icon name="sparkles-outline" size={14} color={c.soft} />
                   <Text style={[p.small, { flex: 1 }]}>
-                    {top.ai.status === '완료' && top.ai.text ? 'AI 요약 · ' : ''}공식 원문 {top.sources.length}건 · {top.sources.map(x => x.org).join(', ')} · {top.updatedAt} 갱신
+                    {top.updatedAt} 갱신 · 자세히 보면 공식 원문
                   </Text>
                 </View>
                 {top.stale && (
@@ -224,6 +246,51 @@ export default function HomeScreen() {
                   </View>
                 )}
               </Pressable>
+            ) : unknownLoc ? (
+              unsureHere ? (
+              <Pressable onPress={() => router.push('/disasters')} accessibilityRole="button"
+                accessibilityLabel={`지역을 확인하지 못한 경보·주의보 ${unsure.length}건. 재난 목록에서 보기`} style={({ pressed }) => pressed && p.pressed}>
+                <View style={[p.row, { gap: 4, alignSelf: 'flex-start', backgroundColor: c.ink, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }]}>
+                  <Icon name="help-circle" size={16} color={field.bg} />
+                  <Text style={{ color: field.bg, fontWeight: '900', fontSize: 14 }}>지역 확인 필요 · {unsure.length}건</Text>
+                </View>
+                <Text style={[p.hero, { fontSize: 40, lineHeight: 46 }]} maxFontSizeMultiplier={1.25}>{'지역을 알 수 없는\n경보가 있어요'}</Text>
+                <Text style={[p.body, { marginTop: 6 }]} lineBreakStrategyIOS="hangul-word">
+                  {`${unsure.map(d => `${d.type}${d.level ?? ''}`).slice(0, 3).join(', ')}${unsure.length > 3 ? ' 외' : ''} — 발령 지역을 확인하지 못해 ${location}이 포함되는지 판단하지 않았어요. 눌러서 원문을 확인하세요.`}
+                </Text>
+              </Pressable>
+              ) : loadFail || (known && !disasters.data) ? (
+              <Pressable onPress={() => disasters.reload()} accessibilityRole="button" disabled={!loadFail}
+                accessibilityLabel={loadFail ? '재난 정보를 불러오지 못했어요. 다시 시도' : '재난 정보를 불러오는 중이에요'} style={({ pressed }) => pressed && p.pressed}>
+                <View style={[p.row, { gap: 4, alignSelf: 'flex-start', backgroundColor: c.ink, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }]}>
+                  <Icon name={loadFail ? 'cloud-offline' : 'sync'} size={16} color={field.bg} />
+                  <Text style={{ color: field.bg, fontWeight: '900', fontSize: 14 }}>{loadFail ? '재난 정보 확인 불가' : '재난 정보 확인 중'}</Text>
+                </View>
+                <Text style={[p.hero, { fontSize: 40, lineHeight: 46 }]} maxFontSizeMultiplier={1.25}>
+                  {loadFail ? '재난 정보를\n받지 못했어요' : '재난 정보를\n확인하고 있어요'}
+                </Text>
+                <Text style={[p.body, { marginTop: 6 }]} lineBreakStrategyIOS="hangul-word">
+                  {loadFail ? '눌러서 다시 시도하세요. 확인되기 전까지는 안전 여부를 판단하지 않아요. 공식 재난문자와 방송 안내를 함께 확인하세요.' : '잠시만 기다려 주세요.'}
+                </Text>
+              </Pressable>
+              ) : (
+              <Pressable onPress={() => router.push('/location')} accessibilityRole="button" disabled={locState === 'loading'}
+                accessibilityLabel={locState === 'loading' ? '현재 위치를 확인하는 중이에요' : '현재 위치를 확인하지 못했어요. 기준 위치 직접 지정하기'}
+                style={({ pressed }) => pressed && p.pressed}>
+                <View style={[p.row, { gap: 4, alignSelf: 'flex-start', backgroundColor: c.ink, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }]}>
+                  <Icon name={locState === 'loading' ? 'locate-outline' : 'alert-circle'} size={16} color={field.bg} />
+                  <Text style={{ color: field.bg, fontWeight: '900', fontSize: 14 }}>{locState === 'loading' ? '위치 확인 중' : '위치 확인 불가'}</Text>
+                </View>
+                <Text style={[p.hero, { fontSize: 40, lineHeight: 46 }]} maxFontSizeMultiplier={1.25}>
+                  {locState === 'loading' ? '현재 위치를\n확인하고 있어요' : '현재 위치를\n알 수 없어요'}
+                </Text>
+                <Text style={[p.body, { marginTop: 6 }]} lineBreakStrategyIOS="hangul-word">
+                  {locState === 'loading'
+                    ? '위치를 확인하면 이곳의 경보·주의보를 알려 드려요.'
+                    : '위치 권한을 확인하거나, 눌러서 기준 위치를 직접 지정하세요. 위치를 모르는 동안에는 안전 여부를 판단하지 않아요.'}
+                </Text>
+              </Pressable>
+              )
             ) : (
               <View accessible>
                 <View style={[p.row, { gap: 4, alignSelf: 'flex-start', backgroundColor: c.ink, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }]}>
@@ -268,7 +335,7 @@ export default function HomeScreen() {
               style={({ pressed }) => [p.row, { minHeight: 48, gap: 10 }, i > 0 && p.divTop, pressed && p.pressed]}>
               <Text style={[p.lv, { backgroundColor: TAG[d.level!].bg, color: TAG[d.level!].fg }]}>{d.type} {d.level}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={p.b} numberOfLines={1}>{areaNames[d.region] ?? d.region}</Text>
+                <Text style={p.b} numberOfLines={1}>{areas.find(a => sameRegion(d.region, a.region))?.name ?? d.region}</Text>
                 <Text style={p.small} numberOfLines={1}>{d.stale ? '수집 지연 · ' : ''}{d.status} · 갱신 {d.updatedAt}</Text>
               </View>
               <Icon name="chevron-forward" size={18} color={c.soft} />
@@ -289,8 +356,8 @@ export default function HomeScreen() {
               <Icon name="shield-checkmark" size={24} color={c.ink} />
               <View style={{ flex: 1 }}>
                 {/* 전국에 경보·주의보가 하나도 없을 때만 '전국' 문구 (다른 지역에 있으면 관심지역 기준으로만 말함) */}
-                <Text style={p.b}>{nationwideCalm ? '지금 전국에 경보·주의보가 없어요' : '관심지역은 모두 평온해요'}</Text>
-                <Text style={p.small} numberOfLines={1}>{others.map(a => areaNames[a] ?? a).join(' · ')} · 발령된 경보·주의보 없음</Text>
+                <Text style={p.b}>{nationwideCalm ? '지금 전국에 경보·주의보가 없어요' : unsure.length ? `지역을 확인하지 못한 경보 ${unsure.length}건이 있어요` : '관심지역은 모두 평온해요'}</Text>
+                <Text style={p.small} numberOfLines={1}>{others.map(a => a.name).join(' · ')} · 발령된 경보·주의보 없음</Text>
               </View>
             </View>
           ))}
@@ -348,7 +415,7 @@ export default function HomeScreen() {
                 </View>
                 <Text style={[st.hero, { fontSize: 32, lineHeight: 38 }]} maxFontSizeMultiplier={1.3} lineBreakStrategyIOS="hangul-word">{nearest.name}</Text>
                 <Text style={st.bigKm} maxFontSizeMultiplier={1.25}>{nearest.distance}<Text style={[st.h3, { fontSize: 24 }]}>km</Text></Text>
-                <Text style={st.body}>{nearest.type} · {nearest.capacity ? `수용 ${nearest.capacity.toLocaleString()}명` : '수용인원 정보 없음'} · 직선거리</Text>
+                <Text style={st.body}>{nearest.type ?? '유형 정보 없음'} · {nearest.capacity ? `수용 ${nearest.capacity.toLocaleString()}명` : '수용인원 정보 없음'} · 직선거리</Text>
                 <Text style={st.small}>{nearest.addr}</Text>
               </View>
               <View style={{ gap: 12, alignItems: 'center', marginRight: -(gutter + 4) }}>
@@ -376,9 +443,27 @@ export default function HomeScreen() {
         ) : (
           <>
             <View style={{ flex: 1 }} />
-            <Text style={[st.hero, { fontSize: 36, lineHeight: 42 }]}>반경 {MAX_RADIUS}km 안에{'\n'}등록된 대피소가 없어요</Text>
-            <Text style={[st.body, { marginTop: 6 }]}>대피소 탭에서 다른 기준 위치로 찾아보세요.</Text>
-            <LightBtn title="대피소 탭에서 찾기" icon="shield-outline" onPress={() => router.navigate('/shelter')} />
+            {known && (sheltersRes.loading || sheltersRes.error) ? (
+              // 찾는 중·실패를 '대피소 없음'으로 보이지 않게
+              <>
+                <Text style={[st.hero, { fontSize: 36, lineHeight: 42 }]}>{sheltersRes.loading ? '가까운 대피소를\n찾고 있어요' : '대피소 정보를\n받지 못했어요'}</Text>
+                {!!sheltersRes.error && <Text style={[st.body, { marginTop: 6 }]}>{sheltersRes.error}</Text>}
+                {!!sheltersRes.error && <LightBtn title="다시 시도" icon="refresh" onPress={() => sheltersRes.reload()} />}
+              </>
+            ) : locState !== 'ok' ? (
+              // 위치를 모르면 '대피소 없음'이 아니라 '위치 필요' (없다고 단정하지 않음)
+              <>
+                <Text style={[st.hero, { fontSize: 36, lineHeight: 42 }]}>현재 위치를{'\n'}{locState === 'loading' ? '확인하고 있어요' : '알 수 없어요'}</Text>
+                <Text style={[st.body, { marginTop: 6 }]}>위치를 확인하면 가장 가까운 대피소를 보여 드려요.</Text>
+                {locState === 'fail' && <LightBtn title="기준 위치 직접 지정" icon="pin" onPress={() => router.push('/location')} />}
+              </>
+            ) : (
+              <>
+                <Text style={[st.hero, { fontSize: 36, lineHeight: 42 }]}>반경 {MAX_RADIUS}km 안에{'\n'}등록된 대피소가 없어요</Text>
+                <Text style={[st.body, { marginTop: 6 }]}>대피소 탭에서 다른 기준 위치로 찾아보세요.</Text>
+                <LightBtn title="대피소 탭에서 찾기" icon="shield-outline" onPress={() => router.navigate('/shelter')} />
+              </>
+            )}
             <View style={{ height: 24 }} />
           </>
         )}
@@ -400,7 +485,20 @@ export default function HomeScreen() {
             })}
           </ScrollView>
         )}
-        {!g ? (
+        {/* 그룹을 받는 중·실패: '그룹 없음'이나 '모두 안전'으로 보이지 않게 */}
+        {groupsState === 'error' && (
+          <Pressable onPress={() => reloadGroups()} accessibilityRole="button" style={({ pressed }) => [st.row, { marginTop: 10, gap: 6 }, pressed && st.pressed]}>
+            <Icon name="cloud-offline-outline" size={16} color={HIT} />
+            <Text style={[st.b, { color: HIT, flex: 1 }]}>{g ? '최신 위치·영향상태를 받지 못했어요. 아래는 마지막으로 받은 정보예요.' : '안심그룹 정보를 받지 못했어요.'} 눌러서 다시 시도</Text>
+          </Pressable>
+        )}
+        {!g && groupsState !== 'ok' ? (
+          <>
+            <View style={{ flex: 1 }} />
+            <Text style={[st.hero, { fontSize: 36, lineHeight: 42 }]}>{groupsState === 'loading' ? '안심그룹을\n불러오고 있어요' : '안심그룹을\n확인할 수 없어요'}</Text>
+            <View style={{ height: 24 }} />
+          </>
+        ) : !g ? (
           <>
             <View style={{ flex: 1 }} />
             <Text style={[st.hero, { fontSize: 40, lineHeight: 46 }]}>안심그룹이{'\n'}아직 없어요</Text>
@@ -416,19 +514,19 @@ export default function HomeScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
               {sorted.slice(0, TILE_MAX).map(m => {
                 const k = knownImpact(m);
-                const old = (m.updatedMin ?? 0) > STALE_MIN;
+                const old = (ageMin(m.updatedAt) ?? 0) > STALE_MIN;
                 const hit = k === '영향지역 포함';
                 const vague = k === '판단 불가' || k === '위치정보 미제공';
                 return (
                   <Pressable key={m.id} onPress={() => router.push(`/groups/${g.id}`)} accessibilityRole="button"
-                    accessibilityLabel={`${m.name} ${k}${m.sharing ? `, ${m.place} ${m.updatedMin}분 전` : ', 위치 공유 안 함'}. 그룹 자세히`}
+                    accessibilityLabel={`${m.name} ${k}${m.sharing ? `, ${freshness(m.updatedAt)}` : ', 위치 공유 안 함'}. 그룹 자세히`}
                     style={({ pressed }) => [st.tile, hit && { backgroundColor: 'rgba(214,59,48,0.22)', borderColor: 'rgba(255,156,146,0.6)' },
                       vague && { borderStyle: 'dashed' }, pressed && st.pressed]}>
                     <View style={st.row}>
-                      <Text style={[st.h3, { flex: 1 }]} numberOfLines={1}>{m.id === ME ? '나' : m.name}</Text>
+                      <Text style={[st.h3, { flex: 1 }]} numberOfLines={1}>{m.name}</Text>
                       {m.admin && <Icon name="ribbon" size={16} color="#F2C230" accessibilityLabel="관리자" />}
                     </View>
-                    <Text style={st.small} numberOfLines={1}>{m.sharing ? `${m.place} · ${m.updatedMin}분 전` : '위치 공유 안 함'}</Text>
+                    <Text style={st.small} numberOfLines={1}>{m.sharing ? freshness(m.updatedAt) : '위치 공유 안 함'}</Text>
                     <View style={[st.row, { gap: 4, marginTop: 2 }]}>
                       <Icon name={IMPACT_ICON[k]} size={14} color={hit ? HIT : SOFT} />
                       <Text style={[st.b, { fontSize: 14, color: hit ? HIT : SOFT, flexShrink: 1 }]} numberOfLines={1}>{old && m.sharing ? '오래된 위치 · 확인 필요' : k}</Text>
@@ -508,7 +606,7 @@ function RailBtn({ icon, text, label, tone, a11y, onPress }: { icon?: IconName; 
 function NextCard({ children, onPress, label }: { children: ReactNode; onPress?: () => void; label?: string }) {
   const t = useContext(ToneCtx);
   return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label}
+    <Pressable onPress={onPress} disabled={!onPress} accessible={!!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label}
       style={({ pressed }) => [st.next, { marginTop: 14, backgroundColor: t.card, borderColor: t.line }, pressed && st.pressed]}>
       {!!onPress && <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: t.faint, marginBottom: 10 }} />}
       {children}

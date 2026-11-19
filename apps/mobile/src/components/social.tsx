@@ -7,7 +7,7 @@
 import { ReactNode } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { Provider } from '../data/mock';
+import { Provider } from '../data/types';
 import { useTheme } from './ui';
 
 const GOOGLE = {

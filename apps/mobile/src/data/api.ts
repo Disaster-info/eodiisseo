@@ -1,14 +1,18 @@
 // 백엔드 API 호출 + 로그인 세션(토큰) 관리: 저장(storage), 자동 갱신(/auth/refresh), 만료·로그아웃 처리 (FS-AUTH-004·005)
-import { MemberInfo, Provider } from './mock';
+import { MemberInfo, Provider } from './types';
 import { getItem, removeItem, setItem } from './storage';
 
 export const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
 const SESSION_KEY = 'eodiisseo.session';
 
 type Tokens = { accessToken: string; refreshToken: string };
-type Session = Tokens & { provider: Provider };
+// info: 마지막으로 확인한 회원 정보. 앱 시작 때 서버에 닿지 못해도 이 정보로 열어 재난 화면을 쓸 수 있게
+type Session = Tokens & { provider: Provider; info?: MemberInfo };
 let session: Session | null = null;
-let refreshing: Promise<boolean> | null = null;
+// 세션 세대 번호: 세션이 바뀔 때마다(로그인·갱신·로그아웃) 1 증가.
+// 늦게 끝난 요청은 시작할 때의 번호와 지금 번호가 다르면 결과를 버림 (로그아웃·새 로그인을 덮어쓰지 않게)
+let gen = 0;
+let refreshing: Promise<Refreshed> | null = null;
 let onExpired = () => {};
 
 /** 갱신까지 실패해 세션이 끝났을 때 부를 함수 (앱이 로그인 화면으로 보내고 '만료' 안내) */
@@ -17,19 +21,29 @@ export function setOnSessionExpired(fn: () => void) { onExpired = fn; }
 // 메모리와 저장소를 함께 갱신. 저장에 실패해도 이번 실행은 메모리로 계속
 async function keep(next: Session | null) {
   session = next;
+  gen++;
   await (next ? setItem(SESSION_KEY, JSON.stringify(next)) : removeItem(SESSION_KEY)).catch(() => {});
 }
-export const startSession = (tokens: Tokens, provider: Provider) => keep({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, provider });
-export const endSession = () => keep(null);
+// 계정 번호: 로그인·로그아웃 때만 1 증가 (토큰 갱신은 그대로). 요청 도중 계정이 바뀌면 그 요청은 새 계정 토큰으로 다시 보내지 않음
+let account = 0;
+export const startSession = (tokens: Tokens, provider: Provider) => { account++; return keep({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, provider }); };
+export const endSession = () => { account++; return keep(null); };
+/** 지금 세션의 계정 번호 (로그인 시도가 만든 세션이 아직 그대로인지 확인용) */
+export const sessionAccount = () => account;
 
 const TIMEOUT_MS = 15000; // 서버가 응답하지 않으면 이 시간 뒤 실패로 처리 (앱 시작이 빈 화면에서 멈추지 않게)
 
-/** 로그인 없이 부르는 API. 서버에 닿지 못하면(꺼짐·주소 오류·응답 없음) 사용자 문구로 */
-export async function request(path: string, init: RequestInit = {}) {
+/** 응답: 본문까지 다 받은 뒤 돌려줌 (본문이 중간에 멈춰도 제한 시간 안에서 실패). json() 은 본문이 비었거나 JSON 이 아니면 Error */
+export type Reply = { ok: boolean; status: number; json: () => Promise<any> };
+
+/** 시간 제한이 있는 fetch: 연결·헤더·본문 수신 전체를 ms 안에. 서버에 닿지 못하면(꺼짐·주소 오류·응답 없음) 사용자 문구로 */
+export async function fetchText(url: string, init: RequestInit = {}, ms = TIMEOUT_MS): Promise<Reply> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(`${API}${path}`, { ...init, signal: ctrl.signal });
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, json: async () => JSON.parse(text) };
   } catch {
     throw new Error(ctrl.signal.aborted
       ? '서버 응답이 없어요. 잠시 후 다시 시도해 주세요.'
@@ -39,6 +53,9 @@ export async function request(path: string, init: RequestInit = {}) {
   }
 }
 
+/** 로그인 없이 부르는 API */
+export const request = (path: string, init: RequestInit = {}) => fetchText(`${API}${path}`, init);
+
 /** 시간 제한: ms 안에 끝나지 않으면 message 로 실패 (휴대폰 GPS 처럼 응답이 한없이 늦을 수 있는 작업용) */
 export function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -46,83 +63,148 @@ export function withTimeout<T>(work: Promise<T>, ms: number, message: string): P
   return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
 
+// 갱신 결과: ok = 새 토큰, expired = 서버가 세션을 끊음(재로그인 필요), error = 서버 장애·네트워크·그 사이 세션 바뀜 (지금 세션은 그대로)
+type Refreshed = 'ok' | 'expired' | 'error';
 // refresh 토큰은 쓸 때마다 새것으로 바뀌고, 이미 쓴 것을 다시 보내면 서버가 세션을 끊음 → 갱신은 동시에 한 번만
-function refresh(): Promise<boolean> {
-  refreshing ??= (async () => {
-    const current = session;
-    if (!current) return false;
+function refresh(): Promise<Refreshed> {
+  refreshing ??= (async (): Promise<Refreshed> => {
+    const current = session, myGen = gen;
+    if (!current) return 'error';
     const res = await request('/api/v1/auth/refresh', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: current.refreshToken }),
-    });
-    if (!res.ok) {
-      if (res.status === 400 || res.status === 401) await endSession(); // 만료·폐기된 세션
-      return false;
-    }
-    await keep({ ...current, ...(await res.json() as Tokens) });
-    return true;
+    }).catch(() => null);
+    if (myGen !== gen || !res) return 'error'; // 그 사이 로그아웃·다른 로그인이면 이 결과는 버림
+    if (res.status === 400 || res.status === 401) return 'expired'; // 만료·폐기된 세션
+    const tokens = res.ok ? await res.json().catch(() => null) as Tokens | null : null;
+    if (!tokens?.accessToken || !tokens.refreshToken) return 'error'; // 5xx 등 일시 장애: 유효한 refresh 토큰을 버리지 않음
+    await keep({ ...current, ...tokens });
+    return 'ok';
   })().finally(() => { refreshing = null; });
   return refreshing;
 }
 
-/** 로그인이 필요한 API. 액세스 토큰이 만료(401)되면 한 번 갱신하고 다시 보냄. 갱신도 실패하면 세션 종료 */
+/** 로그인이 필요한 API. 액세스 토큰이 만료(401)되면 한 번 갱신하고 다시 보냄. 서버가 세션을 끊었을 때만 세션 종료 */
 export async function api(path: string, init: RequestInit = {}) {
-  const hadSession = !!session;
+  const myAccount = account;
   const send = () => request(path, { ...init, headers: { ...init.headers, ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}) } });
+  const sentGen = gen;
   let res = await send();
-  if (res.status === 401 && hadSession) {
-    if (await refresh()) res = await send();
-    if (res.status === 401) { await endSession(); onExpired(); }
+  if (res.status === 401 && session && myAccount === account) {
+    if (gen !== sentGen) return send(); // 그 사이 다른 요청이 이미 같은 계정 토큰을 갱신함 → 새 토큰으로 한 번만 다시
+    const myGen = gen;
+    const r = await refresh();
+    // 갱신 요청이 서버 장애·네트워크 오류로 실패: 세션이 끊긴 게 아니므로 401 을 그대로 돌려주지 않음 ('로그인 만료'로 오판해 토큰을 지우지 않게)
+    if (r === 'error' && myAccount === account) throw new Error('서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    if (r === 'ok' && myAccount === account) res = await send();
+    // 갱신이 만료로 끝났거나 새 토큰으로도 401 → 재로그인. 그 사이 로그아웃·새 로그인으로 세션이 바뀌었으면 건드리지 않음
+    const lost = r === 'expired' ? gen === myGen : r === 'ok' && res.status === 401 && gen === myGen + 1;
+    if (lost) { await endSession(); onExpired(); }
   }
   return res;
 }
 
 /** 로그인한 회원 정보. 백엔드가 이메일·가입일은 주지 않으므로 비워 둠 (지어내지 않음) */
+// 반환 null = 세션이 끊김(401·403, 다시 로그인 필요). 서버 장애·네트워크 오류는 Error (세션은 그대로)
 export async function fetchMember(): Promise<MemberInfo | null> {
   const res = await api('/api/v1/members/me');
-  if (!res.ok) return null;
-  const me: { memberId: string; name?: string; roles?: string[] } = await res.json();
-  return { id: me.memberId, name: me.name ?? '회원', email: '', joinedAt: '', operator: !!me.roles?.includes('OPS') };
+  if (res.status === 401 || res.status === 403) return null;
+  if (!res.ok) throw new Error(`회원 정보 조회 실패 (${res.status})`);
+  const me: { memberId?: unknown; name?: unknown; roles?: unknown } = await res.json();
+  if (typeof me?.memberId !== 'string' || !me.memberId) throw new Error('회원 정보 응답이 올바르지 않아요.');
+  return { id: me.memberId, name: typeof me.name === 'string' && me.name ? me.name : '회원', email: '', joinedAt: '',
+    operator: Array.isArray(me.roles) && me.roles.includes('OPS') };
 }
+
+/** 로그인 화면에서 취소한 시도 (화면은 이미 취소 상태라 안내 문구를 띄우지 않음) */
+export class LoginCancelled extends Error {}
 
 /**
  * FS-AUTH-001·002: 소셜 인증 결과로 백엔드 로그인 → 세션 저장 → 회원 정보.
  * body 는 웹이면 인가 코드({ code, redirectUri, codeVerifier }), 앱이면 제공자 토큰({ idToken } / { accessToken })
  */
-export async function signIn(provider: Provider, body: object): Promise<MemberInfo> {
+// isCancelled: 로그인 화면에서 '취소'를 눌렀는지. 취소된 시도는 토큰을 저장하지 않음 (다시 열었을 때 취소한 계정으로 로그인되지 않게)
+export async function signIn(provider: Provider, body: object, isCancelled: () => boolean = () => false): Promise<MemberInfo> {
   const res = await request(`/api/v1/auth/${provider.toLowerCase()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.message ?? `로그인 서버 오류 (${res.status})`);
-  // FS-AUTH-007: 탈퇴 유예 중인 계정은 세션 없이 복구 가능 기한만 옴
+  // FS-AUTH-007: 탈퇴 유예 중인 계정은 세션 없이 복구 가능 기한만 옴. 앱 로그인(제공자 토큰)이면 그 토큰으로 바로 복구할 수 있음
   if (json.accountStatus === 'WITHDRAWAL_PENDING') {
-    throw new Error(`탈퇴 처리 중인 계정이에요. ${String(json.recoverableUntil).slice(0, 10)}까지 복구할 수 있어요.`);
+    const b = body as { idToken?: string; accessToken?: string };
+    const credential = provider === 'Google' ? b.idToken : b.accessToken;
+    throw new WithdrawalPending(String(json.recoverableUntil ?? '').slice(0, 10),
+      credential ? cancelled => recoverAccount(provider, credential, cancelled) : undefined);
   }
+  return finishLogin(provider, json, isCancelled);
+}
+
+/** 탈퇴 유예 중인 계정. recover 가 있으면 복구 가능 (웹 로그인은 제공자 토큰이 앱에 없어 복구 불가 → undefined) */
+export class WithdrawalPending extends Error {
+  constructor(public until: string, public recover?: (isCancelled: () => boolean) => Promise<MemberInfo>) {
+    super(`탈퇴 처리 중인 계정이에요.${until ? ` ${until}까지` : ''} ${recover ? '복구할 수 있어요.' : '복구는 휴대폰 앱에서 같은 계정으로 로그인해 진행해 주세요.'}`);
+  }
+}
+/** FS-AUTH-007 탈퇴 철회: 같은 소셜 계정의 토큰으로 복구 → 새 세션. 탈퇴 때 나간 그룹은 복구되지 않음 */
+async function recoverAccount(provider: Provider, socialCredential: string, isCancelled: () => boolean): Promise<MemberInfo> {
+  const res = await request('/api/v1/auth/withdrawal/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: provider.toUpperCase(), socialCredential }) });
+  const json = await res.json().catch(() => ({}));
+  if (res.status === 410) throw new Error('복구 기간이 지나 계정을 복구할 수 없어요.');
+  if (res.status === 401) throw new Error('인증이 만료됐어요. 다시 로그인한 뒤 복구해 주세요.');
+  if (!res.ok) throw new Error(json.message ?? `계정 복구 실패 (${res.status})`);
+  return finishLogin(provider, json, isCancelled);
+}
+
+// 로그인·복구 응답(토큰) → 세션 저장 → 회원 정보
+async function finishLogin(provider: Provider, json: any, isCancelled: () => boolean): Promise<MemberInfo> {
   if (!json.accessToken || !json.refreshToken) throw new Error('로그인 응답이 올바르지 않아요. 잠시 후 다시 시도해 주세요.');
+  if (isCancelled()) throw new LoginCancelled();
   await startSession(json, provider); // 토큰 저장 → 다시 열어도 로그인 유지, 만료되면 자동 갱신
+  const mine = account; // 계정 번호는 토큰 갱신으로 바뀌지 않음 (gen 은 바뀜)
   // 운영 관리 권한(OPS)은 회원 정보 조회로 확인. 실패하면 로그인 응답의 값만, 권한 없음으로 둠
   const info = await fetchMember().catch(() => null);
-  return info ?? { id: json.memberId, name: json.name, email: '', joinedAt: '', operator: false };
+  if (isCancelled()) {
+    if (mine === account) await endSession(); // 이 시도가 만든 세션일 때만 지움 (그 사이 토큰이 갱신됐어도 지움, 새 로그인은 건드리지 않음)
+    throw new LoginCancelled();
+  }
+  // 회원 조회 중 세션이 끊겼으면(갱신 실패로 만료) 토큰 없이 로그인된 상태가 되지 않게 실패로
+  if (!session) throw new Error('로그인 세션을 확인하지 못했어요. 다시 시도해 주세요.');
+  if (!info && (typeof json.memberId !== 'string' || !json.memberId)) throw new Error('로그인 응답이 올바르지 않아요. 잠시 후 다시 시도해 주세요.');
+  const me = info ?? { id: json.memberId, name: typeof json.name === 'string' && json.name ? json.name : '회원', email: '', joinedAt: '', operator: false };
+  await keep({ ...session, info: me }); // 다음 실행 때 서버에 닿지 못해도 이 회원으로 열 수 있게
+  return me;
 }
 
 /** 앱 시작 시: 저장된 세션이 있으면 이어서 로그인. 없거나 끝났으면 null */
-export async function restoreSession(): Promise<{ provider: Provider; info: MemberInfo } | null> {
+// offline = 서버에 닿지 못해 저장해 둔 회원 정보로 연 상태 (화면마다 데이터 조회는 각자 실패·재시도 안내)
+export async function restoreSession(): Promise<{ provider: Provider; info: MemberInfo; offline: boolean } | null> {
   const raw = await getItem(SESSION_KEY).catch(() => null);
   if (!raw) return null;
   try {
-    session = JSON.parse(raw) as Session;
+    const v = JSON.parse(raw) as Session | null;
+    if (!v || typeof v.accessToken !== 'string' || typeof v.refreshToken !== 'string') throw new Error('bad session');
+    session = v;
   } catch {
     await endSession();
     return null;
   }
   try {
     const info = await fetchMember(); // 액세스 토큰이 만료됐으면 api() 가 갱신까지 시도
-    return info && session ? { provider: session.provider, info } : null;
+    if (!info || !session) {
+      if (session) await endSession(); // 403 등 서버가 거절: 다시 로그인
+      return null;
+    }
+    await keep({ ...session, info });
+    return { provider: session.provider, info, offline: false };
   } catch {
-    return null; // 서버에 닿지 못함: 토큰은 남겨 두고 이번에는 로그인 화면
+    // 서버 장애·네트워크 오류: 세션이 끊긴 게 아니므로 저장된 회원 정보로 엶 (재난 상황에서 앱 전체가 막히지 않게)
+    const cached = session?.info;
+    return session && cached && typeof cached.id === 'string' ? { provider: session.provider, info: cached, offline: true } : null;
   }
 }
 
-/** 로그아웃: 서버 세션을 끊고 저장된 토큰 삭제. 서버에 닿지 못해도 이 기기에서는 로그아웃 */
+/** 로그아웃: 이 기기의 토큰부터 바로 지우고, 지운 토큰으로 서버 세션 폐기를 알림 (서버에 닿지 못해도 이 기기에서는 로그아웃) */
 export async function logoutSession() {
-  if (session) await api('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+  const old = session;
   await endSession();
+  if (old) await request('/api/v1/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${old.accessToken}` } }).catch(() => {});
 }

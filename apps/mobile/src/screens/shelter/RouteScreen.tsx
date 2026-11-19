@@ -7,8 +7,9 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { TmapView } from '../../components/map';
 import { BandTabs, Coupon, Field, Perf } from '../../components/ticket';
-import { Btn, Header, Icon, Page, STALE_MIN, useTheme } from '../../components/ui';
-import { MAX_RADIUS, ME, Member, SHELTERS } from '../../data/mock';
+import { Btn, Header, Icon, Page, STALE_MIN, ageMin, useTheme } from '../../components/ui';
+import { fetchShelter, useLoad } from '../../data/server';
+import { MAX_RADIUS, Member } from '../../data/types';
 import { withTimeout } from '../../data/api';
 import { LatLon, Route, coordsOf, distanceKm, searchRoute } from '../../data/tmap';
 import { useApp } from '../../store/AppContext';
@@ -19,14 +20,17 @@ type Mode = 'me' | 'member';
 // 그룹원을 출발지로 쓸 수 없는 이유 (null = 가능). 공유 꺼짐·오래된 위치·대피소에서 너무 멀면 안내하지 않음
 function blockReason(m: Member, to: LatLon): string | null {
   if (!m.sharing || m.lat === undefined || m.lon === undefined) return '위치 공유 꺼짐';
-  if ((m.updatedMin ?? 0) > STALE_MIN) return `${m.updatedMin}분 전 위치라 안내할 수 없어요`;
+  const min = ageMin(m.updatedAt);
+  if (min === undefined) return '위치 갱신 시각 없음';
+  if (min > STALE_MIN) return `${min}분 전 위치라 안내할 수 없어요`;
   const km = distanceKm({ lat: m.lat, lon: m.lon }, to);
   return km > MAX_RADIUS ? `이 대피소에서 ${Math.round(km)}km 떨어져 있어요` : null;
 }
 
-export default function RouteScreen({ id }: { id: number }) {
+export default function RouteScreen({ id }: { id: string }) {
   const { C, s } = useTheme();
   const { location, locConsent, isManual, place, groups, member } = useApp();
+  const shelter = useLoad(id || null, () => fetchShelter(id));
   const [mode, setMode] = useState<Mode>('me');
   const [pickedKey, setPickedKey] = useState<string | null>(null);
   const [tries, setTries] = useState(0);
@@ -34,13 +38,13 @@ export default function RouteScreen({ id }: { id: number }) {
   const [res, setRes] = useState<{ key: string; value: Found | 'error' | 'denied' } | null>(null);
   // 지도 높이: 대피소 탭과 같게 화면 높이의 38% (240~440)
   const mapHeight = Math.round(Math.min(440, Math.max(240, useWindowDimensions().height * 0.38)));
-  const sh = SHELTERS.find(x => x.id === id);
+  const sh = shelter.data ?? undefined;
 
   // 내 위치 = 위치 동의 + 직접 지정 안 함이면 GPS, 아니면 지정 위치 (같은 위치를 두 버튼으로 보여주지 않음)
   const gps = locConsent && !isManual;
   const myName = gps ? '현재 위치' : place?.name ?? location;
   // 그룹원 목록 (나 제외). 안내할 수 없는 사람은 이유와 함께 흐리게
-  const members = groups.flatMap(g => g.members.filter(m => m.id !== ME)
+  const members = groups.flatMap(g => g.members.filter(m => m.id !== member?.id)
     .map(m => ({ key: `${g.id}:${m.id}`, m, group: g.name, reason: sh ? blockReason(m, sh) : '대피소 없음' })));
   const usable = members.filter(x => !x.reason);
   const picked = mode === 'member' ? usable.find(x => x.key === pickedKey) ?? usable[0] : undefined;
@@ -67,6 +71,12 @@ export default function RouteScreen({ id }: { id: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- key 가 출발지·재시도를 모두 담음 (picked 는 매번 새 객체)
   }, [key, sh, waiting]);
 
+  if (shelter.loading) return <View style={s.fill}><Header title="대피 경로" /><ActivityIndicator style={{ marginTop: 40 }} color={C.tabOn} accessibilityLabel="대피소 정보를 불러오는 중" /></View>;
+  if (shelter.error) return (
+    <View style={s.fill}><Header title="대피 경로" />
+      <Page><Text style={s.center}>대피소 정보를 불러오지 못했어요.{'\n'}{shelter.error}</Text><Btn title="다시 시도" icon="refresh" color={C.navy} onPress={shelter.reload} /></Page>
+    </View>
+  );
   if (!sh) return <View style={s.fill}><Header title="대피 경로" /><Text style={s.center}>대피소 정보를 찾을 수 없습니다.</Text></View>;
   const startName = picked ? `${picked.m.name}님 위치` : myName;
 
@@ -99,7 +109,7 @@ export default function RouteScreen({ id }: { id: number }) {
                     <Icon name={on ? 'radio-button-on' : 'radio-button-off'} size={22} color={on ? C.tabOn : C.sub} />
                     <View style={{ flex: 1 }}>
                       <Text style={[s.body, on && s.bold]}>{x.m.name} <Text style={s.small}>· {x.group}</Text></Text>
-                      <Text style={s.small}>{x.reason ?? `${x.m.updatedMin}분 전 위치 · 대피소까지 직선 ${distanceKm({ lat: x.m.lat!, lon: x.m.lon! }, sh).toFixed(1)}km`}</Text>
+                      <Text style={s.small}>{x.reason ?? `${ageMin(x.m.updatedAt)}분 전 위치 · 대피소까지 직선 ${distanceKm({ lat: x.m.lat!, lon: x.m.lon! }, sh).toFixed(1)}km`}</Text>
                     </View>
                   </Pressable>
                 );
@@ -117,7 +127,7 @@ export default function RouteScreen({ id }: { id: number }) {
         <Coupon tone="green" head="대피 경로" headIcon="walk" right="도보">
           <View style={[s.row, { gap: 10, alignItems: 'flex-start' }]}>
             <View style={{ flex: 1 }} accessible accessibilityLabel={`출발 ${waiting ? '선택 안 됨' : startName}`}>
-              <Text style={s.small}>출발{mode === 'me' ? (gps ? ' · 현재 위치(GPS)' : ' · 지정 위치') : ' · 그룹원'}</Text>
+              <Text style={s.small}>출발{mode === 'me' ? (gps ? ' · 현재 위치(GPS)' : place ? ' · 지정 장소' : ' · 지역 대표 지점(시·군·구청 부근)') : ' · 그룹원'}</Text>
               <Text style={s.bold}>{waiting ? '—' : startName}</Text>
             </View>
             <Icon name="arrow-forward" size={22} color={C.sub} style={{ marginTop: 14 }} />

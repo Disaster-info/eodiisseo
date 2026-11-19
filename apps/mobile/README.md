@@ -1,6 +1,6 @@
 # 어디있어 (프론트 UI)
 
-백엔드 없이 목업 데이터로 동작하는 React Native(Expo SDK 58) 화면입니다.
+백엔드(`develop` 브랜치 `backend/`) API 에 연결되는 React Native(Expo SDK 58) 앱입니다. 목업 데이터는 없으며, 서버 주소는 `.env.local` 의 `EXPO_PUBLIC_API_URL` 로 정합니다.
 
 ## 실행
 
@@ -42,7 +42,8 @@ src/
 │  ├─ shelters/[id].tsx    대피소 상세        route/[id].tsx  대피 경로
 │  ├─ groups/[id].tsx      안심그룹 상세
 │  └─ login, consent, location, areas, noti, chat, ops
-├─ data/mock.ts            목업 데이터·타입 (API 연동 시 여기를 교체)
+├─ data/types.ts           공통 타입·표시용 상수
+├─ data/server.ts          백엔드 API 호출 + 화면 타입으로 변환, useLoad 훅
 ├─ store/AppContext.tsx    전역 상태 (로그인·설정·그룹 등)
 ├─ components/ui.tsx       공통 UI(Card, Btn, Chip…), 색상·스타일, confirm/notify
 ├─ components/disaster.tsx 재난 카드·등급 배지
@@ -56,7 +57,7 @@ src/
 3. 로그인 후에만 보여야 하면 `src/app/_layout.tsx` 의 `Stack.Protected guard={!!member}` 안에 `<Stack.Screen name="xxx" />` 추가
 4. 이동할 곳에서 `router.push('/xxx')` 호출 (`expo-router` 의 `router`)
 
-## 테스트용 초대 코드
+## 참고
 
-- `FRD-1234`: 참여 성공
-- `FULL-0000`: 인원 초과(10명)로 참여 실패
+- Expo Go 에서는 소셜 로그인 네이티브 모듈이 없어 로그인할 수 없습니다. 개발 빌드(`npx expo run:ios|android`)나 웹(`w`)으로 실행하세요.
+- 운영자 화면은 백엔드 회원 역할에 `OPS` 가 있는 계정으로 로그인하면 열립니다.

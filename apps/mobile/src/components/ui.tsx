@@ -5,7 +5,7 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { Stack } from 'expo-router';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { Impact, Level } from '../data/mock';
+import type { Impact, Level } from '../data/types';
 
 export { Ionicons as Icon };
 export type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -163,7 +163,7 @@ export function AppSwitch(props: SwitchProps & { accessibilityLabel: string }) {
 export function Card({ children, onPress, ...a11y }: { children: ReactNode; onPress?: () => void } & A11y) {
   const { s } = useTheme();
   return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} {...a11y}
+    <Pressable onPress={onPress} disabled={!onPress} accessible={!!onPress} accessibilityRole={onPress ? 'button' : undefined} {...a11y}
       style={({ pressed }) => [s.card, pressed && s.pressed]}>{children}</Pressable>
   );
 }
@@ -213,7 +213,7 @@ export function Sign({ tone, children, onPress, label }: { tone: SignTone; child
   const { C, s } = useTheme();
   const yellow = tone === 'yellow';
   return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label}
+    <Pressable onPress={onPress} disabled={!onPress} accessible={!!onPress || !!label} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label}
       style={({ pressed }) => [{ borderRadius: 12, overflow: 'hidden', backgroundColor: C.sign[tone] },
         yellow ? { borderWidth: 3, borderColor: C.signLine.yellow } : { padding: 4 }, pressed && s.pressed]}>
       <View style={[{ gap: 4 }, yellow ? { padding: 12 } : { borderWidth: 2, borderColor: C.signLine[tone], borderRadius: 8, padding: 14 }]}>{children}</View>
@@ -320,12 +320,17 @@ export function Page({ children, refreshControl, band }: { children: ReactNode; 
   );
 }
 
-export const STALE_MIN = 10; // 이 시간(분)이 지나면 오래된 위치
+// 이 시간(분)이 지나면 오래된 위치. 백엔드 LOCATION_STALE_AFTER_SECONDS(기본 300초)와 같게 — 서버 값을 바꾸면 여기도 맞춤
+export const STALE_MIN = 5;
 // 오래된 위치로는 영향상태를 확정하지 않음 → '판단 불가' 로 취급 (요약·정렬용)
-export const knownImpact = (m: { impact: Impact; updatedMin?: number }): Impact =>
-  (m.updatedMin ?? 0) > STALE_MIN && (m.impact === '영향지역 포함' || m.impact === '영향지역 밖') ? '판단 불가' : m.impact;
-export const freshness = (min?: number) =>
-  min === undefined ? '위치 없음' : min <= STALE_MIN ? `${min}분 전 · 최신` : `${min}분 전 · 오래된 위치`;
+/** 위치 갱신 시각(ms) → 지금까지 몇 분. 없으면 undefined (보여 줄 때마다 계산해 시간이 지나면 늘어남) */
+export const ageMin = (at?: number) => (at === undefined ? undefined : Math.max(0, Math.floor((Date.now() - at) / 60000)));
+export const knownImpact = (m: { impact: Impact; updatedAt?: number }): Impact =>
+  (ageMin(m.updatedAt) ?? 0) > STALE_MIN && (m.impact === '영향지역 포함' || m.impact === '영향지역 밖') ? '판단 불가' : m.impact;
+export const freshness = (at?: number) => {
+  const min = ageMin(at);
+  return min === undefined ? '위치 없음' : min <= STALE_MIN ? `${min}분 전 · 최신` : `${min}분 전 · 오래된 위치`;
+};
 
 // 글자 단계: display 34(큰 숫자) · h1 30 · h2 20 · section/body/bold 17 · muted 15 · small 13 (하한). 시스템 글자 크기 설정에 따라 함께 커짐
 function makeStyles(C: Colors) { return StyleSheet.create({

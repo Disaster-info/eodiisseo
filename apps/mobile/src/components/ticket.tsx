@@ -19,7 +19,7 @@ export function Coupon({ head, headIcon, right, tone = 'navy', onPress, children
   const band = tone === 'navy' ? C.navy : BAND[tone];
   const fg = tone === 'yellow' ? '#16181B' : '#FFFFFF';
   return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} {...a11y}
+    <Pressable onPress={onPress} disabled={!onPress} accessible={!!onPress} accessibilityRole={onPress ? 'button' : undefined} {...a11y}
       style={({ pressed }) => [s.card, { padding: 0, gap: 0 },
         dashed && { backgroundColor: 'transparent', borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.perf, boxShadow: 'none', elevation: 0, shadowOpacity: 0 },
         pressed && s.pressed]}>

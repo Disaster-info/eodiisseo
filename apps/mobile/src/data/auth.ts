@@ -1,11 +1,11 @@
 // FS-AUTH-001·002 소셜 로그인 (iOS·Android): 네이티브 SDK 로 받은 제공자 토큰을 백엔드 /api/v1/auth/{google,kakao} 로 전달
 // Google: idToken (webClientId 로 발급 → 백엔드 GOOGLE_CLIENT_ID 와 같은 대상). Kakao: accessToken (백엔드가 KAKAO_APP_ID 로 확인)
-// 네이티브 SDK 는 개발 빌드에만 있음 → Expo Go 에서는 목업 로그인 (화면 확인용)
+// 네이티브 SDK 는 개발 빌드에만 있음 → Expo Go 에서는 로그인할 수 없다고 안내 (가짜 회원으로 들어가지 않음)
 // 설정(.env.local): EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID, EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY
 import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 import { signIn } from './api';
-import { MemberInfo, mockAuthenticate, Provider } from './mock';
+import { MemberInfo, Provider } from './types';
 
 const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
 const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
@@ -13,13 +13,13 @@ const KAKAO_NATIVE_APP_KEY = process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY ?? '';
 
 // 반환: 로그인한 회원 정보, 사용자가 로그인을 취소하면 null. 실패하면 안내 문구를 담은 Error
 export function useSocialLogin() {
-  return async (p: Provider): Promise<MemberInfo | null> => {
-    if (isRunningInExpoGo()) return mockAuthenticate(p);
-    return p === 'Google' ? google() : kakao();
+  return async (p: Provider, isCancelled: () => boolean = () => false): Promise<MemberInfo | null> => {
+    if (isRunningInExpoGo()) throw new Error('Expo Go 에서는 소셜 로그인을 쓸 수 없어요. 개발 빌드(npx expo run:ios|android)나 웹에서 실행해 주세요.');
+    return p === 'Google' ? google(isCancelled) : kakao(isCancelled);
   };
 }
 
-async function google(): Promise<MemberInfo | null> {
+async function google(isCancelled: () => boolean): Promise<MemberInfo | null> {
   // iOS 는 iOS 클라이언트 ID(URL scheme 은 app.config.ts 가 빌드에 넣음)가 없으면 SDK 가 앱을 종료시키므로 먼저 막음
   if (!GOOGLE_WEB_CLIENT_ID || (Platform.OS === 'ios' && !GOOGLE_IOS_CLIENT_ID)) {
     throw new Error('Google 로그인 설정이 아직 없어요. (EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID)');
@@ -32,7 +32,7 @@ async function google(): Promise<MemberInfo | null> {
     const r = await GoogleSignin.signIn();
     if (!isSuccessResponse(r)) return null; // 사용자가 취소
     if (!r.data.idToken) throw new Error('Google 인증 정보를 받지 못했어요. 다시 시도해 주세요.');
-    return await signIn('Google', { idToken: r.data.idToken });
+    return await signIn('Google', { idToken: r.data.idToken }, isCancelled);
   } catch (e) {
     if (isErrorWithCode(e)) {
       if (e.code === statusCodes.IN_PROGRESS) return null; // 이미 진행 중인 로그인 창이 있음
@@ -43,7 +43,7 @@ async function google(): Promise<MemberInfo | null> {
   }
 }
 
-async function kakao(): Promise<MemberInfo | null> {
+async function kakao(isCancelled: () => boolean): Promise<MemberInfo | null> {
   if (!KAKAO_NATIVE_APP_KEY) throw new Error('카카오 로그인 설정이 아직 없어요. (EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY)');
   const { login } = await import('@react-native-seoul/kakao-login');
   let accessToken: string;
@@ -54,5 +54,5 @@ async function kakao(): Promise<MemberInfo | null> {
     if (/cancel/i.test(e instanceof Error ? e.message : String(e))) return null;
     throw new Error('카카오 로그인 중 오류가 났어요. 다시 시도해 주세요.');
   }
-  return signIn('Kakao', { accessToken });
+  return signIn('Kakao', { accessToken }, isCancelled);
 }

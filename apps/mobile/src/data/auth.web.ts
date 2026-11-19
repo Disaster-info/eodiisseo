@@ -4,7 +4,7 @@
 import { AuthSessionResult, makeRedirectUri, ResponseType, useAuthRequest } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { signIn } from './api';
-import { MemberInfo, Provider } from './mock';
+import { MemberInfo, Provider } from './types';
 
 // 로그인 창이 우리 주소로 돌아오면 결과를 원래 창에 넘기고 창을 닫음 (앱이 열릴 때 한 번)
 WebBrowser.maybeCompleteAuthSession();
@@ -25,17 +25,17 @@ export function useSocialLogin() {
     clientId: KAKAO_REST_KEY, redirectUri, responseType: ResponseType.Code, scopes: [], usePKCE: false,
   }, KAKAO);
 
-  return async (p: Provider): Promise<MemberInfo | null> => {
+  return async (p: Provider, isCancelled: () => boolean = () => false): Promise<MemberInfo | null> => {
     if (p === 'Google') {
       if (!GOOGLE_CLIENT_ID || !google) throw new Error('Google 로그인 설정이 아직 없어요. (EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID)');
       const r = await promptGoogle().catch(popupBlocked);
       if (r.type !== 'success') return cancelled(r);
-      return signIn('Google', { code: r.params.code, redirectUri, codeVerifier: google.codeVerifier });
+      return signIn('Google', { code: r.params.code, redirectUri, codeVerifier: google.codeVerifier }, isCancelled);
     }
     if (!KAKAO_REST_KEY || !kakao) throw new Error('카카오 로그인 설정이 아직 없어요. (EXPO_PUBLIC_KAKAO_REST_API_KEY)');
     const r = await promptKakao().catch(popupBlocked);
     if (r.type !== 'success') return cancelled(r);
-    return signIn('Kakao', { code: r.params.code, redirectUri });
+    return signIn('Kakao', { code: r.params.code, redirectUri }, isCancelled);
   };
 }
 
