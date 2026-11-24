@@ -3,7 +3,8 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps 
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Pressable, Text, View, useColorScheme } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AppThemeProvider, useTheme } from '../components/ui';
@@ -11,6 +12,15 @@ import { AppProvider, useApp } from '../store/AppContext';
 
 // 앱 시작: 저장된 로그인 확인이 끝날 때까지 스플래시를 그대로 둠 (끝나면 Navigator 가 숨김). 웹은 아무 일도 하지 않음
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// 웹 소셜 로그인 팝업이 ?code·state(또는 error)를 달고 돌아온 경우: 라우터·세션 복원보다 먼저 결과를 원래 창에 넘김
+// (배포본은 로그인 화면 모듈을 늦게 불러와, 화면 코드에서 처리하면 라우팅·세션 복원이 먼저 돌아 콜백을 놓침)
+// 넘기는 데 성공하면 팝업은 원래 창이 닫으므로 앱을 그리지 않음 (팝업에서 세션 복원·토큰 갱신이 돌지 않게)
+// 부모 창을 잃은 경우(원래 창 새로고침 등) 라이브러리가 예외를 던짐 → 앱 시작이 멈추지 않게 일반 화면으로
+const isAuthPopup = (() => {
+  if (Platform.OS !== 'web' || !/[?&](code|state|error)=/.test(globalThis.location?.search ?? '')) return false;
+  try { return WebBrowser.maybeCompleteAuthSession().type === 'success'; } catch { return false; }
+})();
 
 // 테마 모드(시스템/라이트/다크) → 실제 라이트·다크 결정 후 화면 전체에 색을 내려줌
 function RootStack() {
@@ -72,6 +82,7 @@ function Navigator({ dark }: { dark: boolean }) {
 }
 
 export default function RootLayout() {
+  if (isAuthPopup) return null;
   return (
     // KeyboardProvider: 키보드 애니메이션을 프레임 단위로 받아 입력창을 키보드와 동시에 움직임 (Expo Go 포함)
     // GestureHandlerRootView: 탭 좌우 스와이프(react-native-gesture-handler)가 동작하려면 앱 맨 바깥에 필요

@@ -1,0 +1,7 @@
+# Cloudflare 정적 배포용 보안 헤더 (deploy/security-headers.conf 와 같은 내용. nginx 설정은 Docker 배포에만 적용됨)
+# expo export 가 public/ 을 그대로 dist/ 로 복사함. 한쪽을 바꾸면 다른 쪽도 같이 바꿀 것
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(self), camera=(), microphone=()
