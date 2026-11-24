@@ -46,19 +46,6 @@ export function distanceKm(a: LatLon, b: LatLon) {
   const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
   return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
-type Feature = { geometry: { type: string; coordinates: number[][] }; properties: { totalDistance?: number; totalTime?: number } };
-
-export async function searchRoute(from: LatLon, to: LatLon): Promise<Route> {
-  const res = await tmap('routes/pedestrian?version=1', { startX: from.lon, startY: from.lat, endX: to.lon, endY: to.lat,
-    startName: '출발', endName: '도착', reqCoordType: 'WGS84GEO', resCoordType: 'WGS84GEO' });
-  const features = ((await res.json()) as { features?: Feature[] } | null)?.features ?? [];
-  const { totalDistance, totalTime } = features[0]?.properties ?? {};
-  // 구간(LineString)들을 이어 붙여 경로선 하나로. TMAP 좌표 순서는 [경도, 위도]
-  const path = features.filter(f => f.geometry?.type === 'LineString').flatMap(f => f.geometry.coordinates.map(([lon, lat]) => ({ lat, lon })));
-  // 거리·시간·경로선 중 하나라도 없으면 '0km·1분' 같은 가짜 결과 대신 실패로 (화면이 다시 시도 안내)
-  if (typeof totalDistance !== 'number' || typeof totalTime !== 'number' || !path.length) throw new Error('TMAP 경로 응답이 불완전해요');
-  return { meters: totalDistance, seconds: totalTime, path };
-}
 
 // TMAP 주소 지오코딩: '서울 강남구' 같은 지역 이름 → 대표 좌표 (구청·시청 부근). 지역만 고른 지정 위치의 경로 출발점
 export async function coordsOf(addr: string): Promise<LatLon> {

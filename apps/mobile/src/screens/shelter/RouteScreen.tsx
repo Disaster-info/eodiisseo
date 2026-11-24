@@ -8,10 +8,10 @@ import { ActivityIndicator, Pressable, Text, View, useWindowDimensions } from 'r
 import { TmapView } from '../../components/map';
 import { BandTabs, Coupon, Field, Perf } from '../../components/ticket';
 import { Btn, Header, Icon, Page, STALE_MIN, ageMin, useTheme } from '../../components/ui';
-import { fetchShelter, useLoad } from '../../data/server';
+import { fetchShelter, fetchShelterRoute, useLoad } from '../../data/server';
 import { MAX_RADIUS, Member } from '../../data/types';
 import { withTimeout } from '../../data/api';
-import { LatLon, Route, coordsOf, distanceKm, searchRoute } from '../../data/tmap';
+import { LatLon, Route, coordsOf, distanceKm } from '../../data/tmap';
 import { useApp } from '../../store/AppContext';
 
 type Found = Route & { from: LatLon };
@@ -65,7 +65,7 @@ export default function RouteScreen({ id }: { id: string }) {
         const { coords } = await withTimeout(Location.getCurrentPositionAsync({}), 20000, '현재 위치 확인 시간 초과'); // 늦으면 '경로를 찾을 수 없어요' + 다시 시도
         from = { lat: coords.latitude, lon: coords.longitude };
       } else from = place ?? (await coordsOf(location)); // 장소 검색으로 고른 곳, 지역만 골랐으면 그 지역 대표 좌표
-      return { ...(await searchRoute(from, sh)), from };
+      return { ...(await fetchShelterRoute(sh.id, from)), from };
     })().then(value => alive && setRes({ key, value }), () => alive && setRes({ key, value: 'error' }));
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- key 가 출발지·재시도를 모두 담음 (picked 는 매번 새 객체)

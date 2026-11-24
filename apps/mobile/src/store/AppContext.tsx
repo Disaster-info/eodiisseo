@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, Re
 import { AppState } from 'react-native';
 import { notify } from '../components/ui';
 import { endSession, logoutSession, restoreSession, setOnSessionExpired, withTimeout } from '../data/api';
-import { Noti, areaApi, fetchGroups, notiApi, patchConsent, putLocation, withdrawMember } from '../data/server';
+import { Noti, areaApi, fetchGroups, getConsent, notiApi, patchConsent, putLocation, withdrawMember } from '../data/server';
 import { getItem, removeItem, setItem } from '../data/storage';
 import { LatLon, Place, regionOf } from '../data/tmap';
 import { Area, Group, MemberInfo, Provider } from '../data/types';
@@ -141,11 +141,20 @@ function useAppState() {
   const setLocConsent = (on: boolean) => {
     setLocConsentRaw(on);
     if (!on) { setGps(null); setGroups(gs => gs.map(g => ({ ...g, members: g.members.map(m => m.id === memberId ? { ...m, sharing: false, lat: undefined, lon: undefined, updatedAt: undefined, impact: '위치정보 미제공' as const } : m) }))); }
-    if (memberId && !needConsent) syncConsent(on);
+    if (memberId) syncConsent(on); // 사용자가 직접 누른 경우에만 호출됨 → 바로 서버에 기록
   };
-  // 로그인할 때도 한 번 보내 이전에 실패한 기록을 맞춤 (동의 화면에서 답하는 중에는 보내지 않음)
+  // 로그인·복원 시 서버 동의 상태가 기준. 이 기기에 남은 옛 '동의'로 서버 값을 덮어쓰지 않음
+  // (다른 기기에서 철회했으면 여기서도 끔). 이 기기에서 철회했는데 서버가 아직 동의면 철회만 다시 보냄
   useEffect(() => {
-    if (memberId && !needConsent && !operator) syncConsent(locConsent);
+    if (!memberId || needConsent || operator) return;
+    const me = owner.current;
+    consentQueue.current = consentQueue.current.then(async () => {
+      if (owner.current !== me) return;
+      const server = await getConsent().catch(() => null);
+      if (!server || owner.current !== me) return;
+      if (locConsent && !server.consented) { setLocConsentRaw(false); setGps(null); }
+      else if (!locConsent && server.consented) syncConsent(false);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 로그인·동의 답변 시점에만
   }, [memberId, needConsent]);
 

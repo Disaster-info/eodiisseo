@@ -11,10 +11,10 @@ import { ReactNode, createContext, useContext, useEffect, useRef, useState } fro
 import { AccessibilityInfo, ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, IconName, STALE_MIN, ageMin, confirm, dial119, freshness, knownImpact, notify, useLayout, useTheme } from '../../components/ui';
-import { fetchDisasters, fetchWeather, sameRegion, useLoad, useShelters } from '../../data/server';
+import { fetchDisasters, fetchShelterRoute, fetchWeather, sameRegion, useLoad, useShelters } from '../../data/server';
 import { Disaster, IMPACT_ICON, Impact, LEVEL_ICON, MAX_RADIUS, TYPE_ICON, WEATHER_ICON, isActive } from '../../data/types';
 import { TmapView } from '../../components/map';
-import { LatLon, Route, coordsOf, searchRoute } from '../../data/tmap';
+import { LatLon, Route, coordsOf } from '../../data/tmap';
 import { useApp } from '../../store/AppContext';
 
 const CURRENT = '현재 위치';
@@ -127,7 +127,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!nearest || !start || !sawShelter || route?.key === routeKey) return;
     let alive = true;
-    (async () => ({ ...(await searchRoute(start, nearest)), from: start }))().then(value => alive && setRoute({ key: routeKey, value }), () => alive && setRoute({ key: routeKey, value: 'error' }));
+    (async () => ({ ...(await fetchShelterRoute(nearest.id, start)), from: start }))().then(value => alive && setRoute({ key: routeKey, value }), () => alive && setRoute({ key: routeKey, value: 'error' }));
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- routeKey 가 출발지·대피소를 모두 담음
   }, [routeKey, sawShelter]);

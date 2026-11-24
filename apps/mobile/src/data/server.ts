@@ -2,7 +2,7 @@
 // 성공 응답은 감싸지 않은 DTO, 오류는 { code, message, traceId } (ErrorBody)
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
-import { LatLon, coordsOf } from './tmap';
+import { LatLon, Route, coordsOf } from './tmap';
 import { Area, Disaster, DisasterType, Group, Impact, Level, Member, Shelter, Status } from './types';
 
 /** 서버가 거절한 요청. code = 백엔드 오류 코드 (예: GROUP_FULL), status = HTTP 상태 */
@@ -264,6 +264,17 @@ export const withdrawMember = () => call('/api/v1/members/me', send('DELETE')).c
   throw e instanceof ApiError && e.code === 'GROUP_ADMIN_ACTION_REQUIRED' ? new ApiError('관리자인 안심그룹이 있어 탈퇴할 수 없어요. 권한을 넘기거나 혼자인 그룹은 삭제한 뒤 다시 시도해 주세요.', e.status, e.code) : e;
 });
 export const putLocation = (lat: number, lon: number) => call('/api/v1/members/me/location', send('PUT', { latitude: lat, longitude: lon }));
+// ── 대피소 도보 경로 (API-ROUTE-001) ─────────────────────
+// TMAP 을 앱에서 직접 부르지 않고 백엔드를 거침: 서버 키로 호출 + 회원당 분당 10회 제한 (앱 번들의 키로 경로 API 를 남용하지 못하게)
+export async function fetchShelterRoute(shelterId: string, from: LatLon): Promise<Route> {
+  const r = await call<{ distanceMeters?: number; estimatedDurationSeconds?: number; routePath?: { latitude: number; longitude: number }[] }>(
+    `/api/v1/routes/shelters/${encodeURIComponent(shelterId)}?originLatitude=${from.lat}&originLongitude=${from.lon}`);
+  // 거리·시간·경로선 중 하나라도 없으면 가짜 결과 대신 실패로 (화면이 다시 시도 안내)
+  if (typeof r.distanceMeters !== 'number' || typeof r.estimatedDurationSeconds !== 'number' || !r.routePath?.length) throw new Error('경로 응답이 불완전해요');
+  return { meters: r.distanceMeters, seconds: r.estimatedDurationSeconds, path: r.routePath.map(p => ({ lat: p.latitude, lon: p.longitude })) };
+}
+
+export const getConsent = () => call<{ consented: boolean }>('/api/v1/members/me/location-consent');
 export const patchConsent = (consented: boolean) => call('/api/v1/members/me/location-consent', send('PATCH', { consented }));
 
 // ── 운영 (FS-OPS) ─────────────────────────────────────

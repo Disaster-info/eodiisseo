@@ -66,10 +66,23 @@ export function withTimeout<T>(work: Promise<T>, ms: number, message: string): P
 // 갱신 결과: ok = 새 토큰, expired = 서버가 세션을 끊음(재로그인 필요), error = 서버 장애·네트워크·그 사이 세션 바뀜 (지금 세션은 그대로)
 type Refreshed = 'ok' | 'expired' | 'error';
 // refresh 토큰은 쓸 때마다 새것으로 바뀌고, 이미 쓴 것을 다시 보내면 서버가 세션을 끊음 → 갱신은 동시에 한 번만
+// 웹에서 탭 여러 개가 같은 저장소 세션을 쓰면 각 탭이 같은 refresh 토큰을 보내 서버가 '재사용'으로 보고 세션을 끊음
+// → 브라우저 탭 간 잠금(navigator.locks)으로 한 탭씩, 잠금을 얻은 뒤 저장소를 다시 읽어 다른 탭이 받은 새 토큰이면 그대로 씀
+// (앱에는 navigator.locks 가 없어 바로 실행 — 앱은 실행 하나뿐이라 위의 refreshing 공유로 충분)
+const withRefreshLock = (work: () => Promise<Refreshed>): Promise<Refreshed> => {
+  const locks = (globalThis as { navigator?: { locks?: { request: (name: string, cb: () => Promise<Refreshed>) => Promise<Refreshed> } } }).navigator?.locks;
+  return locks ? locks.request('eodiisseo.refresh', work) : work();
+};
 function refresh(): Promise<Refreshed> {
-  refreshing ??= (async (): Promise<Refreshed> => {
+  refreshing ??= withRefreshLock(async (): Promise<Refreshed> => {
     const current = session, myGen = gen;
     if (!current) return 'error';
+    const stored = await getItem(SESSION_KEY).then(v => (v ? JSON.parse(v) as Session : null)).catch(() => null);
+    if (myGen !== gen) return 'error';
+    if (stored && stored.refreshToken !== current.refreshToken && stored.info?.id === current.info?.id) {
+      await keep({ ...current, accessToken: stored.accessToken, refreshToken: stored.refreshToken });
+      return 'ok';
+    }
     const res = await request('/api/v1/auth/refresh', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: current.refreshToken }),
     }).catch(() => null);
@@ -79,7 +92,7 @@ function refresh(): Promise<Refreshed> {
     if (!tokens?.accessToken || !tokens.refreshToken) return 'error'; // 5xx 등 일시 장애: 유효한 refresh 토큰을 버리지 않음
     await keep({ ...current, ...tokens });
     return 'ok';
-  })().finally(() => { refreshing = null; });
+  }).finally(() => { refreshing = null; });
   return refreshing;
 }
 
@@ -206,5 +219,8 @@ export async function restoreSession(): Promise<{ provider: Provider; info: Memb
 export async function logoutSession() {
   const old = session;
   await endSession();
-  if (old) await request('/api/v1/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${old.accessToken}` } }).catch(() => {});
+  // refresh 토큰으로 폐기: access 토큰이 이미 만료(15분)됐어도 서버 세션이 끊김. 만료된 access 토큰을 같이 보내면 인증 필터가 401 로 막으므로 보내지 않음
+  if (old) await request('/api/v1/auth/logout', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: old.refreshToken }),
+  }).catch(() => {});
 }
