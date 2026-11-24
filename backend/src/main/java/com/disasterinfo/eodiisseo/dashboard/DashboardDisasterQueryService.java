@@ -61,7 +61,7 @@ public class DashboardDisasterQueryService {
                 .filter(disaster -> criteria.type() == null || criteria.type().equals(disaster.type()))
                 .filter(disaster -> criteria.status() == null || criteria.status() == disaster.status())
                 .toList();
-        return new DisasterListResponse(disasters);
+        return new DisasterListResponse(disasters, snapshot.dataStatus());
     }
 
     public DisasterDetailResponse getDisaster(UUID memberId, UUID sessionId, UUID disasterId) {

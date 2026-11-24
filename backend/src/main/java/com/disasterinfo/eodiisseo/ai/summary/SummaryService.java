@@ -150,6 +150,10 @@ public class SummaryService {
 
     /** Gives a durable worker the retry time so it can reschedule under its own claim. */
     public ProcessingDecision processClaimedRevision(UUID revisionId, Instant attemptedAt) {
+        return processClaimedRevision(revisionId, null, attemptedAt);
+    }
+
+    public ProcessingDecision processClaimedRevision(UUID revisionId, UUID claimId, Instant attemptedAt) {
         if (revisionId == null || attemptedAt == null || sources.isEmpty() || store.isEmpty()
                 || generator.isEmpty() || dispatcher.isEmpty()) {
             return new ProcessingDecision(Processing.DEPENDENCY_UNAVAILABLE, null, null);
@@ -171,8 +175,11 @@ public class SummaryService {
             if (!generator.get().isConfigured()) {
                 return new ProcessingDecision(Processing.DEPENDENCY_UNAVAILABLE, null, null);
             }
-            SummaryStore.Attempt result = store.get().attempt(revisionId, policy.maxRetries(), policy.retryDelay(), attemptedAt,
-                    () -> generate(revisionId, attemptedAt));
+            SummaryStore.Attempt result = claimId == null
+                    ? store.get().attempt(revisionId, policy.maxRetries(), policy.retryDelay(), attemptedAt,
+                            () -> generate(revisionId, attemptedAt))
+                    : store.get().attemptClaimed(revisionId, claimId, policy.maxRetries(), policy.retryDelay(), attemptedAt,
+                            () -> generate(revisionId, attemptedAt));
             Processing outcome = switch (result.result()) {
                 case NOT_ELIGIBLE -> Processing.NOT_ELIGIBLE;
                 case COMPLETED -> Processing.COMPLETED;

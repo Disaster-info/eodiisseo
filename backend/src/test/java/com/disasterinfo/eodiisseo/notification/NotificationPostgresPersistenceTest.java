@@ -52,6 +52,28 @@ class NotificationPostgresPersistenceTest {
         assertThat(db.count("notification_event")).isEqualTo(1);
     }
 
+    @Test void initialPlanRecoversAnOrphanEventAndResumesOnlyUnsubmittedDevices() {
+        register(device("planned-a", "a"));
+        register(device("planned-b", "b"));
+        Event orphan = event("INITIAL", now);
+        db.tx(em -> store(em).claimEvent(orphan));
+        var plan = db.tx(em -> store(em).planInitialDeliveries(event("INITIAL", now.plusSeconds(1))));
+        assertThat(plan.created()).isFalse();
+        assertThat(plan.event().id()).isEqualTo(orphan.id());
+        assertThat(plan.pending()).hasSize(2);
+        Delivery crossedBoundary = plan.pending().getFirst();
+        db.sql("UPDATE notification_delivery SET submission_authorized_at=clock_timestamp() WHERE delivery_id='"
+                + crossedBoundary.id() + "'");
+        db.tx(em -> {
+            store(em).finishUnsubmitted(new Delivery(crossedBoundary.id(), orphan.id(), crossedBoundary.deviceTokenId(),
+                    (short) 1, (short) 1, null, DeliveryResult.FAILED, null, "SUBMISSION_CANCELLED"));
+            return null;
+        });
+        var restarted = db.tx(em -> store(em).planInitialDeliveries(event("INITIAL", now.plusSeconds(2))));
+        assertThat(restarted.pending()).containsExactly(plan.pending().getLast());
+        assertThat(db.count("notification_delivery")).isEqualTo(2);
+    }
+
     @Test void concurrentDeviceActivationsCannotExceedMemberLimit() throws Exception {
         for (int i = 0; i < 9; i++) {
             register(device("active-" + i, Integer.toString(i)));

@@ -37,8 +37,11 @@ public interface DashboardDisasterQueryReader {
         }
     }
 
-    /** Explicit readiness metadata is internal and never serialized as extra API fields. */
-    record ListSnapshot(List<Entry> entries, boolean defaultPolicyResolved, boolean freshnessRepresentable) {
+    record ListSnapshot(List<Entry> entries, boolean defaultPolicyResolved, boolean freshnessRepresentable,
+                        String dataStatus) {
+        public ListSnapshot(List<Entry> entries, boolean defaultPolicyResolved, boolean freshnessRepresentable) {
+            this(entries, defaultPolicyResolved, freshnessRepresentable, null);
+        }
         public ListSnapshot {
             entries = List.copyOf(entries);
         }

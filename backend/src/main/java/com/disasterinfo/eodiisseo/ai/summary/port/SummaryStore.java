@@ -29,6 +29,10 @@ public interface SummaryStore {
      * even for duplicate/premature queue delivery. Legacy failures without that time are ineligible.
      */
     Attempt attempt(UUID revisionId, int maxRetries, Duration retryDelay, Instant startedAt, Supplier<Outcome> work);
+    default Attempt attemptClaimed(UUID revisionId, UUID claimId, int maxRetries, Duration retryDelay,
+                                   Instant startedAt, Supplier<Outcome> work) {
+        throw new UnsupportedOperationException("Durable summary claims are unavailable.");
+    }
     /**
      * Atomically recheck and lock the official lifecycle before deleting: the disaster must
      * still be ENDED/LIFTED with a real endedAt at or before inclusiveEndCutoff. A lifecycle

@@ -67,6 +67,7 @@ public final class NotificationContracts {
     public record Delivery(UUID id, UUID eventId, UUID deviceTokenId, short targetOrdinal,
                            short attemptNo, Instant sentAt, DeliveryResult result,
                            String providerMessageId, String errorCode) {}
+    public record InitialPlan(Event event, List<Delivery> pending, boolean created) {}
     public record Push(UUID disasterId, String disasterType, String regionName,
                        String title, String content) {}
     public enum PushOutcome {
@@ -127,6 +128,9 @@ public final class NotificationContracts {
         void deactivateDevice(UUID deviceId, String expectedTokenHash, String expectedTokenCiphertext);
         /** Atomic insert-if-absent (member, disaster, event_key). */
         boolean claimEvent(Event event);
+        default boolean supportsDurableInitialPlan() { return false; }
+        default InitialPlan planInitialDeliveries(Event event) { throw new UnsupportedOperationException(); }
+        default void finishUnsubmitted(Delivery delivery) { finishDelivery(delivery); }
         Event findEvent(UUID eventId);
         List<Delivery> findDeliveries(UUID eventId);
         /** Atomic unique (event, ordinal, attempt), false if already claimed. */

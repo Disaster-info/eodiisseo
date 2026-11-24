@@ -9,13 +9,15 @@ $packages = @(
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 foreach ($package in $packages) {
     $archive = Join-Path $InstallRoot $package.File
+    $allowed = if ($package.File -eq 'postgresql.zip') { '^(bin|lib|share|include)/' } else { '^(bin|lib|share)/' }
     if (!(Test-Path -LiteralPath $archive)) { Invoke-WebRequest -UseBasicParsing -Uri $package.Url -OutFile $archive }
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant() -ne $package.Hash) { throw "Archive hash mismatch: $($package.File)" }
     $zip = [IO.Compression.ZipFile]::OpenRead($archive)
     try {
         foreach ($entry in $zip.Entries) {
             $relative = $entry.FullName -replace '^[^/]+/', ''
-            if ($relative -notmatch '^(bin|lib|share)/' -or !$entry.Name) { continue }
+            if (!$entry.Name) { continue }
+            if ($relative -notmatch $allowed) { continue }
             $target = [IO.Path]::GetFullPath((Join-Path (Join-Path $InstallRoot 'pgsql') $relative))
             $boundary = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'pgsql')) + [IO.Path]::DirectorySeparatorChar
             if (!$target.StartsWith($boundary,[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe archive path' }

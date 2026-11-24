@@ -106,6 +106,30 @@ DB가 준비되면 `ShelterRepository`를 JPA 구현으로 바꾸고, 공공데�
 
 ## 로컬 PostgreSQL과 전체 DDL
 
+기존 PostgreSQL 17에 pgvector를 빌드하고 Audit DB에서 실제 벡터 통합 테스트를 실행하려면 [Windows pgvector 재현 절차](docs/windows-pgvector.md)를 참고하세요.
+
+### 백업 확인 후 개발 DB를 실행하는 절차
+
+개발용 실행 스크립트는 55432의 `eodiisseo_local`에 고정되며 공개 공급처 호출, OAuth 제공처, Ollama, FCM과 런타임 Worker를 기본 실행에서 끈다. Flyway의 canonical·owned-runtime 위치를 지정하며 마이그레이션은 명시적인 `-ApplyApprovedMigrations`에서만 적용한다. `-EnableDomainHttp`는 인증 브리지, 소유 런타임과 알림 설정 저장소를 연다.
+
+먼저 기존 개발 DB의 읽기 전용 백업을 확보하고, Audit의 별도 DB에 복원해 Flyway 및 JPA 검증을 통과시킨다. 이미 적용된 Flyway 이력과 예정 버전, 복원 결과를 확인한 후에만 실제 개발 DB에 적용한다. `eodiisseo_app`의 연결 자격을 먼저 확인하고 비밀번호는 로컬 비밀 설정이나 실행 프로세스 환경으로 주입한다.
+
+```powershell
+# 검토가 끝난 개발 DB에 처음 적용할 때만 실행
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Run-LocalBackend.ps1 -EnableDomainHttp -ApplyApprovedMigrations
+
+# 이후에는 -ApplyApprovedMigrations 없이 시작
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Run-LocalBackend.ps1 -EnableDomainHttp
+
+# 익명 접근은 각 경로에서 HTTP 401이어야 한다
+curl.exe -i http://127.0.0.1:8080/api/v1/members/me
+curl.exe -i http://127.0.0.1:8080/api/v1/disasters
+curl.exe -i http://127.0.0.1:8080/api/v1/notification-settings
+curl.exe -i -X POST http://127.0.0.1:8080/api/v1/ai/guidance
+```
+
+기존 테스트 멤버 세션이 있으면 해당 세션으로 재난 목록과 알림 설정을 확인한다. 공식 수집 근거가 없으면 재난 목록의 503은 예상 동작이다. 외부 로그인 없이 신규 계정과 API 성공 경로를 검증할 때는 합성 인증을 갖춘 폐기용 통합 테스트를 사용한다.
+
 저장소 루트에서 다음 명령을 실행합니다. Windows 사용자 경로에 PostgreSQL 17.11과 PostGIS 3.6.2를 설치하며 시스템 서비스는 등록하지 않습니다.
 
 ```powershell

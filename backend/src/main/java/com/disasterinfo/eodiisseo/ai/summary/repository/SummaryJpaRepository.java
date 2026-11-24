@@ -35,6 +35,14 @@ public interface SummaryJpaRepository extends JpaRepository<AiSummary, UUID> {
             nativeQuery = true)
     boolean tryClaimWorker(@Param("revisionId") UUID revisionId);
 
+    @Query(value = """
+            select revision_id from summary_runtime_task
+            where revision_id=:revisionId and claim_id=:claimId and state='WORKING'
+              and lease_until > clock_timestamp()
+            for update
+            """, nativeQuery = true)
+    Optional<UUID> lockCurrentTask(@Param("revisionId") UUID revisionId, @Param("claimId") UUID claimId);
+
     /** Detect a committed newer revision even before its summary registration runs. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """

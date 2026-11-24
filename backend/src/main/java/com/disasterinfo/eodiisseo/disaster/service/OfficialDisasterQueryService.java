@@ -55,6 +55,86 @@ public class OfficialDisasterQueryService {
         return Optional.ofNullable(db.one(projection()+" where d.disaster_id=? and d.data_origin='OFFICIAL' and (d.status not in ('ENDED','LIFTED') or d.ended_at>?)",
                 id,clock.instant().minus(Duration.ofDays(90))));
     }
+
+    @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    public VerifiedList verifiedList(String type, String status, int page, int size) {
+        var rows = list(type, status, page, size);
+        if (rows.isEmpty()) {
+            requireVerifiedEmptyList(type);
+            return new VerifiedList(rows, "LATEST");
+        }
+        return new VerifiedList(rows, haveCurrentListCoverage(rows)
+                ? ("EARTHQUAKE".equals(type) ? "LATEST" : "PARTIAL_COVERAGE")
+                : "STALE_OR_UNVERIFIED");
+    }
+
+    public record VerifiedList(List<Map<String,Object>> rows, String dataStatus) {}
+
+    public boolean hasCurrentCoverage(UUID disasterId) {
+        return haveCurrentListCoverage(List.of(Map.of("disaster_id", disasterId)));
+    }
+
+    private boolean haveCurrentListCoverage(List<Map<String,Object>> rows) {
+        var ids = new StringJoiner(",");
+        rows.forEach(row -> ids.add(row.get("disaster_id").toString()));
+        Instant now = clock.instant();
+        var today = java.sql.Date.valueOf(LocalDate.ofInstant(now, ZoneId.of("Asia/Seoul")));
+        // A single batch validates each listed incident and every linked provider. Unsupported
+        // sources remain visible as historical facts without asserting current coverage.
+        return db.count("""
+                select count(*) from unnest(string_to_array(?, ',')::uuid[]) ids(id)
+                where exists(select 1 from source_disaster s where s.disaster_id=ids.id)
+                  and not exists (
+                    select 1 from source_disaster s join data_source p using(source_id)
+                    left join lateral (
+                      select run_id,status,finished_at from collection_run r
+                      where r.source_id=p.source_id and r.mode='LIVE'
+                      order by started_at desc,run_id desc limit 1
+                    ) r on true
+                    where s.disaster_id=ids.id and not coalesce(
+                      p.active and p.endpoint_key='KMA_EARTHQUAKE' and r.status='SUCCESS'
+                      and r.finished_at between ? and ?
+                      and (p.collection_interval_minutes is null or
+                          r.finished_at >= cast(? as timestamptz)-p.collection_interval_minutes*interval '1 minute')
+                      and s.collected_at <= ?
+                      and exists(select 1 from owned_collection_coverage c join owned_collection_cursor o using(source_id)
+                        where c.run_id=r.run_id and c.source_id=p.source_id
+                          and c.from_day<=? and c.to_day>=? and o.completed_through>=?)
+                      and exists(select 1 from lateral (
+                        select content_hash,original_text,observed_at from source_disaster_revision r2
+                        where r2.source_disaster_id=s.source_disaster_id order by revision_no desc limit 1
+                      ) latest where latest.content_hash=s.content_hash and latest.original_text=s.original_text
+                        and latest.observed_at<=?), false)
+                  )
+                """, ids.toString(), now.minus(freshness), now, now, now, today, today, today, now) == rows.size();
+    }
+
+    /** A recent run alone cannot establish that the requested scope was searched. */
+    private void requireVerifiedEmptyList(String type) {
+        String sourceKey = "EARTHQUAKE".equals(type) ? "KMA_EARTHQUAKE" : null;
+        if (type != null && sourceKey == null)
+            throw new DashboardException(DashboardException.Reason.DISASTER_COVERAGE_UNVERIFIED, "Provider coverage is unverified.");
+        var run = db.one("""
+                select p.source_id, p.active source_active, p.collection_interval_minutes,
+                       r.run_id, r.status, r.finished_at collected_at
+                from collection_run r join data_source p using(source_id)
+                where r.mode='LIVE' and p.source_kind='DISASTER' and (cast(? as text) is null or p.endpoint_key=?)
+                order by r.started_at desc,r.run_id desc limit 1
+                """, sourceKey, sourceKey);
+        if (run == null)
+            throw new DashboardException(DashboardException.Reason.DISASTER_COLLECTION_NOT_STARTED, "Official collection has not run.");
+        if ("FAILED".equals(run.get("status")))
+            throw new DashboardException(DashboardException.Reason.DISASTER_COLLECTION_FAILED, "Official collection failed.");
+        if (sourceKey != null && "SUCCESS".equals(run.get("status")) && latest(run)
+                && db.tableExists("owned_collection_coverage") && db.tableExists("owned_collection_cursor")) {
+            var today = java.sql.Date.valueOf(LocalDate.ofInstant(clock.instant(), ZoneId.of("Asia/Seoul")));
+            if (db.count("""
+                    select count(*) from owned_collection_coverage c join owned_collection_cursor p using(source_id)
+                    where c.run_id=? and c.source_id=? and c.from_day<=? and c.to_day>=? and p.completed_through>=?
+                    """, run.get("run_id"), run.get("source_id"), today, today, today) == 1) return;
+        }
+        throw new DashboardException(DashboardException.Reason.DISASTER_COVERAGE_UNVERIFIED, "Provider coverage is unverified.");
+    }
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     private DisasterImpactAreaReader impacts;
     public String region(UUID id) { return region(id,false); }

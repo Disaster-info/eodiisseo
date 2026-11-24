@@ -141,17 +141,17 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(app.getBeansOfType(InterestAreas.class)).hasSize(1);
         assertThat(app.getBeansOfType(DashboardLocationReader.class)).hasSize(1);
         var member=actor();
-        assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,member.memberId())).isZero();
-        assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(500);
+        assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,member.memberId())).isEqualTo(1);
+        assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(200);
         assertThat(http(member,"GET","/api/v1/dashboard?latitude=37&longitude=127",null).statusCode()).isEqualTo(500);
-        // An explicit owned lifecycle call is possible; this does not claim automatic signup integration.
+        // Explicit repair remains idempotent for a member already initialized at signup.
         app.getBean(NotificationRetentionService.class).onMemberCreated(member.memberId(),Instant.now());
         assertThat(sql.queryForObject("select enabled from notification_setting where member_id=?",Boolean.class,member.memberId())).isFalse();
         assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(200); // Real area port is connected.
         UUID[] rolled={null};
         tx.executeWithoutResult(status->{
             var nested=actor();rolled[0]=nested.memberId();
-            app.getBean(NotificationRetentionService.class).onMemberCreated(nested.memberId(),Instant.now());
+            assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,rolled[0])).isEqualTo(1);
             status.setRollbackOnly();
         });
         assertThat(sql.queryForObject("select count(*) from member where member_id=?",Long.class,rolled[0])).isZero();
@@ -190,7 +190,32 @@ class OwnedRuntimeSeparationIntegrationTest {
     @Test @Order(2) void ownedReadsRevisionOutboxAndSummaryWorkWithoutBorrowingACollector() throws Exception {
         var member=actor();
         assertThat(http(null,"GET","/api/v1/disasters",null).statusCode()).isEqualTo(401);
-        assertThat(http(member,"GET","/api/v1/disasters",null).body()).contains("\"disasters\":[]");
+        var emptyWithoutCollection = http(member,"GET","/api/v1/disasters",null);
+        assertThat(emptyWithoutCollection.statusCode()).isEqualTo(503);
+        assertThat(emptyWithoutCollection.body()).contains("DISASTER_COLLECTION_NOT_STARTED");
+        var run = UUID.randomUUID();
+        var now = Timestamp.from(Instant.now().minusSeconds(1));
+        var today = java.sql.Date.valueOf(LocalDate.now(ZoneId.of("Asia/Seoul")));
+        sql.update("insert into collection_run(run_id,source_id,mode,started_at,finished_at,status,trigger_type) values (?,?,'LIVE',?,?,'FAILED','MANUAL')",
+                run,SOURCE,now,now);
+        try {
+            String scoped = "/api/v1/disasters?type=EARTHQUAKE";
+            assertThat(http(member,"GET",scoped,null).body()).contains("DISASTER_COLLECTION_FAILED");
+            sql.update("update collection_run set status='SUCCESS' where run_id=?", run);
+            assertThat(http(member,"GET",scoped,null).body()).contains("DISASTER_COVERAGE_UNVERIFIED");
+            sql.update("insert into owned_collection_cursor(source_id,completed_through) values (?,?)",SOURCE,today);
+            try {
+                sql.update("insert into owned_collection_coverage(run_id,source_id,from_day,to_day) values (?,?,?,?)",
+                        run,SOURCE,today,today);
+                var verifiedEmpty = http(member,"GET",scoped,null);
+                assertThat(verifiedEmpty.statusCode()).isEqualTo(200);
+                assertThat(verifiedEmpty.body()).contains("\"disasters\":[]");
+            } finally {
+                sql.update("delete from owned_collection_cursor where source_id=?",SOURCE);
+            }
+        } finally {
+            sql.update("delete from collection_run where run_id=?",run);
+        }
 
         tx.executeWithoutResult(status->{
             long before=sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class);
@@ -207,7 +232,25 @@ class OwnedRuntimeSeparationIntegrationTest {
         write(key,"first");
         assertThat(sql.queryForObject("select count(*) from source_disaster_revision where source_disaster_id in (select source_disaster_id from source_disaster where disaster_id=?)",Long.class,disaster)).isEqualTo(1);
         assertThat(http(member,"GET","/api/v1/dashboard",null).statusCode()).isEqualTo(200);
-        assertThat(http(member,"GET","/api/v1/disasters/"+disaster,null).body()).contains("TEST ORIGINAL first","LATEST");
+        assertThat(http(member,"GET","/api/v1/disasters/"+disaster,null).body()).contains("TEST ORIGINAL first","STALE");
+        assertThat(http(member,"GET","/api/v1/disasters?type=EARTHQUAKE",null).body())
+                .contains(disaster.toString(),"STALE_OR_UNVERIFIED");
+        UUID currentRun = sql.queryForObject("""
+                select run_id from collection_run where source_id=? and mode='LIVE'
+                order by started_at desc,run_id desc limit 1
+                """, UUID.class, SOURCE);
+        sql.update("insert into owned_collection_cursor(source_id,completed_through) values (?,?)",SOURCE,today);
+        try {
+            sql.update("insert into owned_collection_coverage(run_id,source_id,from_day,to_day) values (?,?,?,?)",
+                    currentRun,SOURCE,today,today);
+            assertThat(http(member,"GET","/api/v1/disasters?type=EARTHQUAKE",null).body())
+                    .contains(disaster.toString(),"\"dataStatus\":\"LATEST\"");
+            assertThat(http(member,"GET","/api/v1/disasters",null).body()).contains("PARTIAL_COVERAGE");
+            assertThat(http(member,"GET","/api/v1/disasters/"+disaster,null).body()).contains("LATEST");
+        } finally {
+            sql.update("delete from owned_collection_coverage where run_id=?",currentRun);
+            sql.update("delete from owned_collection_cursor where source_id=?",SOURCE);
+        }
         assertThat(http(member,"GET","/api/v1/disasters/"+UUID.randomUUID(),null).statusCode()).isEqualTo(404);
         assertThat(http(member,"GET","/api/v1/disasters?page=-1",null).statusCode()).isEqualTo(400);
         drain();
@@ -387,7 +430,11 @@ class OwnedRuntimeSeparationIntegrationTest {
 
         SummaryGenerator failing=new SummaryGenerator() {
             public boolean isConfigured(){return true;}
-            public Generated generate(OfficialRevision ignored){throw new IllegalStateException("fixture failed");}
+            public Generated generate(OfficialRevision ignored){
+                assertThat(org.springframework.transaction.support.TransactionSynchronizationManager
+                        .isActualTransactionActive()).isFalse();
+                throw new IllegalStateException("fixture failed");
+            }
         };
         app.getBean(FakeSummary.class).delegate=failing;
         sql.update("update summary_runtime_task set available_at=now()-interval '1 second' where revision_id=?",revision);
@@ -401,6 +448,26 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(schedule.get("state")).isEqualTo("HELD");
         assertThat(com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase.instant(schedule.get("available_at")))
                 .isEqualTo(com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase.instant(schedule.get("completed_at")).plus(delay));
+
+        var replacement = UUID.randomUUID();
+        app.getBean(FakeSummary.class).delegate = new SummaryGenerator() {
+            public boolean isConfigured(){return true;}
+            public Generated generate(OfficialRevision ignored){
+                sql.update("update summary_runtime_task set claim_id=? where revision_id=?", replacement, revision);
+                return new Generated("stale worker result", "fixture", Instant.now());
+            }
+        };
+        sql.update("""
+                update ai_summary set created_at=now()-interval '12 minutes',
+                    completed_at=now()-interval '11 minutes' where source_revision_id=?
+                """, revision);
+        sql.update("update summary_runtime_task set available_at=now()-interval '1 second' where revision_id=?", revision);
+        assertThat(worker.drainOneSummary()).isTrue();
+        assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?", String.class, revision))
+                .isEqualTo("FAILED");
+        assertThat(sql.queryForObject("select claim_id from summary_runtime_task where revision_id=?", UUID.class, revision))
+                .isEqualTo(replacement);
+        sql.update("update summary_runtime_task set state='DONE',claim_id=null,lease_until=null,completed_at=now() where revision_id=?", revision);
     }
 
 

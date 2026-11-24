@@ -92,7 +92,7 @@ public class DisasterRuntimeWorker {
             if(generator.isEmpty() || !generator.get().isConfigured()) {
                 finish("summary_runtime_task","revision_id",row,"HELD","MODEL_DISABLED");return true;
             }
-            var decision=summaries.processClaimedRevision((UUID)row.get("revision_id"),clock.instant());
+            var decision=summaries.processClaimedRevision((UUID)row.get("revision_id"),(UUID)row.get("claim_id"),clock.instant());
             switch(decision.outcome()) {
                 case COMPLETED, STALE -> finish("summary_runtime_task","revision_id",row,"DONE",null);
                 case FAILED, NOT_ELIGIBLE -> {
