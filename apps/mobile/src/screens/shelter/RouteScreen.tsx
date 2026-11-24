@@ -61,7 +61,8 @@ export default function RouteScreen({ id }: { id: string }) {
       let from: LatLon;
       if (picked) from = { lat: picked.m.lat!, lon: picked.m.lon! };
       else if (gps) {
-        if (!(await Location.requestForegroundPermissionsAsync()).granted) return 'denied';
+        // 웹은 권한 창에 답하지 않으면 끝나지 않음 → 시간 제한 (넘으면 '경로를 찾을 수 없어요' + 다시 시도)
+        if (!(await withTimeout(Location.requestForegroundPermissionsAsync(), 20000, '위치 권한 응답 시간 초과')).granted) return 'denied';
         const { coords } = await withTimeout(Location.getCurrentPositionAsync({}), 20000, '현재 위치 확인 시간 초과'); // 늦으면 '경로를 찾을 수 없어요' + 다시 시도
         from = { lat: coords.latitude, lon: coords.longitude };
       } else from = place ?? (await coordsOf(location)); // 장소 검색으로 고른 곳, 지역만 골랐으면 그 지역 대표 좌표

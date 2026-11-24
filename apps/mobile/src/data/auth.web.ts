@@ -2,12 +2,10 @@
 // 백엔드가 코드 → 제공자 토큰 교환(Client Secret 은 서버에만) → 검증 → 세션 발급. 앱에는 제공자 토큰이 남지 않음
 // 설정(.env.local): EXPO_PUBLIC_API_URL, EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, EXPO_PUBLIC_KAKAO_REST_API_KEY
 import { AuthSessionResult, makeRedirectUri, ResponseType, useAuthRequest } from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
 import { signIn } from './api';
 import { MemberInfo, Provider } from './types';
 
-// 로그인 창이 우리 주소로 돌아오면 결과를 원래 창에 넘기고 창을 닫음 (앱이 열릴 때 한 번)
-WebBrowser.maybeCompleteAuthSession();
+// 로그인 창(팝업)이 돌아왔을 때의 콜백 처리는 라우팅보다 먼저 돌아야 해서 src/app/_layout.tsx 맨 위에서 함
 
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
 const KAKAO_REST_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? '';

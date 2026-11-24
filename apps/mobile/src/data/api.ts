@@ -69,10 +69,27 @@ type Refreshed = 'ok' | 'expired' | 'error';
 // 웹에서 탭 여러 개가 같은 저장소 세션을 쓰면 각 탭이 같은 refresh 토큰을 보내 서버가 '재사용'으로 보고 세션을 끊음
 // → 브라우저 탭 간 잠금(navigator.locks)으로 한 탭씩, 잠금을 얻은 뒤 저장소를 다시 읽어 다른 탭이 받은 새 토큰이면 그대로 씀
 // (앱에는 navigator.locks 가 없어 바로 실행 — 앱은 실행 하나뿐이라 위의 refreshing 공유로 충분)
-const withRefreshLock = (work: () => Promise<Refreshed>): Promise<Refreshed> => {
-  const locks = (globalThis as { navigator?: { locks?: { request: (name: string, cb: () => Promise<Refreshed>) => Promise<Refreshed> } } }).navigator?.locks;
+const withRefreshLock = <T>(work: () => Promise<T>): Promise<T> => {
+  const locks = (globalThis as { navigator?: { locks?: { request: (name: string, cb: () => Promise<T>) => Promise<T> } } }).navigator?.locks;
   return locks ? locks.request('eodiisseo.refresh', work) : work();
 };
+// 회원 정보를 세션에 덧붙여 저장 (로그인 직후·앱 시작 때). 회원 조회 중에 다른 탭이 토큰을 갱신했을 수 있음
+// → 갱신과 같은 잠금 안에서 저장소를 다시 읽고, 같은 회원의 새 토큰이면 그 토큰을 씀 (옛 토큰으로 덮어쓰면 서버가 재사용으로 보고 세션을 끊음)
+// 저장소가 다른 회원의 세션이거나(다른 탭에서 계정 전환) 비었으면(다른 탭에서 로그아웃) 덮어쓰지 않고 이 탭의 메모리만 갱신
+// mine = 회원 조회를 시작할 때의 계정 번호. 잠금을 기다리는 사이 로그아웃·다른 로그인이 있었으면 false (호출자가 실패로 처리)
+function keepInfo(info: MemberInfo, mine: number) {
+  return withRefreshLock(async () => {
+    if (mine !== account || !session) return false;
+    // undefined = 저장소를 읽지 못함(막힘·손상) → 평소처럼 저장 시도. null = 저장된 세션 없음
+    const stored = await getItem(SESSION_KEY).then(v => (v ? JSON.parse(v) as Session : null)).catch(() => undefined);
+    const current = session;
+    if (mine !== account || !current) return false;
+    if (stored === undefined || stored?.refreshToken === current.refreshToken) await keep({ ...current, info });
+    else if (stored?.info?.id === info.id) await keep({ ...current, accessToken: stored.accessToken, refreshToken: stored.refreshToken, info });
+    else session = { ...current, info };
+    return true;
+  });
+}
 function refresh(): Promise<Refreshed> {
   refreshing ??= withRefreshLock(async (): Promise<Refreshed> => {
     const current = session, myGen = gen;
@@ -183,7 +200,11 @@ async function finishLogin(provider: Provider, json: any, isCancelled: () => boo
   if (!session) throw new Error('로그인 세션을 확인하지 못했어요. 다시 시도해 주세요.');
   if (!info && (typeof json.memberId !== 'string' || !json.memberId)) throw new Error('로그인 응답이 올바르지 않아요. 잠시 후 다시 시도해 주세요.');
   const me = info ?? { id: json.memberId, name: typeof json.name === 'string' && json.name ? json.name : '회원', email: '', joinedAt: '', operator: false };
-  await keep({ ...session, info: me }); // 다음 실행 때 서버에 닿지 못해도 이 회원으로 열 수 있게
+  // 다음 실행 때 서버에 닿지 못해도 이 회원으로 열 수 있게. 저장 전에 로그아웃·다른 로그인이 끼어들었으면 이 로그인은 실패
+  if (!(await keepInfo(me, mine))) {
+    if (isCancelled()) throw new LoginCancelled();
+    throw new Error('로그인 세션을 확인하지 못했어요. 다시 시도해 주세요.');
+  }
   return me;
 }
 
@@ -192,6 +213,7 @@ async function finishLogin(provider: Provider, json: any, isCancelled: () => boo
 export async function restoreSession(): Promise<{ provider: Provider; info: MemberInfo; offline: boolean } | null> {
   const raw = await getItem(SESSION_KEY).catch(() => null);
   if (!raw) return null;
+  const mine = account;
   try {
     const v = JSON.parse(raw) as Session | null;
     if (!v || typeof v.accessToken !== 'string' || typeof v.refreshToken !== 'string') throw new Error('bad session');
@@ -206,8 +228,9 @@ export async function restoreSession(): Promise<{ provider: Provider; info: Memb
       if (session) await endSession(); // 403 등 서버가 거절: 다시 로그인
       return null;
     }
-    await keep({ ...session, info });
-    return { provider: session.provider, info, offline: false };
+    const provider = session.provider;
+    if (!(await keepInfo(info, mine))) return null; // 그 사이 로그아웃됨
+    return { provider, info, offline: false };
   } catch {
     // 서버 장애·네트워크 오류: 세션이 끊긴 게 아니므로 저장된 회원 정보로 엶 (재난 상황에서 앱 전체가 막히지 않게)
     const cached = session?.info;

@@ -177,7 +177,9 @@ function useAppState() {
     if (!locConsent || !memberId || operator) return;
     let alive = true;
     (async () => {
-      if (!(await Location.requestForegroundPermissionsAsync()).granted) return 'fail' as const;
+      // 권한 요청도 시간 제한: 웹은 권한 창에 답하지 않으면 끝나지 않아 '현재 위치 확인 중'에 머묾 → 넘으면 '확인 불가'(다음 측정 때 다시)
+      // 권한 20초 + 위치 20초 < 재측정 간격(GPS_EVERY_MS 60초): 다음 측정이 시작돼 이번 결과가 버려지기 전에 끝나게
+      if (!(await withTimeout(Location.requestForegroundPermissionsAsync(), 20000, '위치 권한 응답 시간 초과')).granted) return 'fail' as const;
       // 실내 등에서 위치가 한없이 늦게 올 수 있어 20초 넘으면 '확인 불가' (기준 위치 직접 지정 안내로 이어짐)
       const { coords } = await withTimeout(Location.getCurrentPositionAsync({}), 20000, '현재 위치 확인 시간 초과');
       const c = { lat: coords.latitude, lon: coords.longitude };
