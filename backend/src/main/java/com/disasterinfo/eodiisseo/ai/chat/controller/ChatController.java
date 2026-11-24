@@ -8,7 +8,9 @@ import com.disasterinfo.eodiisseo.auth.security.MemberPrincipal;
 import com.disasterinfo.eodiisseo.auth.service.OwnedRateLimiter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.DataAccessException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,8 +34,17 @@ public class ChatController {
             throw new ChatException(ChatException.Reason.UNAUTHENTICATED, "An active service session is required.");
         }
         var limits = limiter.getIfAvailable();
-        if (limits != null && !limits.allowAiGuidance(principal.memberId())) {
-            throw new ChatException(ChatException.Reason.RATE_LIMITED, "Too many guidance requests.");
+        if (limits != null) {
+            boolean allowed;
+            try {
+                allowed = limits.allowAiGuidance(principal.memberId());
+            } catch (DataAccessException | TransactionException failure) {
+                throw new ChatException(ChatException.Reason.DEPENDENCY_UNAVAILABLE,
+                        "AI guidance request limiting is temporarily unavailable.");
+            }
+            if (!allowed) {
+                throw new ChatException(ChatException.Reason.RATE_LIMITED, "Too many guidance requests.");
+            }
         }
         return guidance.requestGuidance(principal.memberId(), principal.sessionId(), request);
     }

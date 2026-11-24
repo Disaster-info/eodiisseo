@@ -74,9 +74,12 @@ final class NotificationFixture {
         @Override public synchronized void upsertDevice(Device d) {
             Device old = devices.get(d.deviceId());
             if (old != null && !old.memberId().equals(d.memberId())) throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
+            if ((old == null || !old.active()) && findActiveDevices(d.memberId()).size() >= MAX_DEVICES_PER_MEMBER)
+                throw new NotificationException(NotificationException.Reason.DEVICE_LIMIT_EXCEEDED);
             if (devices.values().stream().anyMatch(existing -> !existing.deviceId().equals(d.deviceId()) && existing.tokenHash().equals(d.tokenHash())))
                 throw new NotificationException(NotificationException.Reason.DEVICE_TOKEN_CONFLICT);
-            devices.put(d.deviceId(), d);
+            devices.put(d.deviceId(), old == null ? d : new Device(old.id(), d.memberId(), d.deviceId(),
+                    d.tokenHash(), d.tokenCiphertext(), d.platform(), true, d.updatedAt()));
         }
         @Override public void deleteDevice(UUID member, String device) {
             Device previous = devices.get(device);

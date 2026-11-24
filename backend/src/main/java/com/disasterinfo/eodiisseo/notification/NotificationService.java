@@ -98,7 +98,7 @@ public class NotificationService {
         return result;
     }
 
-    static final int MAX_DEVICES_PER_MEMBER = 10;
+    static final int MAX_DEVICES_PER_MEMBER = Store.MAX_DEVICES_PER_MEMBER;
 
     @Transactional
     public DeviceResponse registerDevice(MemberSession session, String deviceId, DeviceRequest request) {
@@ -108,18 +108,11 @@ public class NotificationService {
         try { platform = Platform.valueOf(request.platform()); }
         catch (IllegalArgumentException | NullPointerException failure) { throw invalid(); }
         Store data = connected(store);
-        Device existing = data.findDevice(deviceId);
-        if (existing != null && !existing.memberId().equals(session.memberId()))
-            throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
-        // 새 기기만 상한 확인 (기존 기기의 토큰 갱신은 허용). 임의 device ID 로 기기 행을 무한히 만드는 것을 막음
-        // ponytail: 잠금 없는 개수 확인 — 동시 등록이면 상한을 몇 대 넘을 수 있음, 엄격히 하려면 회원 잠금 뒤 다시 세기
-        if (existing == null && data.findActiveDevices(session.memberId()).size() >= MAX_DEVICES_PER_MEMBER)
-            throw new NotificationException(NotificationException.Reason.DEVICE_LIMIT_EXCEEDED);
         String encrypted;
         try { encrypted = connected(cipher).encrypt(request.fcmToken()); }
         catch (RuntimeException failure) { throw unavailable(); }
         if (blank(encrypted) || encrypted.equals(request.fcmToken())) throw unavailable();
-        Device device = new Device(existing == null ? UUID.randomUUID() : existing.id(), session.memberId(),
+        Device device = new Device(UUID.randomUUID(), session.memberId(),
                 deviceId, hash(request.fcmToken()), encrypted, platform, true, Instant.now());
         requireAuthenticated(session);
         data.upsertDevice(device);

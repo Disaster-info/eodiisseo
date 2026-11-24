@@ -29,7 +29,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
@@ -51,6 +53,7 @@ public class ChatService {
     private final Optional<ChatPromptPrivacyPort> promptPrivacy;
     private final Optional<ChatEvidenceCommitPort> completion;
     private final Clock clock;
+    private final Set<UUID> generatingMembers = ConcurrentHashMap.newKeySet();
 
     public ChatService(Optional<ChatAuthenticationPort> authentication,Optional<ChatOfficialResourceSearchPort> officialSearch,
             Optional<ChatAnswerGenerationPort> generation,Optional<ChatAnswerStore> persistence,Optional<ChatRetentionPolicy> retention,
@@ -92,7 +95,15 @@ public class ChatService {
         String question = requireQuestion(request);
         ChatAnswerStore store = requireStore();
         ChatRetentionPolicy retentionPolicy = requireRetentionPolicy();
-        Outcome outcome = generate(authenticatedMemberId, question, requestedAt.plus(RESPONSE_LIMIT));
+        if (!generatingMembers.add(authenticatedMemberId)) {
+            throw new ChatException(ChatException.Reason.RATE_LIMITED, "A guidance request is already in progress.");
+        }
+        Outcome outcome;
+        try {
+            outcome = generate(authenticatedMemberId, question, requestedAt.plus(RESPONSE_LIMIT));
+        } finally {
+            generatingMembers.remove(authenticatedMemberId);
+        }
         Outcome[] finished={outcome}; ChatAnswer[] saved={null};
         try {
             auth.runWithActiveSession(authenticatedMemberId, verifiedServiceSessionId, () -> {
@@ -220,7 +231,8 @@ public class ChatService {
                 .filter(resource -> Objects.equals(resource.resourceId(), selection.resourceId())).distinct().toList();
         if (selected.size() != 1 || !selected.getFirst().usableAsEvidence()
                 || !ChatText.hasText(selection.excerpt())
-                || !selected.getFirst().content().contains(selection.excerpt())) {
+                || ChatText.paragraphs(selected.getFirst().content())
+                        .noneMatch(selection.excerpt()::equals)) {
             return fallback(Status.FALLBACK);
         }
         return new Outcome(Status.FALLBACK, selection.excerpt(), null, selected);

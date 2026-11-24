@@ -88,7 +88,13 @@ public final class OllamaSummaryGenerator implements SummaryGenerator {
         }
         String data = OllamaJson.write(Map.of("metadata", metadata,
                 "originalText", revision.originalText(), "allowedParagraphs", paragraphs));
-        OllamaChatClient.Response response = client.chat(SYSTEM_PROMPT, data, RESPONSE_SCHEMA, null);
+        OllamaChatClient.Response response;
+        try {
+            response = client.chat(SYSTEM_PROMPT, data, RESPONSE_SCHEMA, null);
+        } catch (OllamaException failure) {
+            if (failure.reason() == OllamaException.Reason.CAPACITY_EXCEEDED) throw new CapacityUnavailable();
+            throw failure;
+        }
         if (response == null || !SummaryText.hasContent(response.modelName()) || response.modelName().length() > 100
                 || !response.modelName().equals(client.modelName())) {
             throw new OllamaException(OllamaException.Reason.INVALID_RESPONSE);

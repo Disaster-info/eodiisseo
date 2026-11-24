@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,10 +36,12 @@ public class OllamaChatClient implements AutoCloseable {
     private static final int MAX_RESPONSE_BYTES = 1_048_576;
     private final OllamaSettings settings;
     private final HttpClient http;
+    private final Semaphore generationSlots;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     public OllamaChatClient(OllamaSettings settings) {
         this.settings = java.util.Objects.requireNonNull(settings);
+        generationSlots = new Semaphore(settings.maxConcurrentGenerations());
         http = HttpClient.newBuilder().connectTimeout(settings.connectTimeout())
                 .followRedirects(HttpClient.Redirect.NEVER).version(HttpClient.Version.HTTP_1_1)
                 .proxy(new ProxySelector() {
@@ -79,6 +82,15 @@ public class OllamaChatClient implements AutoCloseable {
         if (Thread.currentThread().isInterrupted()) throw new OllamaException(INTERRUPTED);
         if (!isConfigured() || !hasText(systemPrompt) || !hasText(userPrompt) || jsonSchema == null || jsonSchema.isEmpty())
             throw new OllamaException(INVALID_INPUT);
+        if (!generationSlots.tryAcquire()) throw new OllamaException(CAPACITY_EXCEEDED);
+        try {
+            return exchangeChat(systemPrompt, userPrompt, jsonSchema, deadline);
+        } finally {
+            generationSlots.release();
+        }
+    }
+
+    private Response exchangeChat(String systemPrompt, String userPrompt, Map<String, Object> jsonSchema, Instant deadline) {
         Duration budget = settings.requestTimeout();
         if (deadline != null) {
             Duration remaining = Duration.between(Instant.now(), deadline);

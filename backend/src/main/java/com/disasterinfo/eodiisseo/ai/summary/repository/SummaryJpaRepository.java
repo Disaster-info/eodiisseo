@@ -35,12 +35,27 @@ public interface SummaryJpaRepository extends JpaRepository<AiSummary, UUID> {
             nativeQuery = true)
     boolean tryClaimWorker(@Param("revisionId") UUID revisionId);
 
-    /** A newer source registration always wins over completion of an older in-flight result. */
+    /** Detect a committed newer revision even before its summary registration runs. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
-            update ai_summary set status = :status, summary_text = :text,
-              model_name = :model, attempt_count = :retryCount, completed_at = :completedAt
-            where summary_id = :summaryId and status = :previousStatus and attempt_count = :previousRetries
+            with revision_state as (
+                select exists (
+                    select 1 from source_disaster_revision newer
+                    where newer.source_disaster_id = source_revision.source_disaster_id
+                      and newer.revision_no > source_revision.revision_no
+                ) as superseded
+                from ai_summary pending
+                join source_disaster_revision source_revision on source_revision.revision_id = pending.source_revision_id
+                where pending.summary_id = :summaryId
+            )
+            update ai_summary s
+            set status = case when revision_state.superseded then 'STALE' else :status end,
+                summary_text = case when revision_state.superseded then null else :text end,
+                model_name = case when revision_state.superseded then null else :model end,
+                attempt_count = case when revision_state.superseded then :previousRetries else :retryCount end,
+                completed_at = case when revision_state.superseded then null else cast(:completedAt as timestamptz) end
+            from revision_state
+            where s.summary_id = :summaryId and s.status = :previousStatus and s.attempt_count = :previousRetries
             """, nativeQuery = true)
     int finishAttempt(@Param("summaryId") UUID summaryId, @Param("previousStatus") String previousStatus,
                       @Param("previousRetries") int previousRetries, @Param("status") String status,

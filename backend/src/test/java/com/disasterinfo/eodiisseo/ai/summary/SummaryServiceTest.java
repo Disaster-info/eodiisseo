@@ -305,6 +305,18 @@ class SummaryServiceTest {
     }
 
     @Test
+    void unavailableGenerationCapacityKeepsSummaryPendingWithoutRecordingFailure() {
+        service().onOfficialRevisionSaved(REVISION, NOW);
+        generator.answer = ignored -> { throw new SummaryGenerator.CapacityUnavailable(); };
+        assertThat(service().processRevision(REVISION, NOW))
+                .isEqualTo(SummaryService.Processing.DEPENDENCY_UNAVAILABLE);
+        assertThat(store.states.get(REVISION).status()).isEqualTo(SummaryStatus.PENDING);
+        assertThat(failureCodes).isEmpty();
+        generator.answer = ignored -> new SummaryGenerator.Generated("Test summary", "test-model", NOW);
+        assertThat(service().processRevision(REVISION, NOW)).isEqualTo(SummaryService.Processing.COMPLETED);
+    }
+
+    @Test
     void duplicateFailedSourceEventCannotReenqueueAfterRetryDispatchOutage() {
         service().onOfficialRevisionSaved(REVISION, NOW);
         dispatcher.fail = true;

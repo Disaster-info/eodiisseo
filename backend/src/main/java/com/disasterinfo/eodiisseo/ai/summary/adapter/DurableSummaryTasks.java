@@ -15,9 +15,7 @@ public class DurableSummaryTasks implements SummaryTaskDispatcher {
     @Override @Transactional public void enqueue(UUID revision,Instant at) {
         db.update("""
             insert into summary_runtime_task(revision_id,available_at) values(?,?)
-            on conflict(revision_id) do update set available_at=excluded.available_at,state='PENDING',
-                claim_id=null,lease_until=null,last_error_code=null
-            where summary_runtime_task.state='WORKING'
+            on conflict(revision_id) do nothing
             """,revision,at);
     }
 }

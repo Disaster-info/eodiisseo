@@ -24,8 +24,10 @@ public final class OwnedDisasterPortDefaults {
             return (member,criteria,base)->{
                 if(criteria.basis()!=DashboardQuery.Basis.NATIONWIDE)
                     throw new DashboardException(DashboardException.Reason.DEPENDENCY_UNAVAILABLE,"Regional relevance service is not connected.");
-                return data.activeNationwide().stream().map(row->new DashboardDisasterReader.Candidate(
-                    DisasterOperationalAdapters.major(data,row),DashboardDisasterReader.DataOrigin.OFFICIAL,
+                var rows=data.activeNationwide();
+                var regions=data.displayRegions(rows);
+                return rows.stream().map(row->new DashboardDisasterReader.Candidate(
+                    DisasterOperationalAdapters.major(row,regions),DashboardDisasterReader.DataOrigin.OFFICIAL,
                     DashboardDisasterReader.Relevance.UNKNOWN)).toList();
             };
         }

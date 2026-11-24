@@ -108,6 +108,7 @@ public final class NotificationContracts {
         TimeWindow classify(Instant now);
     }
     public interface Store {
+        int MAX_DEVICES_PER_MEMBER = 10;
         /** Signup lifecycle only; confirmed ERD defaults, atomic insert without overwriting existing settings. */
         void initializeSettings(UUID memberId, Instant now);
         Settings findSettings(UUID memberId);
@@ -119,6 +120,7 @@ public final class NotificationContracts {
         List<UUID> findEnabledMembers();
         Device findDevice(String deviceId);
         List<Device> findActiveDevices(UUID memberId);
+        /** Register or refresh a device under the active member lock, enforcing the activation limit. */
         void upsertDevice(Device device);
         void deleteDevice(UUID memberId, String deviceId);
         /** Invalidate only the registration submitted to FCM; never a concurrently rotated token. */

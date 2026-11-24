@@ -2,6 +2,7 @@ package com.disasterinfo.eodiisseo.disaster.service;
 
 import com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase;
 import com.disasterinfo.eodiisseo.dashboard.DashboardException;
+import com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader;
 import java.time.*;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -55,31 +56,68 @@ public class OfficialDisasterQueryService {
                 id,clock.instant().minus(Duration.ofDays(90))));
     }
     @org.springframework.beans.factory.annotation.Autowired(required=false)
-    private com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader impacts;
+    private DisasterImpactAreaReader impacts;
     public String region(UUID id) { return region(id,false); }
+    public Map<UUID,String> displayRegions(List<Map<String,Object>> disasters) {
+        var areas=new LinkedHashMap<UUID,Set<String>>();
+        var ordinary=new StringJoiner(",");
+        var rain=new ArrayList<UUID>();
+        for(var disaster:disasters) {
+            UUID id=(UUID)disaster.get("disaster_id");
+            if("HEAVY_RAIN".equals(disaster.get("type_code")))rain.add(id);
+            else ordinary.add(id.toString());
+        }
+        if(ordinary.length()>0) {
+            for(var row:areaRows("x.disaster_id=any(string_to_array(?, ',')::uuid[])",ordinary.toString(),false)) {
+                areas.computeIfAbsent((UUID)row.get("disaster_id"),id->new LinkedHashSet<>()).add((String)row.get("name"));
+            }
+        }
+        var regions=new HashMap<UUID,String>();
+        areas.forEach((id,names)->regions.put(id,String.join(", ",names)));
+        for(UUID id:rain) {
+            String region=rainRegion(id,false);
+            if(region!=null)regions.put(id,region);
+        }
+        return regions;
+    }
     /** Notification eligibility requires official impact evidence, never a source address. */
     public String notificationRegion(UUID id) { return region(id,true); }
     private String region(UUID id,boolean officialImpactOnly) {
         var type=db.one("select t.code from disaster d join disaster_type t using(disaster_type_id) where d.disaster_id=?",id);
         if(type!=null && "HEAVY_RAIN".equals(type.get("code"))) {
-            var impact=impacts==null?com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Snapshot.unknown():impacts.find(id,clock.instant());
-            if(impact.knowledge()!=com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.VERIFIED)return null;
-            if(officialImpactOnly){
-                Set<String> materialized=new TreeSet<>();db.rows("select x.area_code from disaster_area x join admin_area a using(area_code) where x.disaster_id=? and x.area_role='IMPACT' and x.basis='OFFICIAL' and a.active and a.level='SIGUNGU'",id).forEach(r->materialized.add((String)r.get("area_code")));
-                // Read-only safety gate: revoked/changed mappings cannot authorize stale area-owner matches on retry.
-                if(!materialized.equals(impact.exactAdminAreaCodes()))return null;
-            }
-            return impact.exactAdminAreaCodes().stream().sorted().map(code->(String)db.one("select name from admin_area where area_code=? and active",code).get("name")).distinct().collect(java.util.stream.Collectors.joining(", "));
+            return rainRegion(id,officialImpactOnly);
         }
-        var regions=db.rows("""
-            select a.name from disaster_area x join admin_area a using(area_code)
-            where x.disaster_id=? and x.area_role='IMPACT' and a.active
+        var regions=areaRows("x.disaster_id=?",id,officialImpactOnly);
+        return regions.isEmpty()?null:String.join(", ",regions.stream().map(r->(String)r.get("name")).distinct().toList());
+    }
+    private String rainRegion(UUID id,boolean officialImpactOnly) {
+        var impact=impacts==null?DisasterImpactAreaReader.Snapshot.unknown():impacts.find(id,clock.instant());
+        if(impact.knowledge()!=DisasterImpactAreaReader.Knowledge.VERIFIED)return null;
+        if(officialImpactOnly){
+            Set<String> materialized=new TreeSet<>();
+            db.rows("select x.area_code from disaster_area x join admin_area a using(area_code) where x.disaster_id=? and x.area_role='IMPACT' and x.basis='OFFICIAL' and a.active and a.level='SIGUNGU'",id)
+                .forEach(r->materialized.add((String)r.get("area_code")));
+            // Read-only safety gate: revoked/changed mappings cannot authorize stale area-owner matches on retry.
+            if(!materialized.equals(impact.exactAdminAreaCodes()))return null;
+        }
+        var codes=impact.exactAdminAreaCodes().stream().sorted().toList();
+        var names=new LinkedHashSet<String>();
+        for(String code:codes) {
+            var area=db.one("select name from admin_area where area_code=? and active",code);
+            if(area==null)return null;
+            names.add((String)area.get("name"));
+        }
+        return String.join(", ",names);
+    }
+    private List<Map<String,Object>> areaRows(String idPredicate,Object ids,boolean officialImpactOnly) {
+        return db.rows("""
+            select x.disaster_id,a.name from disaster_area x join admin_area a using(area_code)
+            where %s and x.area_role='IMPACT' and a.active
             and (? or x.basis='OFFICIAL')
             and x.basis=case when exists(select 1 from disaster_area o where o.disaster_id=x.disaster_id
                 and o.area_role='IMPACT' and o.basis='OFFICIAL') then 'OFFICIAL' else 'SOURCE_ADDRESS' end
-            order by a.area_code
-            """,id,!officialImpactOnly);
-        return regions.isEmpty()?null:String.join(", ",regions.stream().map(r->(String)r.get("name")).distinct().toList());
+            order by x.disaster_id,a.area_code
+            """.formatted(idPredicate),ids,!officialImpactOnly);
     }
     public Optional<Map<String,Object>> representative(UUID disaster) {
         // The current text/hash must match its latest immutable provider revision.

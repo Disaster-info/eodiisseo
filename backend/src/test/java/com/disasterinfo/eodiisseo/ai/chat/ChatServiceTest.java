@@ -40,6 +40,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -71,6 +74,40 @@ class ChatServiceTest {
     private String searchedQuestion;
     private SearchResult searchResult = new SearchResult(List.of(resource(RESOURCE_ONE), resource(RESOURCE_TWO)), true);
     private Function<String, SearchResult> searchAction = question -> searchResult;
+
+    @Test
+    void memberGenerationRejectsOverlapAndReleasesAfterFailure() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var attempts = new AtomicInteger();
+        generator.action = request -> {
+            if (attempts.incrementAndGet() == 1) {
+                entered.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("Request stayed blocked");
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(failure);
+                }
+                throw new IllegalStateException("Model unavailable");
+            }
+            return generator.result;
+        };
+        var service = service();
+        var question = new ChatRequest(QUESTION);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> service.requestGuidance(MEMBER, SESSION, question));
+            try {
+                assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                assertFailure(() -> service.requestGuidance(MEMBER, SESSION, question), ChatException.Reason.RATE_LIMITED);
+                assertThat(attempts).hasValue(1);
+            } finally {
+                release.countDown();
+            }
+            assertThat(first.get(5, TimeUnit.SECONDS).answerType()).isEqualTo(AnswerType.FALLBACK);
+        }
+        assertThat(service.requestGuidance(MEMBER, SESSION, question).answerType()).isEqualTo(AnswerType.AI);
+    }
 
     @Test
     void storesOnlyActuallyUsedOfficialResourcesAndPreservesTheOfficialEvidence() {
@@ -212,7 +249,7 @@ class ChatServiceTest {
 
     @Test
     void actualSelectedOfficialBasicGuidanceIsReturnedWhenTheLlmFails() {
-        searchResult = new SearchResult(List.of(resource(RESOURCE_ONE), resource(RESOURCE_TWO)), true,
+        searchResult = new SearchResult(List.of(resource(RESOURCE_ONE), basicResource(RESOURCE_TWO)), true,
                 new BasicGuidance(RESOURCE_TWO, "공식 위험등급은 변경하지 않는다."));
         generator.failure = new IllegalStateException("LLM unavailable");
 
@@ -227,7 +264,7 @@ class ChatServiceTest {
 
     @Test
     void selectedOfficialBasicGuidanceWorksWhenTheQuestionHasInsufficientEvidence() {
-        searchResult = new SearchResult(List.of(resource(RESOURCE_TWO)), false,
+        searchResult = new SearchResult(List.of(basicResource(RESOURCE_TWO)), false,
                 new BasicGuidance(RESOURCE_TWO, "공식 위험등급은 변경하지 않는다."));
 
         ChatResponse response = service().requestGuidance(MEMBER, SESSION, new ChatRequest(QUESTION));
@@ -241,7 +278,7 @@ class ChatServiceTest {
     @ParameterizedTest
     @MethodSource("invalidBasicGuidance")
     void noInventedBasicGuidanceOrArbitraryFirstResourceSelectionIsUsed(BasicGuidance guidance) {
-        searchResult = new SearchResult(List.of(resource(RESOURCE_ONE)), false, guidance);
+        searchResult = new SearchResult(List.of(basicResource(RESOURCE_ONE)), false, guidance);
         assertFallback(Status.INSUFFICIENT);
         assertThat(generator.calls).isZero();
     }
@@ -249,12 +286,13 @@ class ChatServiceTest {
     static Stream<BasicGuidance> invalidBasicGuidance() {
         return Stream.of(new BasicGuidance(RESOURCE_TWO, "공식 위험등급은 변경하지 않는다."),
                 new BasicGuidance(RESOURCE_ONE, "근거 원문에 없는 안전 보장"),
+                new BasicGuidance(RESOURCE_ONE, "위험등급은 변경하지 않는다."),
                 new BasicGuidance(RESOURCE_ONE, " "), new BasicGuidance(RESOURCE_ONE, null));
     }
 
     @Test
     void timeoutReturnsAlreadySelectedOfficialBasicGuidanceWithoutLateAiText() {
-        searchResult = new SearchResult(List.of(resource(RESOURCE_TWO)), true,
+        searchResult = new SearchResult(List.of(basicResource(RESOURCE_TWO)), true,
                 new BasicGuidance(RESOURCE_TWO, "공식 위험등급은 변경하지 않는다."));
         generator.action = request -> {
             clock.advance(Duration.ofMinutes(10));
@@ -336,6 +374,13 @@ class ChatServiceTest {
         store.answers.clear();
         assertFailure(() -> tooLong.requestGuidance(MEMBER, SESSION, new ChatRequest(question + "가")), ChatException.Reason.INVALID_QUESTION);
         assertThat(store.answers).isEmpty();
+    }
+
+    @Test
+    void questionLengthUsesUtf16UnitsWithoutSplittingSupplementaryCharacters() {
+        String question = "가".repeat(ChatRequest.MAX_LENGTH - 2) + "😀";
+        assertThat(new ChatRequest(question).validatedQuestion()).isEqualTo(question);
+        assertFailure(() -> new ChatRequest(question + "가").validatedQuestion(), ChatException.Reason.INVALID_QUESTION);
     }
 
     @Test
@@ -675,6 +720,11 @@ class ChatServiceTest {
     private static OfficialResource resource(UUID id) {
         return new OfficialResource(id, "공식기관", "공식 행동요령", URI.create("https://agency.example/guide"),
                 "제공처에서 조회한 공식 원문. 공식 위험등급은 변경하지 않는다.", true, true, true);
+    }
+
+    private static OfficialResource basicResource(UUID id) {
+        return new OfficialResource(id, "공식기관", "공식 행동요령", URI.create("https://agency.example/guide"),
+                "제공처에서 조회한 공식 원문.\n\n공식 위험등급은 변경하지 않는다.", true, true, true);
     }
 
     private static void assertFailure(Runnable action, ChatException.Reason reason) {

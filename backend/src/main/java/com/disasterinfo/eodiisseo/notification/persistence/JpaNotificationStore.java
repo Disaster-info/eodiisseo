@@ -49,16 +49,24 @@ public class JpaNotificationStore implements Store {
 
     @Override public void upsertDevice(Device d) {
         requireActiveMemberLock(d.memberId());
-        // ON CONFLICT avoids a failed transaction while distinguishing installation ownership.
-        int inserted = nativeQuery("""
-                INSERT INTO device_token(device_token_id,member_id,device_id,token_hash,token_ciphertext,platform,active,updated_at)
-                VALUES (:id,:member,:device,:hash,:cipher,:platform,true,:updated) ON CONFLICT DO NOTHING
-                """, "id", d.id(), "member", d.memberId(), "device", d.deviceId(), "hash", d.tokenHash(),
-                "cipher", d.tokenCiphertext(), "platform", d.platform().name(), "updated", d.updatedAt()).executeUpdate();
-        if (inserted == 1) return;
-        Device owner = findDevice(d.deviceId());
-        if (owner == null) throw new NotificationException(NotificationException.Reason.DEVICE_TOKEN_CONFLICT);
-        if (!owner.memberId().equals(d.memberId())) throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
+        Device existing = findDevice(d.deviceId());
+        if (existing != null && !existing.memberId().equals(d.memberId()))
+            throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
+        if ((existing == null || !existing.active())
+                && devices.countByMemberIdAndActiveTrue(d.memberId()) >= MAX_DEVICES_PER_MEMBER)
+            throw new NotificationException(NotificationException.Reason.DEVICE_LIMIT_EXCEEDED);
+        if (existing == null) {
+            // A different member may race on the globally unique installation or token.
+            int inserted = nativeQuery("""
+                    INSERT INTO device_token(device_token_id,member_id,device_id,token_hash,token_ciphertext,platform,active,updated_at)
+                    VALUES (:id,:member,:device,:hash,:cipher,:platform,true,:updated) ON CONFLICT DO NOTHING
+                    """, "id", d.id(), "member", d.memberId(), "device", d.deviceId(), "hash", d.tokenHash(),
+                    "cipher", d.tokenCiphertext(), "platform", d.platform().name(), "updated", d.updatedAt()).executeUpdate();
+            if (inserted == 1) return;
+            if (findDevice(d.deviceId()) != null)
+                throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
+            throw new NotificationException(NotificationException.Reason.DEVICE_TOKEN_CONFLICT);
+        }
         try {
             int changed = nativeQuery("""
                     UPDATE device_token SET token_hash=:hash,token_ciphertext=:cipher,platform=:platform,active=true,updated_at=:updated

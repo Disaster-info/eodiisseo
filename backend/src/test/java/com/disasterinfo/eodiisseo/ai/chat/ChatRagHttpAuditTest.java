@@ -11,6 +11,7 @@ import com.disasterinfo.eodiisseo.ai.resource.port.*;
 import com.disasterinfo.eodiisseo.ai.resource.vector.*;
 import com.disasterinfo.eodiisseo.auth.repository.*;
 import com.disasterinfo.eodiisseo.auth.security.*;
+import com.disasterinfo.eodiisseo.auth.service.OwnedRateLimiter;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -140,6 +141,43 @@ class ChatRagHttpAuditTest {
     @ParameterizedTest @ValueSource(strings={"REVOKED","EXPIRED"})
     void activeSessionIsRecheckedAfterGeneration(String stateValue)throws Exception{state.mode="VECTOR";state.duringModel=()->sql.update(stateValue.equals("REVOKED")?"update auth_session set revoked_at=now() where session_id=?":"update auth_session set created_at=now()-interval '15 days',expires_at=now()-interval '1 day' where session_id=?",session);assertThat(send(INDOOR,token).statusCode()).isEqualTo(401);assertThat(count("ai_answer")).isZero();}
     @Test void unauthenticatedInvalidAndDeniedInputsNeverReachModel()throws Exception{assertThat(send(INDOOR,null).statusCode()).isEqualTo(401);assertThat(send("   ",token).statusCode()).isEqualTo(400);assertThat(count("ai_answer")).isZero();context.getBean(ExternalAiConsentService.class).record(member,session,false);assertThat(send(INDOOR,token).statusCode()).isEqualTo(500);assertThat(count("ai_answer")).isZero();assertThat(state.generated.get()).isZero();}
+    @Test void atomicRequestWindowLimitsConcurrentHttpRequestsWithoutInvokingModel() throws Exception {
+        assertThat(context.getBean(OwnedRateLimiter.class)).isNotNull();
+        state.clock.now = state.clock.now.truncatedTo(java.time.temporal.ChronoUnit.MINUTES).plusSeconds(119);
+        sql.update("insert into auth_request_window(member_id, scope, window_start, request_count) values (?, 'AI_GUIDANCE', ?, 99998)",
+                member, java.sql.Timestamp.from(state.clock.now.minusSeconds(59)));
+        var responses = new ArrayList<HttpResponse<String>>();
+        try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+            var start = new CountDownLatch(1);
+            var pending = new ArrayList<Future<HttpResponse<String>>>();
+            for (int i = 0; i < 5; i++) {
+                pending.add(callers.submit(() -> {
+                    start.await();
+                    return send("가".repeat(2001), token);
+                }));
+            }
+            start.countDown();
+            for (var request : pending) {
+                responses.add(request.get(30, TimeUnit.SECONDS));
+            }
+        }
+        assertThat(responses).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(400, 400, 429, 429, 429);
+        for (var response : responses) {
+            if (response.statusCode() == 429) {
+                assertThat(JSON.readTree(response.body()).path("code").asString()).isEqualTo("RATE_LIMITED");
+            }
+        }
+        assertThat(sql.queryForObject("select request_count from auth_request_window where member_id=? and scope='AI_GUIDANCE'",
+                Integer.class, member)).isEqualTo(100003);
+        var other = actor(false);
+        var otherToken = context.getBean(TokenService.class).issue(other.memberId(), other.sessionId(),
+                state.clock.now.plusSeconds(3600));
+        assertThat(send("가".repeat(2001), otherToken).statusCode()).isEqualTo(400);
+        state.clock.now = state.clock.now.plusSeconds(1);
+        assertThat(send("가".repeat(2001), token).statusCode()).isEqualTo(400);
+        assertThat(count("ai_answer")).isZero();
+        assertThat(state.generated).hasValue(0);
+    }
     @Test void searchFailureAndModelDeadlineUseSafeExistingStatuses()throws Exception{state.mode="VECTOR";state.failSearch=true;fallback(INDOOR,"FAILED");assertThat(state.generated.get()).isZero();sql.update("delete from ai_answer");state.failSearch=false;state.fault="TIMEOUT";fallback(INDOOR,"TIMEOUT");}
     @Test void failedPersistenceRollsBackAndRetriedRequestsAreCurrentlyDistinct()throws Exception{state.atSave=()->{throw new ChatException(ChatException.Reason.PERSISTENCE_FAILURE,"SYNTHETIC");};assertThat(send(INDOOR,token).statusCode()).isEqualTo(500);assertThat(count("ai_answer")).isZero();state.atSave=()->{};assertThat(ok(INDOOR).path("answerType").asString()).isEqualTo("AI");assertThat(ok(INDOOR).path("answerType").asString()).isEqualTo("AI");assertThat(count("ai_answer")).isEqualTo(2);state.clock.now=state.clock.now.plus(Duration.ofDays(91));assertThat(context.getBean(ChatService.class).deleteExpiredAnswers()).isEqualTo(2);assertThat(count("ai_answer_resource")).isZero();}
     @Test void expiryDuringTheActualFlushRollsBackAnswerAndSourceLinks()throws Exception{

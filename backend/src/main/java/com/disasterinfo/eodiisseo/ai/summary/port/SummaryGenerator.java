@@ -14,5 +14,8 @@ public interface SummaryGenerator {
     boolean isConfigured();
     Generated generate(OfficialRevision revision);
 
+    /** The provider rejected admission before generation started. */
+    final class CapacityUnavailable extends RuntimeException {}
+
     record Generated(String text, String modelName, Instant generatedAt) { }
 }

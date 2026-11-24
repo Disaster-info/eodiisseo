@@ -44,8 +44,11 @@ public class DisasterRuntimeWorker {
         });
     }
     private void finish(String table,String id,Map<String,Object> row,String state,String code) {
+        finish(table,id,row,state,code,clock.instant().plusSeconds(60));
+    }
+    private void finish(String table,String id,Map<String,Object> row,String state,String code,Instant availableAt) {
         tx.executeWithoutResult(status->db.update("update "+table+" set state=?,last_error_code=?,available_at=?,lease_until=null,claim_id=null,completed_at=? where "+id+"=? and claim_id=?",
-            state,code,clock.instant().plusSeconds(60),"DONE".equals(state)?clock.instant():null,row.get(id),row.get("claim_id")));
+            state,code,availableAt,"DONE".equals(state)?clock.instant():null,row.get(id),row.get("claim_id")));
     }
     public boolean drainOneEvent() {
         var row=claim("disaster_runtime_outbox","event_id"); if(row==null)return false;
@@ -57,7 +60,7 @@ public class DisasterRuntimeWorker {
                     finish("disaster_runtime_outbox","event_id",row,"HELD","REGISTRATION_UNAVAILABLE");return true;
                 }
                 // Persist the waiting task even with no active model; PENDING is externally visible.
-                if(outcome==SummaryService.Submission.DEPENDENCY_UNAVAILABLE || outcome==SummaryService.Submission.QUEUED)
+                if(outcome==SummaryService.Submission.DEPENDENCY_UNAVAILABLE)
                     tasks.enqueue((UUID)row.get("revision_id"),clock.instant());
                 if(outcome==SummaryService.Submission.SOURCE_INCOMPLETE) {
                     finish("disaster_runtime_outbox","event_id",row,"HELD","SOURCE_INCOMPLETE");return true;
@@ -89,10 +92,18 @@ public class DisasterRuntimeWorker {
             if(generator.isEmpty() || !generator.get().isConfigured()) {
                 finish("summary_runtime_task","revision_id",row,"HELD","MODEL_DISABLED");return true;
             }
-            var result=summaries.processRevision((UUID)row.get("revision_id"),clock.instant());
-            if(result==SummaryService.Processing.COMPLETED || result==SummaryService.Processing.STALE || result==SummaryService.Processing.NOT_ELIGIBLE)
-                finish("summary_runtime_task","revision_id",row,"DONE",null);
-            else finish("summary_runtime_task","revision_id",row,"HELD",result.name());
+            var decision=summaries.processClaimedRevision((UUID)row.get("revision_id"),clock.instant());
+            switch(decision.outcome()) {
+                case COMPLETED, STALE -> finish("summary_runtime_task","revision_id",row,"DONE",null);
+                case FAILED, NOT_ELIGIBLE -> {
+                    if(decision.retryAt()==null)
+                        finish("summary_runtime_task","revision_id",row,"DONE",decision.outcome().name());
+                    else
+                        finish("summary_runtime_task","revision_id",row,"HELD",decision.outcome().name(),decision.retryAt());
+                }
+                case POLICY_UNCONFIGURED, DEPENDENCY_UNAVAILABLE ->
+                    finish("summary_runtime_task","revision_id",row,"HELD",decision.outcome().name());
+            }
         } catch(RuntimeException failure){finish("summary_runtime_task","revision_id",row,"HELD","PROCESSING_FAILED");}
         return true;
     }

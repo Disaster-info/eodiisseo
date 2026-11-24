@@ -52,6 +52,110 @@ class NotificationPostgresPersistenceTest {
         assertThat(db.count("notification_event")).isEqualTo(1);
     }
 
+    @Test void concurrentDeviceActivationsCannotExceedMemberLimit() throws Exception {
+        for (int i = 0; i < 9; i++) {
+            register(device("active-" + i, Integer.toString(i)));
+        }
+        Device inactive = device("inactive", "a");
+        register(inactive);
+        db.tx(em -> {
+            store(em).deactivateDevice(inactive.id(), inactive.tokenHash(), inactive.tokenCiphertext());
+            return null;
+        });
+        assertThat(winners(List.of(
+                () -> tryRegister(inactive),
+                () -> tryRegister(device("new-b", "b")),
+                () -> tryRegister(device("new-c", "c"))))).isEqualTo(1);
+        assertThat(db.<List<Device>>tx(em -> store(em).findActiveDevices(member))).hasSize(10);
+        assertThat(tryRegister(device("new-d", "d"))).isFalse();
+        assertThat(tryRegister(device("active-0", "e"))).isTrue();
+        assertThat(db.<List<Device>>tx(em -> store(em).findActiveDevices(member))).hasSize(10);
+    }
+
+    @Test void inactiveDeviceMustWaitForAnAvailableSlot() {
+        Device inactive = device("inactive", "a");
+        register(inactive);
+        db.tx(em -> {
+            store(em).deactivateDevice(inactive.id(), inactive.tokenHash(), inactive.tokenCiphertext());
+            return null;
+        });
+        for (int i = 0; i < 10; i++) {
+            register(device("active-" + i, Integer.toString(i)));
+        }
+        assertThat(tryRegister(inactive)).isFalse();
+        db.tx(em -> { store(em).deleteDevice(member, "active-0"); return null; });
+        assertThat(tryRegister(inactive)).isTrue();
+        assertThat(db.<Device>tx(em -> store(em).findDevice(inactive.deviceId())).id()).isEqualTo(inactive.id());
+    }
+
+    @Test void concurrentRefreshesShareOneInstallationAndOtherMembersHaveIndependentCapacity() throws Exception {
+        Device first = device("shared", "a");
+        Device second = device("shared", "b");
+        assertThat(winners(List.of(() -> tryRegister(first), () -> tryRegister(second)))).isEqualTo(2);
+        assertThat(db.<List<Device>>tx(em -> store(em).findActiveDevices(member))).hasSize(1);
+        for (int i = 0; i < 9; i++) {
+            register(device("active-" + i, Integer.toString(i)));
+        }
+        UUID other = UUID.randomUUID();
+        db.sql("INSERT INTO member VALUES ('" + other + "','ACTIVE')");
+        register(new Device(UUID.randomUUID(), other, "independent", "c".repeat(64), "test-encrypted-c",
+                Platform.IOS, true, now));
+        assertThatThrownBy(() -> register(new Device(UUID.randomUUID(), other, "shared", "d".repeat(64),
+                "test-encrypted-d", Platform.IOS, true, now)))
+                .isInstanceOfSatisfying(NotificationException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT));
+    }
+
+    @Test void withdrawalAndRegistrationSerializeOnTheSameMember() throws Exception {
+        Device incoming = device("withdrawal-race", "a");
+        assertThat(winners(List.of(
+                () -> {
+                    try {
+                        register(incoming);
+                    } catch (NotificationException failure) {
+                        assertThat(failure.reason()).isEqualTo(NotificationException.Reason.UNAUTHENTICATED);
+                    }
+                    return true;
+                },
+                () -> db.tx(em -> {
+                    em.createNativeQuery("UPDATE member SET status='WITHDRAWAL_PENDING' WHERE member_id=:id")
+                            .setParameter("id", member).executeUpdate();
+                    store(em).withdrawMember(member, now);
+                    return true;
+                })))).isEqualTo(2);
+        assertThat(db.count("device_token")).isZero();
+        assertThatThrownBy(() -> register(incoming)).isInstanceOfSatisfying(NotificationException.class,
+                failure -> assertThat(failure.reason()).isEqualTo(NotificationException.Reason.UNAUTHENTICATED));
+    }
+
+    @Test void deletionAndInvalidationCannotUndoAReplacementRegistration() throws Exception {
+        Device original = device("replacement-race", "a");
+        Device replacement = device("replacement-race", "b");
+        register(original);
+        assertThat(winners(List.of(
+                () -> tryRegister(replacement),
+                () -> db.tx(em -> {
+                    store(em).deactivateDevice(original.id(), original.tokenHash(), original.tokenCiphertext());
+                    return true;
+                })))).isEqualTo(2);
+        Device refreshed = db.tx(em -> store(em).findDevice(original.deviceId()));
+        assertThat(refreshed.active()).isTrue();
+        assertThat(refreshed.tokenHash()).isEqualTo(replacement.tokenHash());
+
+        assertThat(winners(List.of(
+                () -> tryRegister(replacement),
+                () -> db.tx(em -> {
+                    store(em).deleteDevice(member, original.deviceId());
+                    return true;
+                })))).isEqualTo(2);
+        Device remaining = db.tx(em -> store(em).findDevice(original.deviceId()));
+        if (remaining != null) {
+            assertThat(remaining.active()).isTrue();
+            assertThat(remaining.tokenHash()).isEqualTo(replacement.tokenHash());
+        }
+        assertThat(db.count("device_token")).isBetween(0L, 1L);
+    }
+
     @Test void concurrentDeliveryClaimsHaveOneWinnerForTheSameEventOrdinalAndAttempt() throws Exception {
         Device device = device("device-a","a"); Event event = event("INITIAL",now);
         db.tx(em -> { store(em).upsertDevice(device); assertThat(store(em).claimEvent(event)).isTrue(); return null; });
@@ -147,6 +251,18 @@ class NotificationPostgresPersistenceTest {
     }
     private Device device(String installation,String hashCharacter) {
         return new Device(UUID.randomUUID(),member,installation,hashCharacter.repeat(64),"test-encrypted-" + installation,Platform.IOS,true,now);
+    }
+    private void register(Device device) {
+        db.tx(em -> { store(em).upsertDevice(device); return null; });
+    }
+    private boolean tryRegister(Device device) {
+        try {
+            register(device);
+            return true;
+        } catch (NotificationException failure) {
+            assertThat(failure.reason()).isEqualTo(NotificationException.Reason.DEVICE_LIMIT_EXCEEDED);
+            return false;
+        }
     }
     private Delivery delivery(Event event,Device device) {
         return new Delivery(UUID.randomUUID(),event.id(),device.id(),(short)1,(short)1,null,DeliveryResult.PENDING,null,null);

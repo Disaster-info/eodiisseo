@@ -96,6 +96,47 @@ class OllamaChatClientTest {
         handler.set(exchange -> respond(exchange,404,"{\"error\":\"model test-model:fixture not found; test-sensitive-provider-detail\"}"));
         try (var client = client(Duration.ofSeconds(3))) { assertFailure(() -> chat(client),MODEL_NOT_FOUND); }
     }
+
+    @Test void rejectsExcessGenerationWithoutSendingHttpAndRecoversAfterCancellation() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        handler.set(exchange -> {
+            entered.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+            }
+            respond(exchange, 200, validResponse("test model result"));
+        });
+        var settings = new OllamaSettings(base, MODEL, Duration.ofSeconds(5), Duration.ofSeconds(1),
+                Set.of("127.0.0.1"), 1);
+        var cancelledReason = new AtomicReference<OllamaException.Reason>();
+        try (var client = new OllamaChatClient(settings); var caller = Executors.newSingleThreadExecutor()) {
+            try {
+                var active = caller.submit(() -> {
+                    try {
+                        chat(client);
+                    } catch (OllamaException failure) {
+                        cancelledReason.set(failure.reason());
+                    }
+                });
+                assertThat(entered.await(3, TimeUnit.SECONDS)).isTrue();
+                assertFailure(() -> chat(client), CAPACITY_EXCEEDED);
+                assertThat(requests).hasValue(1);
+                active.cancel(true);
+                caller.shutdown();
+                assertThat(caller.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
+                assertThat(cancelledReason).hasValue(INTERRUPTED);
+                release.countDown();
+                assertThat(client.chat("test policy", "test question", SCHEMA, null).content())
+                        .isEqualTo("test model result");
+                assertThat(requests).hasValue(2);
+            } finally {
+                release.countDown();
+            }
+        }
+    }
     @Test void rejectsAnEmptyBody() {
         handler.set(exchange -> respond(exchange,200,""));
         try (var client = client(Duration.ofSeconds(3))) { assertFailure(() -> chat(client),EMPTY_RESPONSE); }

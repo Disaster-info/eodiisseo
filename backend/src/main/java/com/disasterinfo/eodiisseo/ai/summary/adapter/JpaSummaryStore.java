@@ -115,9 +115,11 @@ public class JpaSummaryStore implements SummaryStore {
         int updated = rows.finishAttempt(previous.summaryId(), previous.status().name(), previous.attemptCount(),
                 status, outcome.summary(), outcome.modelName(), retries, outcome.completedAt());
         Optional<SummaryState> persisted = rows.findBySourceRevisionId(revisionId).map(AiSummary::snapshot);
+        if (persisted.filter(state -> state.status() == SummaryStatus.STALE).isPresent()) {
+            return new Attempt(Result.STALE, persisted.orElseThrow());
+        }
         if (updated == 0) {
-            return new Attempt(persisted.filter(state -> state.status() == SummaryStatus.STALE).isPresent()
-                    ? Result.STALE : Result.NOT_ELIGIBLE, persisted.orElse(null));
+            return new Attempt(Result.NOT_ELIGIBLE, persisted.orElse(null));
         }
         return new Attempt(outcome.result(), persisted.orElseThrow());
     }
