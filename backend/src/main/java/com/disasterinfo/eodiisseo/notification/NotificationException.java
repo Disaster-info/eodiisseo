@@ -4,7 +4,7 @@ package com.disasterinfo.eodiisseo.notification;
 public final class NotificationException extends RuntimeException {
     public enum Reason {
         INVALID_REQUEST(400), UNAUTHENTICATED(401), FORBIDDEN(403), NOT_FOUND(404),
-        DEVICE_OWNERSHIP_CONFLICT(409), DEVICE_TOKEN_CONFLICT(409), DEPENDENCY_UNAVAILABLE(500);
+        DEVICE_OWNERSHIP_CONFLICT(409), DEVICE_TOKEN_CONFLICT(409), DEVICE_LIMIT_EXCEEDED(409), DEPENDENCY_UNAVAILABLE(500);
         private final int status;
         Reason(int status) { this.status = status; }
         public int status() { return status; }
@@ -18,6 +18,7 @@ public final class NotificationException extends RuntimeException {
             case NOT_FOUND -> "Notification resource not found.";
             case DEVICE_OWNERSHIP_CONFLICT -> "The installation is registered to another member.";
             case DEVICE_TOKEN_CONFLICT -> "The push registration conflicts with an existing device.";
+            case DEVICE_LIMIT_EXCEEDED -> "Too many notification devices are registered for this member.";
             case DEPENDENCY_UNAVAILABLE -> "Notification integration is unavailable.";
         });
         this.reason = reason;

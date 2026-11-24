@@ -40,6 +40,7 @@ class AiExceptionHandlerTest {
         String code = switch (reason) {
             case INVALID_QUESTION -> "INVALID_INPUT";
             case UNAUTHENTICATED -> "UNAUTHORIZED";
+            case RATE_LIMITED -> "RATE_LIMITED";
             default -> "INTERNAL_ERROR";
         };
         assertError(mvc.perform(get("/__test/ai-errors/chat/" + reason)).andReturn(), reason.httpStatus(), code);

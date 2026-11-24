@@ -325,11 +325,17 @@ class ChatServiceTest {
     }
 
     @Test
-    void noUndocumentedMaximumQuestionLengthIsIntroduced() {
-        String question = "장문 질문 ".repeat(1000);
+    void questionsUpToTheMaximumLengthAreKeptWholeAndLongerOnesAreRejectedBeforeSaving() {
+        // 최대 2,000자 (API 명세서 반영 필요). 초과 질문이 fallback 답변과 함께 DB 에 쌓이지 않게 저장 전에 거부
+        String question = "가".repeat(ChatRequest.MAX_LENGTH);
         service().requestGuidance(MEMBER, SESSION, new ChatRequest(question));
         assertThat(generator.request.question()).isEqualTo(question);
         assertThat(store.onlyAnswer().getQuestionText()).isEqualTo(question);
+
+        var tooLong = service();
+        store.answers.clear();
+        assertFailure(() -> tooLong.requestGuidance(MEMBER, SESSION, new ChatRequest(question + "가")), ChatException.Reason.INVALID_QUESTION);
+        assertThat(store.answers).isEmpty();
     }
 
     @Test

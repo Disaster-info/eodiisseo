@@ -34,7 +34,7 @@ public class AssignedSecurity {
             .cors(org.springframework.security.config.Customizer.withDefaults())
             .csrf(c->c.disable()).sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(a->a.requestMatchers("/api/v1/auth/google","/api/v1/auth/kakao",
-                    "/api/v1/auth/refresh","/api/v1/auth/withdrawal/cancel").permitAll()
+                    "/api/v1/auth/refresh","/api/v1/auth/withdrawal/cancel","/api/v1/auth/logout").permitAll()
                 .requestMatchers("/api/v1/ops/**").hasRole("OPS").anyRequest().authenticated())
             .exceptionHandling(e->e.authenticationEntryPoint((q,r,x)->write(json,r,401,"UNAUTHORIZED"))
                 .accessDeniedHandler((q,r,x)->write(json,r,403,"FORBIDDEN")))

@@ -22,12 +22,8 @@ public class GroupService {
     }
     @Transactional public Map<String,Object> create(UUID member,String name,String category) {
         name=validName(name);category=validCategory(category);repository.lockMembershipChanges();repository.lockMember(member);checkGroupLimit(member);
-        var id=UUID.randomUUID();String code=null;
-        for(int i=0;i<10;i++) {
-            var candidate=inviteCode();
-            if(repository.createGroup(id,name,category,member,candidate,clock.instant())==1) {code=candidate;break;}
-        }
-        if(code==null) throw ApiProblem.conflict("INVITE_CODE_UNAVAILABLE");
+        var id=UUID.randomUUID();var n=name;var c=category;
+        var code=issueInviteCode(candidate->repository.createGroup(id,n,c,member,candidate,clock.instant())==1);
         repository.addAdministrator(id,member,clock.instant());
         return object("groupId",id,"name",name,"category",category,"role","ADMIN","inviteCode",code);
     }
@@ -55,6 +51,8 @@ public class GroupService {
     @Transactional public void exclude(UUID actor,UUID group,UUID target) {
         mutate(actor,group);admin(actor,group);if(actor.equals(target)) throw ApiProblem.conflict("CANNOT_EXCLUDE_ADMIN");
         membership(target,group);repository.removeMember(group,target);
+        // 제외된 회원이 알던 초대 코드로 재가입하지 못하도록 코드를 즉시 교체한다.
+        issueInviteCode(candidate->repository.rotateInviteCode(group,candidate)==1);
     }
     @Transactional public Map<String,Object> transfer(UUID actor,UUID group,UUID target) {
         mutate(actor,group);admin(actor,group);
@@ -131,6 +129,10 @@ public class GroupService {
     static String validCategory(String category) { if(category==null) return "OTHER";if(!Set.of("FAMILY","FRIEND","OTHER").contains(category)) throw ApiProblem.bad("그룹 분류를 확인하세요.");return category; }
     public static String locationState(boolean sharing,Instant updated,Instant now,long staleSeconds) {
         return !sharing?"NOT_SHARED":updated==null?"NO_LOCATION":!updated.plusSeconds(staleSeconds).isAfter(now)?"STALE":"AVAILABLE";
+    }
+    private String issueInviteCode(java.util.function.Predicate<String> save) {
+        for(int i=0;i<10;i++) { var candidate=inviteCode();if(save.test(candidate)) return candidate; }
+        throw ApiProblem.conflict("INVITE_CODE_UNAVAILABLE");
     }
     private String inviteCode() { var chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";var b=new StringBuilder();for(int i=0;i<6;i++) b.append(chars.charAt(random.nextInt(chars.length())));return b.toString(); }
 }

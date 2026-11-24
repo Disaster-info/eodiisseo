@@ -32,6 +32,11 @@ public class GroupRepository {
         return db.one("select * from safety_group where invite_code=? for update",inviteCode);
     }
 
+    /** 같은 코드가 이미 있으면 0을 반환한다. 호출자는 lockMembershipChanges() 안에서 부른다. */
+    public int rotateInviteCode(UUID group, String inviteCode) {
+        return db.update("update safety_group set invite_code=? where group_id=? and not exists(select 1 from safety_group where invite_code=?)",inviteCode,group,inviteCode);
+    }
+
     public long countMembership(UUID group, UUID member) {
         return db.count("select count(*) from group_member where group_id=? and member_id=?",group,member);
     }

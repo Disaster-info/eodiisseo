@@ -87,7 +87,9 @@ class DashboardAssignedSecurityReadinessTest {
     @Import({AssignedSecurity.class, AuthenticationPortsConfiguration.class, SessionAccessService.class,
             OwnedHttpSecurityGuard.class, AuthController.class, WeatherController.class,
             DashboardController.class, SummaryController.class, ChatController.class, NotificationController.class,
-            DashboardHttpErrors.class, AiExceptionHandler.class, NotificationHttpErrors.class, GlobalExceptionHandler.class})
+            DashboardHttpErrors.class, AiExceptionHandler.class, NotificationHttpErrors.class, GlobalExceptionHandler.class,
+            // 로그아웃은 refresh 토큰 본문으로도 받으려고 permitAll — 토큰·본문 없는 요청은 컨트롤러가 ApiProblem(401)로 거부하며, 실제 앱처럼 ApiErrors 가 변환
+            com.disasterinfo.eodiisseo.auth.exception.ApiErrors.class})
     static class Config {
         @Bean OwnedDatabase database() { return mock(OwnedDatabase.class); }
         @Bean AuthRepository authRepository(OwnedDatabase database) { return new AuthRepository(database); }

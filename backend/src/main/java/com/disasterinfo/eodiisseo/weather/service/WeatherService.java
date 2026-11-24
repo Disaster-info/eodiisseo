@@ -1,4 +1,5 @@
 package com.disasterinfo.eodiisseo.weather.service;
+import java.util.concurrent.locks.ReentrantLock;
 import com.disasterinfo.eodiisseo.auth.exception.ApiProblem;
 import com.disasterinfo.eodiisseo.weather.client.WeatherProvider;
 import com.disasterinfo.eodiisseo.weather.dto.WeatherObservation;
@@ -25,12 +26,11 @@ public class WeatherService {
         this.repository=repository;this.provider=provider;this.clock=clock;this.json=json;cacheSeconds=cache;staleSeconds=stale;fallbackSeconds=fallback;this.sourceKey=sourceKey;
         if(cache<=0 || stale<=cache || fallback<=stale) throw new IllegalStateException("Invalid weather cache/age settings");
     }
-    @org.springframework.transaction.annotation.Transactional
+    private final java.util.concurrent.ConcurrentHashMap<String,ReentrantLock> gridLocks=new java.util.concurrent.ConcurrentHashMap<>(); // 격자 수(최대 약 3.7만)로 상한
     public Map<String,Object> currentCoordinates(double latitude,double longitude) {
         // Domain adapter only: caller authenticates before use. Coordinates are never stored as member locations.
         return current(null,latitude,longitude,null);
     }
-    @org.springframework.transaction.annotation.Transactional
     public Map<String,Object> current(UUID member,Double latitude,Double longitude,UUID interestArea) {
         validateInput(latitude,longitude,interestArea);
         String name=null;
@@ -47,12 +47,14 @@ public class WeatherService {
         var source=repository.findActiveWeatherSource(sourceKey);
         if(source==null) throw new ApiProblem(503,"WEATHER_SOURCE_NOT_READY","기상청 제공처 등록이 필요합니다.");
         var id=(UUID)source.get("source_id");
-        repository.lockGrid(id+":"+grid.x()+":"+grid.y());
-        var now=clock.instant();var previous=latest(id,grid);WeatherObservation observation;
+        var now=clock.instant();var previous=latest(id,grid);WeatherObservation observation=previous;
         boolean failed=false;
-        if(previous!=null && previous.collectedAt().plusSeconds(cacheSeconds).isAfter(now) && previous.observedAt().plusSeconds(staleSeconds).isAfter(now)
-            && (!"FORECAST".equals(previous.basis()) || previous.skyValidAt()!=null && previous.skyValidAt().plusSeconds(3600).isAfter(now))) observation=previous;
-        else {
+        // 기상청 호출 중에는 DB 트랜잭션·연결을 쥐지 않는다. 같은 격자의 동시 요청은 이 서버 안의 잠금에서만 기다리고
+        // 잠금을 얻은 뒤 캐시를 다시 확인해 기상청은 한 번만 부른다.
+        // ponytail: 서버 인스턴스별 잠금 — 여러 대로 늘리면 같은 격자를 인스턴스 수만큼 중복 호출할 수 있음 (필요 시 DB 갱신 담당 표시로 확장)
+        var lock=fresh(previous,now)?null:gridLocks.computeIfAbsent(id+":"+grid.x()+":"+grid.y(),k->new ReentrantLock());
+        if(lock!=null) { lock.lock(); try { previous=latest(id,grid);observation=previous;
+        if(!fresh(previous,now)) {
             try {
                 observation=provider.current(grid,now);
                 if(observation.observedAt().isAfter(now) || !observation.observedAt().plusSeconds(fallbackSeconds).isAfter(now)) throw new ApiProblem(502,"WEATHER_DATA_UNAVAILABLE","유효한 실황 자료가 없습니다.");
@@ -62,10 +64,14 @@ public class WeatherService {
                 if(previous==null || !previous.observedAt().plusSeconds(fallbackSeconds).isAfter(now)) throw failure;
                 observation=previous;failed=true;
             }
-        }
+        } } finally { lock.unlock(); } }
         return object("location",object("name",name,"latitude",latitude,"longitude",longitude),"temperature",observation.temperature(),
             "weatherCode",observation.code(),"weatherText",weatherText(observation.code()),"observedAt",observation.observedAt(),"collectedAt",observation.collectedAt(),
             "conditionBasis",observation.basis(),"skyValidAt",observation.skyValidAt(),"stale",failed||!observation.observedAt().plusSeconds(staleSeconds).isAfter(now),"guidance",guidance(observation.code()));
+    }
+    private boolean fresh(WeatherObservation previous,Instant now) {
+        return previous!=null && previous.collectedAt().plusSeconds(cacheSeconds).isAfter(now) && previous.observedAt().plusSeconds(staleSeconds).isAfter(now)
+            && (!"FORECAST".equals(previous.basis()) || previous.skyValidAt()!=null && previous.skyValidAt().plusSeconds(3600).isAfter(now));
     }
     private WeatherObservation latest(UUID source,KmaGrid grid) {
         var row=repository.findLatestObservation(source,grid.x(),grid.y());

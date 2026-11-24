@@ -102,6 +102,14 @@ class NotificationServiceTest {
         assertThatThrownBy(() -> f.service().registerDevice(f.session,"install-b",new DeviceRequest("test-token-install-a","ANDROID")))
                 .isInstanceOfSatisfying(NotificationException.class,e -> assertThat(e.status()).isEqualTo(409));
     }
+    @Test void newDevicesStopAtTheMemberLimitButExistingDevicesCanRefreshTheirToken() {
+        var f=new NotificationFixture();
+        for(int i=0;i<NotificationService.MAX_DEVICES_PER_MEMBER;i++)
+            f.service().registerDevice(f.session,"install-"+i,new DeviceRequest("token-"+i,"ANDROID"));
+        assertThatThrownBy(() -> f.service().registerDevice(f.session,"install-extra",new DeviceRequest("token-extra","ANDROID")))
+                .isInstanceOfSatisfying(NotificationException.class,e -> assertThat(e.reason()).isEqualTo(NotificationException.Reason.DEVICE_LIMIT_EXCEEDED));
+        f.service().registerDevice(f.session,"install-0",new DeviceRequest("token-0-refreshed","ANDROID")); // 기존 기기 갱신은 허용
+    }
     @ParameterizedTest @ValueSource(strings={"", "WEB", "android"}) void rejectsInvalidPlatforms(String platform) {
         var f=new NotificationFixture();
         assertThatThrownBy(() -> f.service().registerDevice(f.session,"install-a",new DeviceRequest("token",platform)))

@@ -94,6 +94,8 @@ public class AuthService {
         });
     }
     public void logout(MemberPrincipal p) { repository.logoutSession(clock.instant(),p.sessionId(),p.memberId()); }
+    /** 결과와 상관없이 204 — 토큰이 유효한지 알려 주지 않는다. 현재 refresh 토큰만 인정 (이전 토큰 재사용 탐지는 refresh 가 담당) */
+    public void logoutByRefresh(String refresh) { repository.revokeByRefreshHash(clock.instant(),hash(refresh)); }
     public void withdraw(MemberPrincipal p) {
         transaction.executeWithoutResult(tx->{
             repository.lockMembershipChanges();repository.lockMember(p.memberId());

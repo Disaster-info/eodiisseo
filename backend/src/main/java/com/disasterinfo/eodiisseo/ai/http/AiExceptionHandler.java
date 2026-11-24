@@ -29,6 +29,7 @@ public class AiExceptionHandler {
         return switch (failure.reason()) {
             case INVALID_QUESTION -> common(ErrorCode.INVALID_INPUT);
             case UNAUTHENTICATED -> unauthorized();
+            case RATE_LIMITED -> common(ErrorCode.RATE_LIMITED);
             case DEPENDENCY_UNAVAILABLE, POLICY_UNRESOLVED, PERSISTENCE_FAILURE -> common(ErrorCode.INTERNAL_ERROR);
         };
     }

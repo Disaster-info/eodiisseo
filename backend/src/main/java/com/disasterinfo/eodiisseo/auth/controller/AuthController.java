@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.ResponseEntity;
 import com.disasterinfo.eodiisseo.auth.service.AuthService;
+import com.disasterinfo.eodiisseo.auth.exception.ApiProblem;
 import com.disasterinfo.eodiisseo.auth.security.MemberPrincipal;
 
 @RestController @Profile("!test")
@@ -27,7 +28,11 @@ public class AuthController {
     private ResponseEntity<?> login(String provider,String token) { var r=service.login(provider,token);return ResponseEntity.status(r.created()?201:200).body(r.body()); }
     @PostMapping("/api/v1/auth/refresh") public Map<String,Object> refresh(@Valid @RequestBody Refresh b) { return service.refresh(b.refreshToken()); }
     @PostMapping("/api/v1/auth/social-accounts/{provider}/link") public Map<String,Object> link(@AuthenticationPrincipal MemberPrincipal p,@PathVariable String provider,@Valid @RequestBody Credential b) { return service.link(p,provider,b.socialCredential()); }
-    @PostMapping("/api/v1/auth/logout") public ResponseEntity<Void> logout(@AuthenticationPrincipal MemberPrincipal p) { service.logout(p);return ResponseEntity.noContent().build(); }
+    // access 토큰이 만료돼도 로그아웃이 서버 세션을 끊도록 refresh 토큰 본문도 받는다 (토큰·본문 둘 다 없으면 401)
+    @PostMapping("/api/v1/auth/logout") public ResponseEntity<Void> logout(@AuthenticationPrincipal MemberPrincipal p,@Valid @RequestBody(required=false) Refresh b) {
+        if(p!=null) service.logout(p); else if(b!=null) service.logoutByRefresh(b.refreshToken()); else throw ApiProblem.unauthorized();
+        return ResponseEntity.noContent().build();
+    }
     @GetMapping("/api/v1/members/me") public Map<String,Object> me(@AuthenticationPrincipal MemberPrincipal p) { return service.me(p); }
     @DeleteMapping("/api/v1/members/me") public ResponseEntity<Void> withdraw(@AuthenticationPrincipal MemberPrincipal p) { service.withdraw(p);return ResponseEntity.noContent().build(); }
     @PostMapping("/api/v1/auth/withdrawal/cancel") public Map<String,Object> restore(@Valid @RequestBody Recovery b) { return service.restore(b.provider(),b.socialCredential()); }

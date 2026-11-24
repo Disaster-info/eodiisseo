@@ -89,7 +89,8 @@ class ChatRagHttpAuditTest {
             "--spring.config.import=optional:classpath:/nonexistent-chat-rag-audit.properties","--spring.flyway.enabled=true","--spring.flyway.locations=classpath:db/migration,classpath:db/owned-runtime",
             "--spring.jpa.hibernate.ddl-auto=validate","--AUTH_BRIDGES_ENABLED=true","--eodiisseo.owned-http.enabled=true","--eodiisseo.ai.external-processing.enabled=true",
             "--eodiisseo.ai.ollama.enabled=false","--eodiisseo.fcm.enabled=false","--eodiisseo.disaster.collection.enabled=false","--eodiisseo.collection.enabled=false","--COLLECTION_WORKER_ENABLED=false","--eodiisseo.owned-runtime.enabled=false","--eodiisseo.ai.retention-worker.enabled=false","--eodiisseo.runtime.enabled=false","--eodiisseo.retention.enabled=false","--eodiisseo.notification.retry-worker.enabled=false","--eodiisseo.notification.crypto.enabled=false",
-            "--JWT_SECRET=SYNTHETIC-CHAT-HTTP-AUDIT-0123456789abcdef","--logging.level.root=WARN");
+            "--JWT_SECRET=SYNTHETIC-CHAT-HTTP-AUDIT-0123456789abcdef","--logging.level.root=WARN",
+            "--AI_GUIDANCE_REQUESTS_PER_MINUTE=100000"); // 평가용 질문 묶음을 1분 안에 보냄 — 요청 제한은 이 테스트의 대상이 아님
         sql=context.getBean(JdbcTemplate.class);state=context.getBean(Scenario.class);state.failureDatabase=sql;new ResourceDatabasePopulator(new ClassPathResource("ai/rag_vector_metadata.sql")).execute(context.getBean(javax.sql.DataSource.class));
         base="http://127.0.0.1:"+((ServletWebServerApplicationContext)context).getWebServer().getPort();http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
         assertThat(context.getBean(ChatEvidenceCommitPort.class)).isNotNull();assertThat(context.getBean(ChatAuthenticationPort.class)).isNotNull();

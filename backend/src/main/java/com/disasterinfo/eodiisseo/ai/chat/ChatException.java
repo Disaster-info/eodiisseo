@@ -17,6 +17,7 @@ public class ChatException extends RuntimeException {
     public enum Reason {
         INVALID_QUESTION(400),
         UNAUTHENTICATED(401),
+        RATE_LIMITED(429),
         DEPENDENCY_UNAVAILABLE(500),
         POLICY_UNRESOLVED(500),
         PERSISTENCE_FAILURE(500);

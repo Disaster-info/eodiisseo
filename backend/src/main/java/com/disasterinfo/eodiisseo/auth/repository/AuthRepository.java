@@ -71,6 +71,10 @@ public class AuthRepository {
         return db.update("insert into social_account(social_account_id,member_id,provider,provider_user_id,linked_at) values(?,?,?,?,?)",account,member,provider,subject,now);
     }
 
+    public int revokeByRefreshHash(Instant now, String refreshHash) {
+        return db.update("update auth_session set revoked_at=coalesce(revoked_at,?) where refresh_token_hash=?",now,refreshHash);
+    }
+
     public int logoutSession(Instant now, UUID session, UUID member) {
         return db.update("update auth_session set revoked_at=? where session_id=? and member_id=?",now,session,member);
     }
