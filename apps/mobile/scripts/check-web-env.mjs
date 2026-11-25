@@ -3,7 +3,7 @@
 // → 값이 없으면 배포본이 모든 API 를 방문자 PC 의 http://localhost:8080 으로 보내 전부 실패 (api.ts 기본값)
 // 그래서 배포에 쓸 수 없는 값이면 빌드를 멈추고 이유를 알려 줌
 //   - 없음            → 실패 (Cloudflare 빌드 환경변수에 https 백엔드 주소를 넣어야 함)
-//   - 빈 값("")       → 통과 (Docker: nginx 가 같은 주소의 /api 를 백엔드로 넘김)
+//   - 빈 값("")       → 통과 (Docker: nginx 가 같은 주소의 /api 를 백엔드로 넘김). Cloudflare 에서는 실패 (/api 를 넘겨 줄 서버가 없음)
 //   - http://원격주소 → 실패 (https 페이지에서 브라우저가 차단 = mixed content)
 //   - localhost       → Cloudflare(CF_PAGES=1)에서는 실패, 로컬 빌드는 경고만
 import { createRequire } from 'node:module';
@@ -23,6 +23,9 @@ if (raw === undefined) {
   fail('EXPO_PUBLIC_API_URL 이 없습니다. 이대로면 배포본의 모든 API 요청이 방문자 PC 의 localhost:8080 으로 가서 실패합니다.\n'
     + '  Cloudflare: Settings → Environment variables 에 EXPO_PUBLIC_API_URL=https://<백엔드 주소> 를 넣고 다시 빌드하세요.\n'
     + '  로컬: apps/mobile/.env.local 에 넣으세요 (.env.example 참고).');
+}
+if (raw === '' && onCloudflare) {
+  fail('EXPO_PUBLIC_API_URL 이 빈 값입니다. Cloudflare Pages 에는 /api 를 백엔드로 넘겨 줄 서버가 없어 모든 API 가 실패합니다. https 백엔드 주소를 넣으세요.');
 }
 if (raw === '') {
   console.log('check-web-env: EXPO_PUBLIC_API_URL 빈 값 → 같은 주소의 /api 로 요청 (nginx 프록시 배포용). Cloudflare 정적 배포에는 쓰지 마세요.');

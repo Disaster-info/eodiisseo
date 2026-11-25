@@ -1,6 +1,6 @@
 // 대시보드 (D안 '전면 상황판'): FS-WEATHER-001 날씨, FS-DASH-001 주요 재난, 관심지역 재난 우선 표시
 // 지금 상황 하나가 화면 전체를 차지하고, 위로 넘기면 대피소 → 가족 순서 (상태가 곧 화면 색)
-//   1쪽 상황: 기준 위치 · 날씨(지역 선택) · 현재 위치 경보·주의보 + 관심지역 경보·주의보 · 오른쪽 행동 버튼(119·행동요령·원문)
+//   1쪽 상황: 기준 위치 · 날씨(지역 선택) · 현재 위치 경보·주의보 + 관심지역 경보·주의보 · 오른쪽 행동 버튼(행동요령·원문)
 //   2쪽 대피소: 가장 가까운 대피소(경로·지도) + 다음 대피소 2곳(누르면 경로)
 //   3쪽 가족: 안심그룹 영향상태 (운영자는 안심그룹을 쓰지 않으므로 없음)
 // 다른 지역 재난은 1쪽 아래 카드의 '다른 지역 N건' → 재난 목록 화면에서 봄
@@ -10,7 +10,7 @@ import { router, useIsFocused } from 'expo-router';
 import { ReactNode, createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Icon, IconName, STALE_MIN, ageMin, confirm, dial119, freshness, knownImpact, notify, useLayout, useTheme } from '../../components/ui';
+import { Icon, IconName, STALE_MIN, ageMin, freshness, knownImpact, notify, useLayout, useTheme } from '../../components/ui';
 import { fetchDisasters, fetchShelterRoute, fetchWeather, sameRegion, useLoad, useShelters } from '../../data/server';
 import { Disaster, IMPACT_ICON, Impact, LEVEL_ICON, MAX_RADIUS, TYPE_ICON, WEATHER_ICON, isActive } from '../../data/types';
 import { TmapView } from '../../components/map';
@@ -156,8 +156,6 @@ export default function HomeScreen() {
     return () => { toFirstPage = () => {}; };
   }, []);
   const nextOf = (name: string) => pages.indexOf(name) + 1;
-
-  const call119 = () => confirm('119 신고', '119에 전화를 걸까요?', '전화 걸기', dial119);
 
   // 1쪽 바탕: 현재 위치 경보 = 빨강, 주의보 = 노랑, 없음 = 초록
   // 기준 위치를 모르면(확인 중·실패) 안전으로 판정하지 않음 → 회색 바탕 + 위치 설정 안내
@@ -319,7 +317,6 @@ export default function HomeScreen() {
           {/* 행동 버튼 줄은 화면 오른쪽 끝 가까이 (쪽 표시는 더 위에 있어 겹치지 않음) */}
           <View style={{ gap: 12, alignItems: 'center', marginRight: -(gutter + 4) }}>
             {/* 대피소·경로는 2쪽에 있어 1쪽에서는 뺌 */}
-            <RailBtn text="119" label="신고" tone="call" a11y="119 전화 신고" onPress={call119} />
             <RailBtn icon="chatbubbles-outline" label="행동요령" a11y="행동요령 물어보기" onPress={() => router.push('/chat')} />
             {top
               ? <RailBtn icon="document-text-outline" label="원문" a11y="재난 원문 보기" onPress={() => router.push(`/disasters/${top.id}`)} />
@@ -592,17 +589,16 @@ function Field({ h, bg, glow, tone = DARK_TONE, pad, children }: { h: number; bg
   );
 }
 
-// 오른쪽 행동 버튼 줄 (원 + 아래 글자). go = 대피 녹색, call = 119 밝은 판
-function RailBtn({ icon, text, label, tone, a11y, onPress }: { icon?: IconName; text?: string; label: string; tone?: 'go' | 'call'; a11y: string; onPress: () => void }) {
+// 오른쪽 행동 버튼 줄 (원 + 아래 글자). go = 대피 녹색
+function RailBtn({ icon, label, tone, a11y, onPress }: { icon: IconName; label: string; tone?: 'go'; a11y: string; onPress: () => void }) {
   const t = useContext(ToneCtx);
   const size = tone === 'go' ? 62 : 54;
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} style={({ pressed }) => [{ alignItems: 'center', gap: 4, width: 72 }, pressed && st.pressed]}>
-      {/* 경로 = 녹색 원(바탕이 초록이어도 보이게 글자색 테두리), 119 = 흰 원 + 빨간 글자 */}
+      {/* 경로 = 녹색 원(바탕이 초록이어도 보이게 글자색 테두리) */}
       <View style={{ width: size, height: size, borderRadius: size / 2, justifyContent: 'center', alignItems: 'center', borderWidth: tone === 'go' ? 2 : 1.5,
-        ...(tone === 'go' ? { backgroundColor: GO, borderColor: t.ink } : tone === 'call' ? { backgroundColor: '#FFFFFF', borderColor: '#FFFFFF' } : { backgroundColor: t.btn, borderColor: t.faint }) }}>
-        {icon && <Icon name={icon} size={tone === 'go' ? 28 : 24} color={tone === 'go' ? '#04140C' : t.ink} />}
-        {text && <Text style={{ color: '#B3201A', fontWeight: '900', fontSize: 17 }} maxFontSizeMultiplier={1.2}>{text}</Text>}
+        ...(tone === 'go' ? { backgroundColor: GO, borderColor: t.ink } : { backgroundColor: t.btn, borderColor: t.faint }) }}>
+        <Icon name={icon} size={tone === 'go' ? 28 : 24} color={tone === 'go' ? '#04140C' : t.ink} />
       </View>
       <Text style={[st.small, { color: t.ink, fontWeight: '700', textAlign: 'center' }]} maxFontSizeMultiplier={1.3}>{label}</Text>
     </Pressable>

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, ScrollView, Text, TextInput, View, type ScrollViewInstance } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Badge, Btn, Chip, Header, Icon, dial119, useLayout, useTheme } from '../../components/ui';
+import { Badge, Btn, Chip, Header, Icon, useLayout, useTheme } from '../../components/ui';
 import { AI_QUESTION_MAX, askGuidance, errText } from '../../data/server';
 
 // retry = 실패한 답의 원래 질문 (다시 시도 버튼으로 같은 질문을 다시 보냄)
@@ -54,13 +54,12 @@ export default function ChatScreen() {
     <KeyboardAvoidingView style={s.fill} behavior="padding" automaticOffset keyboardVerticalOffset={-bottom}>
       <Header title="재난 행동요령 AI" />
       <ScrollView ref={scroll} bounces={false} overScrollMode="never" contentInsetAdjustmentBehavior="automatic" onContentSizeChange={() => scroll.current?.scrollToEnd()} contentContainerStyle={[column, { paddingVertical: 16, paddingHorizontal: gutter, gap: 12 }]}>
-        {/* 헤더와 이어지는 상단 띠 (위로 당겨도 남색이 이어지게 위쪽으로 길게) */}
-        <View style={{ position: 'absolute', left: 0, right: 0, top: -1000, height: 1000 + 84, backgroundColor: C.head }} />
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        {/* 헤더와 이어지는 상단 띠 (위로 당겨도 남색이 이어지게 위쪽으로 길게). 아래 끝은 안내 문구 줄이 직접 칠함 (줄 수가 바뀌어도 맞게) */}
+        <View style={{ position: 'absolute', left: 0, right: 0, top: -1000, height: 1000, backgroundColor: C.head }} />
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.head, marginHorizontal: -gutter, paddingHorizontal: gutter, marginTop: -16, paddingTop: 16, paddingBottom: 16 }}>
           <Icon name="information-circle" size={18} color={C.headSub} />
           <Text style={[s.muted, { color: C.headSub, flex: 1, marginTop: 0 }]}>행정안전부·소방청·기상청·산림청 공식 자료를 근거로 AI가 안내해요. 위급하면 바로 신고하세요.</Text>
         </View>
-        <Btn title="119 전화 걸기" icon="call" color={C.emergency} onPress={dial119} />
         {msgs.length === 0 && (
           <View style={[s.row, { flexWrap: 'wrap' }]}>{SUGGEST.map(x => <Chip key={x} text={x} on={false} onPress={() => ask(x)} />)}</View>
         )}

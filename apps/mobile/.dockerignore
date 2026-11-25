@@ -3,6 +3,7 @@ node_modules
 dist
 .expo
 .git
+.env
 .env*.local
 .claude
 .impeccable

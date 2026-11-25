@@ -3,7 +3,8 @@ import { Platform } from 'react-native';
 import { MemberInfo, Provider } from './types';
 import { getItem, removeItem, setItem } from './storage';
 
-export const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
+// 주소 끝의 / 는 떼어 냄 (https://api.example.com/ 로 넣어도 //api/... 가 되지 않게)
+export const API = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
 const SESSION_KEY = 'eodiisseo.session';
 // 웹(M5): refresh 토큰은 서버가 HttpOnly 쿠키로만 줌 → 브라우저 저장소(localStorage)에 두지 않음 (페이지 스크립트가 읽지 못하게)
 // 앱(iOS·Android)은 지금처럼 응답 본문으로 받아 SecureStore 에 보관
