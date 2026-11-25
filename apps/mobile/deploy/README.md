@@ -20,7 +20,7 @@
 
 | 파일 | 하는 일 |
 |---|---|
-| `../Dockerfile` | 웹 버전을 빌드(`npx expo export -p web`)하고 nginx 이미지에 담음 |
+| `../Dockerfile` | 웹 버전을 빌드(`npm run build:web`)하고 nginx 이미지에 담음 |
 | `../.dockerignore` | 빌드에 보내지 않을 파일 (`node_modules`, 로컬 키 `.env.local` 등) |
 | `nginx.conf` | 화면 파일 제공, `/api/` 를 백엔드로 전달, 캐시 설정 |
 | `security-headers.conf` | 모든 응답에 붙는 보안 헤더 (HTTPS 를 켜면 맨 아래 HSTS 줄의 `#` 을 지우기) |
@@ -124,6 +124,43 @@ npx eas-cli@latest env:create --environment production --name EXPO_PUBLIC_API_UR
 ```
 
 위 5번의 이유로, 스토어에 낼 앱은 `https://도메인` 이 준비된 뒤에 빌드하세요.
+
+## 7. Cloudflare Pages 로 웹 배포하기 (환경 설정)
+
+웹만 Cloudflare Pages 에 올리고 백엔드는 따로 둘 때의 설정입니다. 웹과 API 주소가 달라지므로 CORS·쿠키 설정이 필요합니다.
+
+**Cloudflare Pages 빌드 설정**
+
+| 항목 | 값 |
+|---|---|
+| Root directory | `apps/mobile` (저장소 맨 위에는 `package.json` 이 없어 빌드 실패) |
+| Build command | `npm run build:web` (API 주소 검사 → 웹 빌드 → 자산 경로 보정) |
+| Build output directory | `dist` |
+| Node 버전 | 22 (`apps/mobile/.node-version` 이 자동 적용) |
+
+**웹 빌드 환경변수** (Production·Preview 각각. 빌드할 때 코드에 들어가므로 바꾸면 다시 빌드)
+
+| 변수 | 필수 | 값 |
+|---|---|---|
+| `EXPO_PUBLIC_API_URL` | 필수 | `https://<백엔드 주소>`. 없으면 모든 API 가 방문자 PC 의 localhost:8080 으로 가서 실패 → `build:web` 이 빌드를 멈춤. http 원격 주소도 브라우저가 차단해 빌드를 멈춤 |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | 로그인 | Google OAuth 웹 클라이언트 ID |
+| `EXPO_PUBLIC_KAKAO_REST_API_KEY` | 로그인 | 카카오 REST API 키 |
+| `EXPO_PUBLIC_TMAP_MAP_KEY` | 지도 | TMAP 지도 SDK 전용 키 (콘솔에서 웹 주소로 도메인 제한). 예전 이름 `EXPO_PUBLIC_TMAP_APP_KEY` 도 대신 읽음 |
+
+**백엔드 환경변수** (백엔드도 이 브랜치 버전으로 배포해야 함 — 웹 로그인이 쿠키 방식으로 바뀜)
+
+| 변수 | 기본값 | 설정 |
+|---|---|---|
+| `CORS_ALLOWED_ORIGIN_PATTERNS` | localhost 만 | 실제 웹 주소 추가 (없으면 사전 확인 403 → API 전부 실패). 쿠키를 주고받으므로 `*` 금지 |
+| `AUTH_COOKIE_SAME_SITE` | `Lax` | 웹과 백엔드가 다른 사이트(예: `*.pages.dev` 와 별도 도메인)면 `None` (HTTPS 필수). 같은 도메인 아래(`app.` / `api.`)면 그대로 |
+| `AUTH_COOKIE_SECURE` | `true` | 로컬 http 개발에서만 `false` |
+| `OAUTH_ALLOWED_REDIRECT_URIS` | localhost:8081 | 실제 웹 주소 추가 (Google·카카오 콘솔의 Redirect URI 와 같은 값) |
+| `GOOGLE_CLIENT_ID`·`GOOGLE_WEB_CLIENT_ID`·`GOOGLE_CLIENT_SECRET` | 없음 | 웹 Google 로그인 (Secret 없으면 503) |
+| `KAKAO_REST_API_KEY`·`KAKAO_CLIENT_SECRET`·`KAKAO_APP_ID` | 없음 | 웹 카카오 로그인 (`KAKAO_APP_ID` = 숫자 앱 ID) |
+| `TMAP_APP_KEY` | 없음 | 경로 + 장소 검색·주소 변환(`/api/v1/places/*`) 서버 키. 앱 번들에 넣지 않음 |
+| `AI_GUIDANCE_REQUESTS_PER_MINUTE` | `10` | AI 질문 회원당 분당 제한 |
+
+**참고**: 웹 아이콘 폰트·뒤로 가기 이미지는 `assets/` 의 복사본을 쓰므로 빌드 명령과 관계없이 표시됩니다. Cloudflare 는 `node_modules` 폴더를 업로드하지 않아, 예전에는 아이콘이 깨졌습니다.
 
 ## 문제 해결
 
