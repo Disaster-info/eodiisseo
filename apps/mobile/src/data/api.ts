@@ -1,11 +1,16 @@
 // 백엔드 API 호출 + 로그인 세션(토큰) 관리: 저장(storage), 자동 갱신(/auth/refresh), 만료·로그아웃 처리 (FS-AUTH-004·005)
+import { Platform } from 'react-native';
 import { MemberInfo, Provider } from './types';
 import { getItem, removeItem, setItem } from './storage';
 
 export const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
 const SESSION_KEY = 'eodiisseo.session';
+// 웹(M5): refresh 토큰은 서버가 HttpOnly 쿠키로만 줌 → 브라우저 저장소(localStorage)에 두지 않음 (페이지 스크립트가 읽지 못하게)
+// 앱(iOS·Android)은 지금처럼 응답 본문으로 받아 SecureStore 에 보관
+const WEB = Platform.OS === 'web';
 
-type Tokens = { accessToken: string; refreshToken: string };
+// refreshToken: 앱만 있음 (웹은 쿠키). 갱신할 때마다 access·refresh 가 함께 바뀌므로 '같은 토큰인지'는 accessToken 으로 비교
+type Tokens = { accessToken: string; refreshToken?: string };
 // info: 마지막으로 확인한 회원 정보. 앱 시작 때 서버에 닿지 못해도 이 정보로 열어 재난 화면을 쓸 수 있게
 type Session = Tokens & { provider: Provider; info?: MemberInfo };
 let session: Session | null = null;
@@ -20,10 +25,23 @@ export function setOnSessionExpired(fn: () => void) { onExpired = fn; }
 
 // 메모리와 저장소를 함께 갱신. 저장에 실패해도 이번 실행은 메모리로 계속
 async function keep(next: Session | null) {
+  const prev = session;
   session = next;
   gen++;
-  await (next ? setItem(SESSION_KEY, JSON.stringify(next)) : removeItem(SESSION_KEY)).catch(() => {});
+  if (next) return setItem(SESSION_KEY, JSON.stringify(next)).catch(() => {});
+  // 세션 종료: 다른 탭이 이미 다른 계정으로 로그인해 둔 저장값이면 지우지 않음 (그 탭까지 로그아웃되지 않게)
+  if (otherAccount(await readStored(), prev)) return;
+  await removeItem(SESSION_KEY).catch(() => {});
 }
+const readStored = () => getItem(SESSION_KEY).then(v => (v ? JSON.parse(v) as Session : null)).catch(() => null);
+// 웹: refresh 쿠키는 탭끼리 공유 → 다른 탭에서 다른 계정으로 로그인하면 쿠키가 그 계정 것으로 바뀜
+// 저장소의 세션이 이 탭과 다른 회원이면 true (이 탭의 세션은 끝난 것. 그 쿠키로 갱신·로그아웃하지 않음)
+const otherAccount = (stored: Session | null, mine: Session | null) =>
+  WEB && !!stored?.info?.id && !!mine?.info?.id && stored.info.id !== mine.info.id;
+// access 토큰(JWT)의 회원 id. 웹에서 갱신 응답이 이 탭 회원의 토큰인지 확인용
+const subOf = (jwt: string) => {
+  try { return JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub as string | undefined; } catch { return undefined; }
+};
 // 계정 번호: 로그인·로그아웃 때만 1 증가 (토큰 갱신은 그대로). 요청 도중 계정이 바뀌면 그 요청은 새 계정 토큰으로 다시 보내지 않음
 let account = 0;
 export const startSession = (tokens: Tokens, provider: Provider) => { account++; return keep({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, provider }); };
@@ -54,7 +72,13 @@ export async function fetchText(url: string, init: RequestInit = {}, ms = TIMEOU
 }
 
 /** 로그인 없이 부르는 API */
-export const request = (path: string, init: RequestInit = {}) => fetchText(`${API}${path}`, init);
+// 웹의 인증 API(/api/v1/auth/*)만 쿠키를 주고받음 + 쿠키 방식 표시 헤더 (서버는 이 헤더가 있어야 쿠키를 읽음 → 다른 사이트의 위조 요청은 CORS 사전 확인에서 막힘)
+export const request = (path: string, init: RequestInit = {}, ms?: number) => fetchText(`${API}${path}`, WEB && path.startsWith('/api/v1/auth/')
+  ? { ...init, credentials: 'include', headers: { ...(init.headers as Record<string, string> | undefined), 'X-Auth-Transport': 'cookie' } }
+  : init, ms);
+// 갱신·로그아웃 본문: 앱은 refresh 토큰, 웹은 본문 없이 쿠키로 (예전 버전이 저장해 둔 토큰이 남아 있으면 한 번 보내 쿠키로 옮김)
+const refreshBody = (s: Session): RequestInit => s.refreshToken
+  ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: s.refreshToken }) } : {};
 
 /** 시간 제한: ms 안에 끝나지 않으면 message 로 실패 (휴대폰 GPS 처럼 응답이 한없이 늦을 수 있는 작업용) */
 export function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
@@ -84,7 +108,7 @@ function keepInfo(info: MemberInfo, mine: number) {
     const stored = await getItem(SESSION_KEY).then(v => (v ? JSON.parse(v) as Session : null)).catch(() => undefined);
     const current = session;
     if (mine !== account || !current) return false;
-    if (stored === undefined || stored?.refreshToken === current.refreshToken) await keep({ ...current, info });
+    if (stored === undefined || stored?.accessToken === current.accessToken) await keep({ ...current, info });
     else if (stored?.info?.id === info.id) await keep({ ...current, accessToken: stored.accessToken, refreshToken: stored.refreshToken, info });
     else session = { ...current, info };
     return true;
@@ -94,29 +118,31 @@ function refresh(): Promise<Refreshed> {
   refreshing ??= withRefreshLock(async (): Promise<Refreshed> => {
     const current = session, myGen = gen;
     if (!current) return 'error';
-    const stored = await getItem(SESSION_KEY).then(v => (v ? JSON.parse(v) as Session : null)).catch(() => null);
+    const stored = await readStored();
     if (myGen !== gen) return 'error';
-    if (stored && stored.refreshToken !== current.refreshToken && stored.info?.id === current.info?.id) {
+    if (otherAccount(stored, current)) return 'expired'; // 다른 탭이 다른 계정으로 로그인함 → 이 탭은 다시 로그인
+    if (stored && stored.accessToken !== current.accessToken && stored.info?.id === current.info?.id) {
       await keep({ ...current, accessToken: stored.accessToken, refreshToken: stored.refreshToken });
       return 'ok';
     }
-    const res = await request('/api/v1/auth/refresh', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: current.refreshToken }),
-    }).catch(() => null);
+    const res = await request('/api/v1/auth/refresh', { method: 'POST', ...refreshBody(current) }).catch(() => null);
     if (myGen !== gen || !res) return 'error'; // 그 사이 로그아웃·다른 로그인이면 이 결과는 버림
     if (res.status === 400 || res.status === 401) return 'expired'; // 만료·폐기된 세션
     const tokens = res.ok ? await res.json().catch(() => null) as Tokens | null : null;
-    if (!tokens?.accessToken || !tokens.refreshToken) return 'error'; // 5xx 등 일시 장애: 유효한 refresh 토큰을 버리지 않음
-    await keep({ ...current, ...tokens });
+    if (!tokens?.accessToken || (!WEB && !tokens.refreshToken)) return 'error'; // 5xx 등 일시 장애: 유효한 refresh 토큰을 버리지 않음
+    // 웹: 그 사이 공유 쿠키가 다른 계정 것으로 바뀌었으면 받은 토큰은 이 탭 회원 것이 아님 → 쓰지 않고 다시 로그인
+    if (WEB && current.info?.id && subOf(tokens.accessToken) !== current.info.id) return 'expired';
+    await keep({ ...current, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken }); // 웹은 refreshToken 이 없어 저장소에서 빠짐
     return 'ok';
   }).finally(() => { refreshing = null; });
   return refreshing;
 }
 
 /** 로그인이 필요한 API. 액세스 토큰이 만료(401)되면 한 번 갱신하고 다시 보냄. 서버가 세션을 끊었을 때만 세션 종료 */
-export async function api(path: string, init: RequestInit = {}) {
+// ms: 응답 제한 시간 (기본 15초. AI 답변처럼 오래 걸리는 요청만 늘림)
+export async function api(path: string, init: RequestInit = {}, ms?: number) {
   const myAccount = account;
-  const send = () => request(path, { ...init, headers: { ...init.headers, ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}) } });
+  const send = () => request(path, { ...init, headers: { ...init.headers, ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}) } }, ms);
   const sentGen = gen;
   let res = await send();
   if (res.status === 401 && session && myAccount === account) {
@@ -186,7 +212,7 @@ async function recoverAccount(provider: Provider, socialCredential: string, isCa
 
 // 로그인·복구 응답(토큰) → 세션 저장 → 회원 정보
 async function finishLogin(provider: Provider, json: any, isCancelled: () => boolean): Promise<MemberInfo> {
-  if (!json.accessToken || !json.refreshToken) throw new Error('로그인 응답이 올바르지 않아요. 잠시 후 다시 시도해 주세요.');
+  if (!json.accessToken || (!WEB && !json.refreshToken)) throw new Error('로그인 응답이 올바르지 않아요. 잠시 후 다시 시도해 주세요.');
   if (isCancelled()) throw new LoginCancelled();
   await startSession(json, provider); // 토큰 저장 → 다시 열어도 로그인 유지, 만료되면 자동 갱신
   const mine = account; // 계정 번호는 토큰 갱신으로 바뀌지 않음 (gen 은 바뀜)
@@ -216,7 +242,7 @@ export async function restoreSession(): Promise<{ provider: Provider; info: Memb
   const mine = account;
   try {
     const v = JSON.parse(raw) as Session | null;
-    if (!v || typeof v.accessToken !== 'string' || typeof v.refreshToken !== 'string') throw new Error('bad session');
+    if (!v || typeof v.accessToken !== 'string' || (!WEB && typeof v.refreshToken !== 'string')) throw new Error('bad session');
     session = v;
   } catch {
     await endSession();
@@ -241,9 +267,9 @@ export async function restoreSession(): Promise<{ provider: Provider; info: Memb
 /** 로그아웃: 이 기기의 토큰부터 바로 지우고, 지운 토큰으로 서버 세션 폐기를 알림 (서버에 닿지 못해도 이 기기에서는 로그아웃) */
 export async function logoutSession() {
   const old = session;
+  const othersCookie = otherAccount(await readStored(), old); // 웹: 쿠키가 이미 다른 탭의 다른 계정 것
   await endSession();
   // refresh 토큰으로 폐기: access 토큰이 이미 만료(15분)됐어도 서버 세션이 끊김. 만료된 access 토큰을 같이 보내면 인증 필터가 401 로 막으므로 보내지 않음
-  if (old) await request('/api/v1/auth/logout', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: old.refreshToken }),
-  }).catch(() => {});
+  // 웹은 본문 없이 쿠키로 폐기하고, 서버가 쿠키도 지움 (쿠키가 다른 계정 것이면 그 계정을 로그아웃시키지 않게 보내지 않음)
+  if (old && !othersCookie) await request('/api/v1/auth/logout', { method: 'POST', ...refreshBody(old) }).catch(() => {});
 }

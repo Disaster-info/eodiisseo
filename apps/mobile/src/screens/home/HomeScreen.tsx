@@ -132,6 +132,11 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- routeKey 가 출발지·대피소를 모두 담음
   }, [routeKey, sawShelter]);
   const mapH = Math.round(Math.min(380, Math.max(180, h * 0.42))) - 16; // 지도 높이: 쪽 높이의 42% (아래 대피소 정보·버튼이 들어갈 자리는 남김)
+  // 세로가 짧은 화면(320×568 등)은 지도 + 아래 대피소 정보가 쪽 높이를 넘어 지도가 정보를 덮음
+  // → 지도 묶음 칸의 실제 높이를 재서 그 안에 맞춤 (안내 문구 한두 줄 몫 48 을 뺌). 너무 좁으면 지도는 숨김('지도' 버튼으로 크게 보기)
+  const [mapRoom, setMapRoom] = useState<number | null>(null);
+  // 아직 못 쟀으면: 짧은 화면은 숨긴 채 시작 (측정이 늦거나 안 와도 글자를 덮지 않게), 그 밖은 기본 높이
+  const mapFit = mapRoom === null ? (h < 600 ? 0 : mapH) : Math.min(mapH, Math.floor(mapRoom) - 48);
 
   const ops = !!member?.operator;
   const pages = ['지금 상황', '대피소', ...(ops ? [] : ['우리 가족'])];
@@ -382,22 +387,24 @@ export default function HomeScreen() {
             {/* 경로 지도 (누르면 크게 보기). 경로를 못 찾으면 출발·대피소 위치만
                 좌우 여백 = 화면 여백 + 8 로 같게 (오른쪽 쪽 표시 막대와 겹치지 않게) */}
             {/* 지도 묶음을 위 제목 줄과 아래 대피소 정보 사이 빈 공간의 가운데에 둠 → 위·아래 여백이 같음 */}
-            <View style={{ flex: 1, justifyContent: 'center' }}>
-            <View style={{ marginLeft: 8, marginRight: -2 }}>
+            {/* key: 웹(react-native-web)은 이미 있던 View 를 재사용하면서 onLayout 을 새로 붙이면 크기 감시를 시작하지 않음
+                → 대피소 자료가 온 뒤 이 칸을 항상 새로 만들어 크기를 재게 함 */}
+            <View key="map-room" style={{ flex: 1, minHeight: 0, justifyContent: 'center' }} onLayout={e => setMapRoom(e.nativeEvent.layout.height)}>
+            {mapFit >= 90 && <View style={{ marginLeft: 8, marginRight: -2 }}>
               {routeNow === 'loading' ? (
-                <View style={[st.row, { height: mapH, borderRadius: 12, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' }]}>
+                <View style={[st.row, { height: mapFit, borderRadius: 12, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' }]}>
                   <ActivityIndicator color={INK} />
                   <Text style={st.small}>대피소까지 경로를 찾는 중…</Text>
                 </View>
               ) : routeNow === 'error' ? (
                 <>
-                  <TmapView height={mapH} markers={[{ lat: nearest.lat, lon: nearest.lon, title: `1. ${nearest.name}`, label: '1' }, ...(myPos ? [{ ...myPos, title: '내 위치', me: true }] : [])]}
+                  <TmapView height={mapFit} markers={[{ lat: nearest.lat, lon: nearest.lon, title: `1. ${nearest.name}`, label: '1' }, ...(myPos ? [{ ...myPos, title: '내 위치', me: true }] : [])]}
                     label={`${nearest.name} 위치 지도`} />
                   <Text style={[st.small, { marginTop: 6 }]}>경로를 불러오지 못해 위치만 보여요. 경로 버튼에서 다시 찾을 수 있어요.</Text>
                 </>
               ) : (
                 <>
-                  <TmapView height={mapH} path={routeNow.path} label={`${location}에서 ${nearest.name}까지 도보 경로 지도`}
+                  <TmapView height={mapFit} path={routeNow.path} label={`${location}에서 ${nearest.name}까지 도보 경로 지도`}
                     markers={[{ ...routeNow.from, title: '출발', me: true }, { lat: nearest.lat, lon: nearest.lon, title: `1. ${nearest.name}`, label: '1' }]} />
                   <View style={[st.row, { marginTop: 6, gap: 6 }]}>
                     <Icon name="walk" size={16} color={SOFT} />
@@ -405,7 +412,7 @@ export default function HomeScreen() {
                   </View>
                 </>
               )}
-            </View>
+            </View>}
             </View>
             <View style={[st.row, { alignItems: 'flex-end', gap: 12 }]}>
               <View style={{ flex: 1 }} accessible accessibilityLabel={`가장 가까운 대피소 ${nearest.name}, 직선 ${nearest.distance}킬로미터, ${nearest.addr}`}>

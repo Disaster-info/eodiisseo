@@ -25,6 +25,7 @@ public enum ErrorCode {
     EXTERNAL_API_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "외부 서비스 응답 시간이 초과되었습니다."),
 
     // ── 기능별 ──
+    PLACE_API_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "장소 조회 서비스가 설정되지 않았습니다."),
     SHELTER_NOT_FOUND(HttpStatus.NOT_FOUND, "대피소를 찾을 수 없습니다."),            // API-SHELTER-002, API-ROUTE-001
     ROUTE_NOT_FOUND(HttpStatus.BAD_GATEWAY, "경로를 찾을 수 없습니다.");               // API-ROUTE-001: 유효 경로선 없음은 502
 

@@ -14,7 +14,8 @@ ARG EXPO_PUBLIC_API_URL=""
 ARG EXPO_PUBLIC_TMAP_APP_KEY=""
 ARG EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=""
 ARG EXPO_PUBLIC_KAKAO_REST_API_KEY=""
-RUN npx expo export -p web
+# 웹 빌드 + 자산 경로 보정(assets/node_modules → assets/vendor). Cloudflare 배포와 같은 명령을 씀
+RUN npm run build:web
 
 FROM nginx:1.27-alpine
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf

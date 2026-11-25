@@ -4,7 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import * as WebBrowser from 'expo-web-browser';
-import { Platform, Pressable, Text, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AppThemeProvider, useTheme } from '../components/ui';
@@ -34,7 +34,11 @@ function Navigator({ dark }: { dark: boolean }) {
   const { ready, member, needConsent, needLocation } = useApp();
   const { C } = useTheme();
   useEffect(() => { if (ready) SplashScreen.hideAsync().catch(() => {}); }, [ready]);
-  if (!ready) return null; // 저장된 로그인 확인 중 — 이 동안은 스플래시가 덮고 있음. 끝나면 로그인 화면 또는 바로 홈
+  // 저장된 로그인 확인 중 — 앱은 이 동안 스플래시가 덮고 있음. 끝나면 로그인 화면 또는 바로 홈
+  // 웹은 스플래시가 없어 서버 응답이 늦으면 흰 화면만 보임 → 로딩 표시
+  if (!ready) return Platform.OS === 'web'
+    ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg }}><ActivityIndicator color={C.primary} accessibilityLabel="로그인 정보를 확인하는 중" /></View>
+    : null;
   const base = dark ? DarkTheme : DefaultTheme;
   const navTheme = { ...base, colors: { ...base.colors, primary: C.primary, background: C.bg, card: C.card, text: C.text, border: C.border } };
 

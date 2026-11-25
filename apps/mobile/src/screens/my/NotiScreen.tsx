@@ -47,7 +47,8 @@ export default function NotiScreen() {
             </Card>
             <Card>
               <Label icon="warning" text="최소 심각도" />
-              <View style={s.row}>{LEVELS.map(l => <Chip key={l} text={`${l} 이상`} on={noti.minLevel === l} onPress={() => save({ minLevel: l })} />)}</View>
+              {/* 좁은 화면(320px)에서는 칩 3개가 한 줄에 안 들어가 카드 밖으로 나감 → 줄바꿈 */}
+              <View style={[s.row, { flexWrap: 'wrap' }]}>{LEVELS.map(l => <Chip key={l} text={`${l} 이상`} on={noti.minLevel === l} onPress={() => save({ minLevel: l })} />)}</View>
               <Text style={s.muted}>선택한 등급보다 낮은 재난은 알리지 않아요.</Text>
             </Card>
             <Card>

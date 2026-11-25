@@ -3,6 +3,7 @@ package com.disasterinfo.eodiisseo.integration.tmap;
 import com.disasterinfo.eodiisseo.common.exception.BusinessException;
 import com.disasterinfo.eodiisseo.common.exception.ErrorCode;
 import com.disasterinfo.eodiisseo.common.exception.ExternalApiErrors;
+import tools.jackson.databind.JsonNode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
@@ -76,6 +77,31 @@ public class TmapClient {
             // 응답 자체를 못 받은 경우 (타임아웃, DNS·네트워크 오류)
             log.warn("TMAP pedestrian route failed: {}", e.getClass().getSimpleName());
             throw ExternalApiErrors.from(e); // 시간 초과면 504, 나머지는 502
+        }
+    }
+
+    public JsonNode searchPois(String keyword) {
+        return placeGet("/tmap/pois?version=1&searchKeyword={value}&searchType=all&page=1&count=20"
+                + "&resCoordType=WGS84GEO&reqCoordType=WGS84GEO&multiPoint=N&searchtypCd=A&poiGroupYn=N", keyword);
+    }
+
+    public JsonNode geocode(String address) {
+        return placeGet("/tmap/geo/fullAddrGeo?version=1&fullAddr={value}&coordType=WGS84GEO", address);
+    }
+
+    public JsonNode reverseGeocode(double latitude, double longitude) {
+        return placeGet("/tmap/geo/reversegeocoding?version=1&lat={latitude}&lon={longitude}"
+                + "&coordType=WGS84GEO&addressType=A10", latitude, longitude);
+    }
+
+    private JsonNode placeGet(String path, Object... values) {
+        if (!properties.hasAppKey()) throw new BusinessException(ErrorCode.PLACE_API_NOT_CONFIGURED);
+        try {
+            return restClient.get().uri(path, values).header("appKey", properties.appKey())
+                    .accept(MediaType.APPLICATION_JSON).retrieve().body(JsonNode.class);
+        } catch (RestClientException e) {
+            // 제공자 본문·키·요청 주소가 로그에 남지 않도록 원인은 전달하지 않는다
+            throw new BusinessException(ExternalApiErrors.from(e).getErrorCode());
         }
     }
 

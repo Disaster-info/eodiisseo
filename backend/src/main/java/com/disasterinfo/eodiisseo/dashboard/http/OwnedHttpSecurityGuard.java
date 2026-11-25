@@ -34,6 +34,8 @@ public final class OwnedHttpSecurityGuard implements SmartInitializingSingleton 
     private static final String DISASTER = "/api/v1/disasters/00000000-0000-0000-0000-000000000001";
     private static final String DEVICE = "/api/v1/notification-devices/audit-device";
     private static final List<Route> ROUTES = List.of(
+            new Route("GET", "/api/v1/places/search"), new Route("GET", "/api/v1/places/geocode"),
+            new Route("GET", "/api/v1/places/reverse-geocode"),
             new Route("GET", "/api/v1/dashboard"), new Route("GET", "/api/v1/disasters"),
             new Route("GET", DISASTER), new Route("GET", DISASTER + "/ai-summary"),
             new Route("POST", "/api/v1/ai/guidance"), new Route("GET", "/api/v1/notification-settings"),
