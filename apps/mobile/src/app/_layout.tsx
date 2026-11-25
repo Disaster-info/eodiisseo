@@ -100,7 +100,7 @@ export default function RootLayout() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E7EAF0' }}><ActivityIndicator color="#0B4A6B" accessibilityLabel="화면을 준비하는 중" /></View>;
   }
   return (
-    // KeyboardProvider: 키보드 애니메이션을 프레임 단위로 받아 입력창을 키보드와 동시에 움직임 (Expo Go 포함)
+    // KeyboardProvider: 키보드 애니메이션을 프레임 단위로 받아 입력창을 키보드와 동시에 움직임
     // GestureHandlerRootView: 탭 좌우 스와이프(react-native-gesture-handler)가 동작하려면 앱 맨 바깥에 필요
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>

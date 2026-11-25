@@ -6,7 +6,9 @@
 
 ```bash
 npm install
-npx expo start      # 휴대폰 Expo Go 로 QR 스캔 / i: iOS 시뮬레이터 / a: 안드로이드 / w: 웹
+npx expo run:ios       # iOS 개발 빌드 설치·실행 (Xcode 필요)
+npx expo run:android   # 안드로이드 개발 빌드 설치·실행
+npx expo start --web   # 웹
 ```
 
 ## 서버 배포 (OpenStack)
@@ -59,5 +61,5 @@ src/
 
 ## 참고
 
-- Expo Go 에서는 소셜 로그인 네이티브 모듈이 없어 로그인할 수 없습니다. 개발 빌드(`npx expo run:ios|android`)나 웹(`w`)으로 실행하세요.
+- 앱은 소셜 로그인 네이티브 모듈을 포함한 개발 빌드(`npx expo run:ios|android` 또는 EAS 빌드)로 실행합니다. Expo Go 는 지원하지 않습니다.
 - 운영자 화면은 백엔드 회원 역할에 `OPS` 가 있는 계정으로 로그인하면 열립니다.

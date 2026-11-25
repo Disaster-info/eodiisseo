@@ -1,7 +1,7 @@
 // 웹 배포본 자산 경로 보정 (npm run build:web 이 expo export 다음에 실행)
 // Cloudflare Pages(wrangler)는 이름이 node_modules 인 폴더를 업로드하지 않음 (고정 규칙, 설정으로 못 바꿈 — cloudflare/workers-sdk#3615)
 // expo export 는 아이콘 폰트(Ionicons.ttf)·expo-router 이미지를 dist/assets/node_modules/ 아래에 둠
-// → Cloudflare 배포본에서 404 → 아이콘이 모두 빈칸 (Expo Go 는 폰트를 앱 안에서 읽어 정상이라 개발 중엔 안 보임)
+// → Cloudflare 배포본에서 404 → 아이콘이 모두 빈칸 (앱은 폰트를 앱 안에서 읽어 정상이라 개발 중엔 안 보임)
 // 그래서 폴더 이름을 assets/vendor 로 바꾸고, 빌드 결과 안의 경로 문자열도 같이 바꿈
 // 사용: node scripts/fix-web-assets.mjs [dist 폴더, 기본 dist]
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';

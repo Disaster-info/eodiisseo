@@ -8,7 +8,7 @@
 | 항목 | 정한 방향 |
 |---|---|
 | 발송 경로 | 백엔드 → **Expo 푸시 서비스** → FCM(안드로이드)·APNs(iOS) → 휴대폰 |
-| 앱 모듈 | `expo-notifications` (Expo Go 에서는 원격 푸시 불가 → **개발 빌드 필수**) |
+| 앱 모듈 | `expo-notifications` (원격 푸시는 **개발 빌드**에서 시험) |
 | 알림 종류 | ① 재난(경보·주의보·정보·해제) ② 안심그룹(가족 영향지역) ③ 운영 공지 |
 | 원칙 | 정부 재난문자(긴급재난문자, CBS)를 **대신하지 않는 보조 수단**. 빠르게·정확하게·과하지 않게 |
 
@@ -69,7 +69,7 @@
    - 앱이 꺼진 상태에서 눌러 열린 경우: `getLastNotificationResponseAsync()` (동기 함수는 지원 중단)
    - 켜진 상태: `addNotificationResponseReceivedListener`
    - 알림 `data.url`(예: `/disasters/1`)을 `router.push`. **로그인 전이면 로그인 후 이동**, 지워진 재난이면 지금 알림 내역처럼 "재난 정보를 찾을 수 없어요" 안내
-7. **화면 확인**: 로컬 알림(`scheduleNotificationAsync`)으로 채널·소리·화면 이동을 먼저 시험 (Expo Go 에서도 로컬 알림은 됨)
+7. **화면 확인**: 로컬 알림(`scheduleNotificationAsync`)으로 채널·소리·화면 이동을 먼저 시험
 
 ### 2단계 — 백엔드 API 가 생기면
 
@@ -124,7 +124,7 @@
 
 ## 7. 시험 방법
 
-1. 개발 빌드 만들기: `npx eas-cli@latest build --profile development` (안드로이드 Expo Go 는 SDK 53부터 원격 푸시 불가)
+1. 개발 빌드 만들기: `npx eas-cli@latest build --profile development`
 2. 로컬 알림으로 채널·소리·화면 이동 확인
 3. Expo 푸시 테스트 도구(expo.dev/notifications)에 토큰을 넣어 실제 푸시 확인
 4. 경우별 확인: 앱 켜짐 / 백그라운드 / 완전히 꺼짐 · 로그아웃 상태에서 누름 · 지워진 재난 · 방해금지 모드 · 권한 거부 · 다크 모드
