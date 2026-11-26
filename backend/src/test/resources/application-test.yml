@@ -3,3 +3,10 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+
+# Isolate the default test profile from local runtime settings.
+AUTH_BRIDGES_ENABLED: false
+
+eodiisseo:
+  owned-http:
+    enabled: false
