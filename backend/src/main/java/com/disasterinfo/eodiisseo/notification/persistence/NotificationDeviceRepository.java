@@ -5,5 +5,6 @@ import java.util.Optional;
 import java.util.UUID;
 public interface NotificationDeviceRepository extends JpaRepository<NotificationEntities.DeviceRecord, UUID> {
     Optional<NotificationEntities.DeviceRecord> findByDeviceId(String deviceId);
+    long countByMemberIdAndActiveTrue(UUID memberId);
     List<NotificationEntities.DeviceRecord> findByMemberIdAndActiveTrue(UUID memberId);
 }

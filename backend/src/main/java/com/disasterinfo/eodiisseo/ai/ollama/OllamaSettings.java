@@ -13,11 +13,14 @@ import static com.disasterinfo.eodiisseo.ai.ollama.OllamaException.Reason.*;
 
 /** Explicit AI-only environment contract; no global application or authentication configuration. */
 public record OllamaSettings(URI baseUrl, String model, Duration requestTimeout,
-                             Duration connectTimeout, Set<String> allowedHosts) {
+                             Duration connectTimeout, Set<String> allowedHosts, int maxConcurrentGenerations) {
     public static final String ENABLED = "EODIISSEO_AI_OLLAMA_ENABLED";
+    private static final int DEFAULT_CONCURRENT_GENERATIONS = 2;
     private static final Set<String> LOCAL_HOSTS = Set.of("127.0.0.1", "localhost", "::1");
 
     public OllamaSettings {
+        if (maxConcurrentGenerations < 1 || maxConcurrentGenerations > 64)
+            throw new OllamaException(CONFIGURATION_INVALID);
         if (baseUrl == null || allowedHosts == null) throw new OllamaException(INVALID_BASE_URL);
         allowedHosts = allowedHosts.stream().map(OllamaSettings::host).collect(Collectors.toUnmodifiableSet());
         if (allowedHosts.isEmpty() || allowedHosts.stream().anyMatch(value ->
@@ -37,6 +40,11 @@ public record OllamaSettings(URI baseUrl, String model, Duration requestTimeout,
         validateDuration(connectTimeout);
     }
 
+    public OllamaSettings(URI baseUrl, String model, Duration requestTimeout,
+                          Duration connectTimeout, Set<String> allowedHosts) {
+        this(baseUrl, model, requestTimeout, connectTimeout, allowedHosts, DEFAULT_CONCURRENT_GENERATIONS);
+    }
+
     public static OllamaSettings from(Environment environment) {
         String url = environment.getProperty("EODIISSEO_AI_OLLAMA_BASE_URL", "http://127.0.0.1:11434");
         URI base;
@@ -46,7 +54,17 @@ public record OllamaSettings(URI baseUrl, String model, Duration requestTimeout,
         Set<String> allowed = Arrays.stream(hosts.split(",", -1)).map(String::strip).collect(Collectors.toSet());
         return new OllamaSettings(base, environment.getProperty("EODIISSEO_AI_OLLAMA_MODEL"),
                 duration(environment.getProperty("EODIISSEO_AI_OLLAMA_REQUEST_TIMEOUT")),
-                duration(environment.getProperty("EODIISSEO_AI_OLLAMA_CONNECT_TIMEOUT", "PT5S")), allowed);
+                duration(environment.getProperty("EODIISSEO_AI_OLLAMA_CONNECT_TIMEOUT", "PT5S")), allowed,
+                concurrentGenerations(environment));
+    }
+
+    private static int concurrentGenerations(Environment environment) {
+        try {
+            return Integer.parseInt(environment.getProperty("EODIISSEO_AI_OLLAMA_MAX_CONCURRENT_GENERATIONS",
+                    Integer.toString(DEFAULT_CONCURRENT_GENERATIONS)));
+        } catch (NumberFormatException failure) {
+            throw new OllamaException(CONFIGURATION_INVALID);
+        }
     }
 
     private static Duration duration(String value) {

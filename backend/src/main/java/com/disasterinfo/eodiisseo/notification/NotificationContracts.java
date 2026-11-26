@@ -67,6 +67,7 @@ public final class NotificationContracts {
     public record Delivery(UUID id, UUID eventId, UUID deviceTokenId, short targetOrdinal,
                            short attemptNo, Instant sentAt, DeliveryResult result,
                            String providerMessageId, String errorCode) {}
+    public record InitialPlan(Event event, List<Delivery> pending, boolean created) {}
     public record Push(UUID disasterId, String disasterType, String regionName,
                        String title, String content) {}
     public enum PushOutcome {
@@ -108,6 +109,7 @@ public final class NotificationContracts {
         TimeWindow classify(Instant now);
     }
     public interface Store {
+        int MAX_DEVICES_PER_MEMBER = 10;
         /** Signup lifecycle only; confirmed ERD defaults, atomic insert without overwriting existing settings. */
         void initializeSettings(UUID memberId, Instant now);
         Settings findSettings(UUID memberId);
@@ -119,12 +121,16 @@ public final class NotificationContracts {
         List<UUID> findEnabledMembers();
         Device findDevice(String deviceId);
         List<Device> findActiveDevices(UUID memberId);
+        /** Register or refresh a device under the active member lock, enforcing the activation limit. */
         void upsertDevice(Device device);
         void deleteDevice(UUID memberId, String deviceId);
         /** Invalidate only the registration submitted to FCM; never a concurrently rotated token. */
         void deactivateDevice(UUID deviceId, String expectedTokenHash, String expectedTokenCiphertext);
         /** Atomic insert-if-absent (member, disaster, event_key). */
         boolean claimEvent(Event event);
+        default boolean supportsDurableInitialPlan() { return false; }
+        default InitialPlan planInitialDeliveries(Event event) { throw new UnsupportedOperationException(); }
+        default void finishUnsubmitted(Delivery delivery) { finishDelivery(delivery); }
         Event findEvent(UUID eventId);
         List<Delivery> findDeliveries(UUID eventId);
         /** Atomic unique (event, ordinal, attempt), false if already claimed. */

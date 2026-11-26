@@ -76,7 +76,8 @@ class OwnedRuntimeSeparationIntegrationTest {
             .run("--spring.profiles.active=owned-runtime-integration","--server.address=127.0.0.1","--server.port=0",
                 "--spring.datasource.url="+url,"--spring.datasource.username=eodiisseo_audit","--spring.datasource.password=",
                 "--EODIISSEO_NOTIFICATION_TOKEN_KEY_PATH="+key,"--JWT_SECRET=owned-separation-test-only-0123456789abcdef",
-                "--eodiisseo.ai.external-processing.enabled=true","--logging.level.root=WARN");
+                "--eodiisseo.ai.external-processing.enabled=true","--logging.level.root=WARN",
+                "--eodiisseo.ai.summary.max-retries=2","--eodiisseo.ai.summary.retry-delay=PT10M");
         sql=app.getBean(JdbcTemplate.class);tx=new TransactionTemplate(app.getBean(PlatformTransactionManager.class));
     }
     @AfterAll void stop() throws Exception {
@@ -140,17 +141,30 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(app.getBeansOfType(InterestAreas.class)).hasSize(1);
         assertThat(app.getBeansOfType(DashboardLocationReader.class)).hasSize(1);
         var member=actor();
-        assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,member.memberId())).isZero();
-        assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(500);
+        assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,member.memberId())).isEqualTo(1);
+        assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(200);
         assertThat(http(member,"GET","/api/v1/dashboard?latitude=37&longitude=127",null).statusCode()).isEqualTo(500);
-        // An explicit owned lifecycle call is possible; this does not claim automatic signup integration.
+        String dashboardArea="DASH-"+UUID.randomUUID().toString().substring(0,8);
+        sql.update("""
+                insert into admin_area(area_code,name,level,active,boundary)
+                values(?,'SYNTHETIC dashboard area','SIGUNGU',true,
+                  ST_GeomFromText('MULTIPOLYGON(((126.9 36.9,127.1 36.9,127.1 37.1,126.9 37.1,126.9 36.9)))',4326))
+                """,dashboardArea);
+        try {
+            var dashboard=http(member,"GET","/api/v1/dashboard?latitude=37&longitude=127",null);
+            assertThat(dashboard.statusCode()).isEqualTo(200);
+            assertThat(dashboard.body()).contains("SYNTHETIC dashboard area","majorDisasters","weatherStatus");
+        } finally {
+            sql.update("delete from admin_area where area_code=?",dashboardArea);
+        }
+        // Explicit repair remains idempotent for a member already initialized at signup.
         app.getBean(NotificationRetentionService.class).onMemberCreated(member.memberId(),Instant.now());
         assertThat(sql.queryForObject("select enabled from notification_setting where member_id=?",Boolean.class,member.memberId())).isFalse();
         assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(200); // Real area port is connected.
         UUID[] rolled={null};
         tx.executeWithoutResult(status->{
             var nested=actor();rolled[0]=nested.memberId();
-            app.getBean(NotificationRetentionService.class).onMemberCreated(nested.memberId(),Instant.now());
+            assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,rolled[0])).isEqualTo(1);
             status.setRollbackOnly();
         });
         assertThat(sql.queryForObject("select count(*) from member where member_id=?",Long.class,rolled[0])).isZero();
@@ -189,7 +203,32 @@ class OwnedRuntimeSeparationIntegrationTest {
     @Test @Order(2) void ownedReadsRevisionOutboxAndSummaryWorkWithoutBorrowingACollector() throws Exception {
         var member=actor();
         assertThat(http(null,"GET","/api/v1/disasters",null).statusCode()).isEqualTo(401);
-        assertThat(http(member,"GET","/api/v1/disasters",null).body()).contains("\"disasters\":[]");
+        var emptyWithoutCollection = http(member,"GET","/api/v1/disasters",null);
+        assertThat(emptyWithoutCollection.statusCode()).isEqualTo(503);
+        assertThat(emptyWithoutCollection.body()).contains("DISASTER_COLLECTION_NOT_STARTED");
+        var run = UUID.randomUUID();
+        var now = Timestamp.from(Instant.now().minusSeconds(1));
+        var today = java.sql.Date.valueOf(LocalDate.now(ZoneId.of("Asia/Seoul")));
+        sql.update("insert into collection_run(run_id,source_id,mode,started_at,finished_at,status,trigger_type) values (?,?,'LIVE',?,?,'FAILED','MANUAL')",
+                run,SOURCE,now,now);
+        try {
+            String scoped = "/api/v1/disasters?type=EARTHQUAKE";
+            assertThat(http(member,"GET",scoped,null).body()).contains("DISASTER_COLLECTION_FAILED");
+            sql.update("update collection_run set status='SUCCESS' where run_id=?", run);
+            assertThat(http(member,"GET",scoped,null).body()).contains("DISASTER_COVERAGE_UNVERIFIED");
+            sql.update("insert into owned_collection_cursor(source_id,completed_through) values (?,?)",SOURCE,today);
+            try {
+                sql.update("insert into owned_collection_coverage(run_id,source_id,from_day,to_day) values (?,?,?,?)",
+                        run,SOURCE,today,today);
+                var verifiedEmpty = http(member,"GET",scoped,null);
+                assertThat(verifiedEmpty.statusCode()).isEqualTo(200);
+                assertThat(verifiedEmpty.body()).contains("\"disasters\":[]");
+            } finally {
+                sql.update("delete from owned_collection_cursor where source_id=?",SOURCE);
+            }
+        } finally {
+            sql.update("delete from collection_run where run_id=?",run);
+        }
 
         tx.executeWithoutResult(status->{
             long before=sql.queryForObject("select count(*) from disaster_runtime_outbox",Long.class);
@@ -206,7 +245,25 @@ class OwnedRuntimeSeparationIntegrationTest {
         write(key,"first");
         assertThat(sql.queryForObject("select count(*) from source_disaster_revision where source_disaster_id in (select source_disaster_id from source_disaster where disaster_id=?)",Long.class,disaster)).isEqualTo(1);
         assertThat(http(member,"GET","/api/v1/dashboard",null).statusCode()).isEqualTo(200);
-        assertThat(http(member,"GET","/api/v1/disasters/"+disaster,null).body()).contains("TEST ORIGINAL first","LATEST");
+        assertThat(http(member,"GET","/api/v1/disasters/"+disaster,null).body()).contains("TEST ORIGINAL first","STALE");
+        assertThat(http(member,"GET","/api/v1/disasters?type=EARTHQUAKE",null).body())
+                .contains(disaster.toString(),"STALE_OR_UNVERIFIED");
+        UUID currentRun = sql.queryForObject("""
+                select run_id from collection_run where source_id=? and mode='LIVE'
+                order by started_at desc,run_id desc limit 1
+                """, UUID.class, SOURCE);
+        sql.update("insert into owned_collection_cursor(source_id,completed_through) values (?,?)",SOURCE,today);
+        try {
+            sql.update("insert into owned_collection_coverage(run_id,source_id,from_day,to_day) values (?,?,?,?)",
+                    currentRun,SOURCE,today,today);
+            assertThat(http(member,"GET","/api/v1/disasters?type=EARTHQUAKE",null).body())
+                    .contains(disaster.toString(),"\"dataStatus\":\"LATEST\"");
+            assertThat(http(member,"GET","/api/v1/disasters",null).body()).contains("PARTIAL_COVERAGE");
+            assertThat(http(member,"GET","/api/v1/disasters/"+disaster,null).body()).contains("LATEST");
+        } finally {
+            sql.update("delete from owned_collection_coverage where run_id=?",currentRun);
+            sql.update("delete from owned_collection_cursor where source_id=?",SOURCE);
+        }
         assertThat(http(member,"GET","/api/v1/disasters/"+UUID.randomUUID(),null).statusCode()).isEqualTo(404);
         assertThat(http(member,"GET","/api/v1/disasters?page=-1",null).statusCode()).isEqualTo(400);
         drain();
@@ -291,6 +348,139 @@ class OwnedRuntimeSeparationIntegrationTest {
         sql.update("update disaster set status='ENDED',ended_at=? where disaster_id=?",Timestamp.from(Instant.now().minus(Duration.ofDays(91))),disaster);
         assertThat(app.getBean(DisasterRetentionService.class).purgeOne(Instant.now())).isTrue();
         assertThat(sql.queryForObject("select count(*) from disaster where disaster_id=?",Long.class,disaster)).isZero();
+    }
+
+    @Test @Order(5) void retentionSkipsUnfinishedWorkAndCanPurgeTheNextExpiredDisaster() {
+        Instant now=Instant.now();
+        UUID blocked=write("retention-blocked-"+UUID.randomUUID(),"retention-blocked");
+        UUID eligible=write("retention-ready-"+UUID.randomUUID(),"retention-ready");
+        var retention=app.getBean(DisasterRetentionService.class);
+        tx.executeWithoutResult(status->{
+            sql.update("update disaster set status='ENDED',ended_at=? where disaster_id=?",
+                    Timestamp.from(now.minus(Duration.ofDays(92))),blocked);
+            sql.update("update disaster set status='ENDED',ended_at=? where disaster_id=?",
+                    Timestamp.from(now.minus(Duration.ofDays(91))),eligible);
+            sql.update("update disaster_runtime_outbox set state='DONE' where disaster_id=?",eligible);
+
+            assertThat(retention.purgeOne(now)).isTrue();
+            assertThat(sql.queryForObject("select count(*) from disaster where disaster_id=?",Long.class,eligible)).isZero();
+            assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=? and state='PENDING'",
+                    Long.class,blocked)).isPositive();
+
+            UUID revision=revision(blocked);
+            sql.update("update disaster_runtime_outbox set state='DONE' where disaster_id=?",blocked);
+            sql.update("insert into summary_runtime_task(revision_id,state,available_at,lease_until,claim_id) values(?,'WORKING',?,?,?)",
+                    revision,Timestamp.from(now.minusSeconds(60)),Timestamp.from(now.minusSeconds(1)),UUID.randomUUID());
+            assertThat(retention.purgeOne(now)).isFalse();
+            sql.update("update summary_runtime_task set state='HELD',lease_until=null,claim_id=null where revision_id=?",revision);
+            assertThat(retention.purgeOne(now)).isFalse();
+            assertThat(sql.queryForObject("select count(*) from source_disaster_revision where revision_id=?",Long.class,revision)).isEqualTo(1);
+            status.setRollbackOnly();
+        });
+        drain();
+    }
+
+    @Test @Order(5) void retryPollCanPassAnUnsendableEventInPostgres() {
+        Instant now=Instant.now();
+        UUID disaster=write("notification-retry-"+UUID.randomUUID(),"notification-retry");
+        UUID member=actor().memberId();
+        var data=app.getBean(Store.class);
+        var dispatch=mock(NotificationDispatchService.class);
+        var worker=new NotificationRetryWorker(app.getBean(com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase.class),
+                dispatch,Clock.fixed(now,ZoneOffset.UTC),true);
+
+        tx.executeWithoutResult(status->{
+            var device=new Device(UUID.randomUUID(),member,"retry-"+UUID.randomUUID(),"a".repeat(64),
+                    "fixture-encrypted-token",Platform.ANDROID,true,now.minusSeconds(300));
+            data.upsertDevice(device);
+            Instant createdAt=now.minusSeconds(300);
+            Instant retentionUntil=createdAt.plus(Duration.ofDays(30));
+            var oldest=new Event(UUID.randomUUID(),member,disaster,"INITIAL",EventKind.INITIAL,
+                    null,"fixture",createdAt,retentionUntil,null);
+            var later=new Event(UUID.randomUUID(),member,disaster,"SEVERITY:FIXTURE",EventKind.SEVERITY_INCREASE,
+                    null,"fixture",createdAt,retentionUntil,null);
+            for(var event:List.of(oldest,later)) {
+                assertThat(data.claimEvent(event)).isTrue();
+                UUID deliveryId=UUID.randomUUID();
+                assertThat(data.beginDelivery(new Delivery(deliveryId,event.id(),device.id(),(short)1,
+                        (short)1,null,DeliveryResult.PENDING,null,null))).isTrue();
+                data.finishDelivery(new Delivery(deliveryId,event.id(),device.id(),(short)1,(short)1,
+                        now.minusSeconds(event.equals(oldest)?180:120),DeliveryResult.FAILED,null,"FCM_TRANSIENT_FAILURE"));
+            }
+            when(dispatch.retry(oldest.id(),now)).thenReturn(new NotificationDispatchService.DispatchReport(0,0,0,1,0,true));
+            assertThat(worker.drainOne()).isTrue();
+            assertThat(worker.drainOne()).isTrue();
+            var order=inOrder(dispatch);
+            order.verify(dispatch).retry(oldest.id(),now);
+            order.verify(dispatch).retry(later.id(),now);
+            status.setRollbackOnly();
+        });
+        drain();
+    }
+
+    @Test @Order(5) void reclaimedSummaryDefersWhileAdvisoryClaimIsBusyAndPreservesRetryDelay() throws Exception {
+        drain();
+        UUID disaster=write("summary-busy-"+UUID.randomUUID(),"summary-busy");
+        UUID revision=revision(disaster);
+        var worker=app.getBean(DisasterRuntimeWorker.class);
+        while(worker.drainOneEvent()) {}
+        UUID oldClaim=UUID.randomUUID();
+        sql.update("update summary_runtime_task set state='WORKING',claim_id=?,lease_until=? where revision_id=?",
+                oldClaim,Timestamp.from(Instant.now().minusSeconds(1)),revision);
+        app.getBean(com.disasterinfo.eodiisseo.ai.summary.adapter.DurableSummaryTasks.class).enqueue(revision,Instant.now());
+        assertThat(sql.queryForObject("select claim_id from summary_runtime_task where revision_id=?",
+                UUID.class,revision)).isEqualTo(oldClaim);
+        try(var pool=java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            tx.executeWithoutResult(status->{
+                assertThat(sql.queryForObject("select pg_try_advisory_xact_lock(hashtextextended(cast(? as text),0))",
+                        Boolean.class,revision)).isTrue();
+                assertThat(java.util.concurrent.CompletableFuture.supplyAsync(worker::drainOneSummary,pool)
+                        .orTimeout(10,java.util.concurrent.TimeUnit.SECONDS).join()).isTrue();
+                assertThat(sql.queryForObject("select state from summary_runtime_task where revision_id=?",
+                        String.class,revision)).isEqualTo("HELD");
+            });
+        }
+
+        SummaryGenerator failing=new SummaryGenerator() {
+            public boolean isConfigured(){return true;}
+            public Generated generate(OfficialRevision ignored){
+                assertThat(org.springframework.transaction.support.TransactionSynchronizationManager
+                        .isActualTransactionActive()).isFalse();
+                throw new IllegalStateException("fixture failed");
+            }
+        };
+        app.getBean(FakeSummary.class).delegate=failing;
+        sql.update("update summary_runtime_task set available_at=now()-interval '1 second' where revision_id=?",revision);
+        assertThat(worker.drainOneSummary()).isTrue();
+        Duration delay=app.getBean(SummaryRetryPolicy.class).configuredPolicy().orElseThrow().retryDelay();
+        var schedule=sql.queryForMap("""
+            select t.state,t.available_at,s.completed_at
+            from summary_runtime_task t join ai_summary s on s.source_revision_id=t.revision_id
+            where t.revision_id=?
+            """,revision);
+        assertThat(schedule.get("state")).isEqualTo("HELD");
+        assertThat(com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase.instant(schedule.get("available_at")))
+                .isEqualTo(com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase.instant(schedule.get("completed_at")).plus(delay));
+
+        var replacement = UUID.randomUUID();
+        app.getBean(FakeSummary.class).delegate = new SummaryGenerator() {
+            public boolean isConfigured(){return true;}
+            public Generated generate(OfficialRevision ignored){
+                sql.update("update summary_runtime_task set claim_id=? where revision_id=?", replacement, revision);
+                return new Generated("stale worker result", "fixture", Instant.now());
+            }
+        };
+        sql.update("""
+                update ai_summary set created_at=now()-interval '12 minutes',
+                    completed_at=now()-interval '11 minutes' where source_revision_id=?
+                """, revision);
+        sql.update("update summary_runtime_task set available_at=now()-interval '1 second' where revision_id=?", revision);
+        assertThat(worker.drainOneSummary()).isTrue();
+        assertThat(sql.queryForObject("select status from ai_summary where source_revision_id=?", String.class, revision))
+                .isEqualTo("FAILED");
+        assertThat(sql.queryForObject("select claim_id from summary_runtime_task where revision_id=?", UUID.class, revision))
+                .isEqualTo(replacement);
+        sql.update("update summary_runtime_task set state='DONE',claim_id=null,lease_until=null,completed_at=now() where revision_id=?", revision);
     }
 
 
@@ -599,7 +789,10 @@ class OwnedRuntimeSeparationIntegrationTest {
         var mappings=app.getBean(FixtureMappings.class).mappings;
         mappings.put("L_PHASE2",map);
         assertThat(reader.find(disaster,Instant.now()).exactAdminAreaCodes()).containsExactly("TEST_EXACT");
-        assertThat(app.getBean(OfficialDisasterQueryService.class).region(disaster)).isEqualTo("테스트 공식 매핑 구역");
+        var queries=app.getBean(OfficialDisasterQueryService.class);
+        assertThat(queries.region(disaster)).isEqualTo("테스트 공식 매핑 구역");
+        assertThat(queries.displayRegions(List.of(queries.find(disaster).orElseThrow())))
+            .containsEntry(disaster,"테스트 공식 매핑 구역");
         row.put("command","7");row.put("warnStress","1");row.put("tmFc","202611011100");
         assertThat(collect(source,client)).isEqualTo("SUCCESS");
         assertThat(reader.find(disaster,Instant.now()).activeIncident()).isTrue();
@@ -607,7 +800,8 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(collect(source,client)).isEqualTo("SUCCESS");
         assertThat(reader.find(disaster,Instant.now()).activeIncident()).isFalse();
         mappings.put("L_PHASE2",new com.disasterinfo.eodiisseo.disaster.port.OfficialWarningAreaMappingPort.Mapping("LXPHASE2",Set.of("TEST_EXACT"),map.evidenceUrl(),map.version(),map.validFrom(),map.validUntil(),true));
-        assertThat(app.getBean(OfficialDisasterQueryService.class).region(disaster)).isNull();
+        assertThat(queries.region(disaster)).isNull();
+        assertThat(queries.displayRegions(List.of(queries.find(disaster).orElseThrow()))).doesNotContainKey(disaster);
         mappings.remove("L_PHASE2");
         assertThat(reader.find(disaster,Instant.now()).knowledge()).isEqualTo(com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.UNKNOWN);
     }
@@ -1297,7 +1491,7 @@ class OwnedRuntimeSeparationIntegrationTest {
         }
     }
     /** Audit reproduction of team-owned relevance; true SOURCE_ADDRESS is a known defect, not approval of that policy. */
-    @Test @Order(100) void c1AreaRelevanceAuditExposesSourceAddressFallbackAndAncestorOnlyTraversal(){
+    @Test @Order(100) void c1AreaRelevanceFollowsAncestorsAndDescendantsAndRetainsOfficialDispatchGate(){
         UUID disaster=write("c1-area-"+UUID.randomUUID(),"first");var member=actor();
         UUID source=sql.queryForObject("select source_disaster_id from source_disaster where disaster_id=?",UUID.class,disaster);
         tx.executeWithoutResult(status->{
@@ -1327,10 +1521,10 @@ class OwnedRuntimeSeparationIntegrationTest {
             assertThat(dispatch.process(change,Instant.now()).createdEvents()).isZero();assertThat(sent.get()).isEqualTo(1);
             assertThat(interests.isRelated(disaster,subscribed.get(city))).isTrue();
             assertThat(interests.isRelated(disaster,subscribed.get(dong))).isTrue();
-            assertThat(interests.isRelated(disaster,subscribed.get(root))).as("Ancestor subscription misses descendant impact; broader subscription product contract unconfirmed").isFalse();
+            assertThat(interests.isRelated(disaster,subscribed.get(root))).isTrue();
             assertThat(interests.isRelated(disaster,subscribed.get(other))).isFalse();
             sql.update("update disaster_area set area_code=? where disaster_area_id=?",dong,impact);
-            assertThat(interests.isRelated(disaster,subscribed.get(city))).as("City subscription misses dong impact").isFalse();
+            assertThat(interests.isRelated(disaster,subscribed.get(city))).isTrue();
             sql.update("update admin_area set active=false where area_code=?",dong);
             assertThat(interests.isRelated(disaster,subscribed.get(dong))).isFalse();
             sql.update("update admin_area set active=true where area_code=?",dong);
@@ -1441,8 +1635,88 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(sql.queryForObject("select count(*) from source_disaster_revision where source_disaster_id=?",Long.class,f.record())).isEqualTo(revisions);
         assertThat(sql.queryForObject("select count(*) from disaster_runtime_outbox where disaster_id=?",Long.class,f.disaster())).isEqualTo(events);
     }
-    /** Known team-owned limitation, kept as an audit reproduction rather than accepted notification policy. */
-    @Test @Order(115) void subscribedParentSigunguStillMissesAChildGuUnderTheTeamAncestorOnlyRule(){
+    @Test @Order(116) void batchedRegionsPreserveDisplayPolicyAndReducePostgresRoundTrips() {
+        tx.executeWithoutResult(transaction->{
+            sql.update("insert into admin_area(area_code,name,level,active) values "
+                +"('AUDIT_A','B','SIDO',true),('AUDIT_B','A','SIDO',true),('AUDIT_C','B','SIDO',true),"
+                +"('AUDIT_D','Inactive','SIDO',false),('AUDIT_E','Source','SIDO',true)");
+            sql.update("""
+                insert into disaster(disaster_id,disaster_type_id,title,occurred_at,status,data_origin,updated_at)
+                select gen_random_uuid(),disaster_type_id,'BATCH AUDIT '||n,now()+interval '1 second'*n,'ONGOING','OFFICIAL',now()
+                from disaster_type cross join generate_series(1,1000) n where code='EARTHQUAKE'
+                """);
+            sql.update("""
+                insert into source_disaster(source_disaster_id,disaster_id,source_id,source_record_key,original_text,collected_at,content_hash)
+                select gen_random_uuid(),disaster_id,?,title,title,now(),repeat('0',64)
+                from disaster where title like 'BATCH AUDIT %'
+                """,SOURCE);
+            sql.update("""
+                insert into disaster_area(disaster_area_id,disaster_id,area_code,area_role,basis,source_disaster_id,derived_at)
+                select gen_random_uuid(),s.disaster_id,fixture.code,'IMPACT',fixture.basis,s.source_disaster_id,now()
+                from source_disaster s
+                cross join (values ('AUDIT_A','OFFICIAL'),('AUDIT_B','OFFICIAL'),('AUDIT_C','OFFICIAL'),
+                    ('AUDIT_D','OFFICIAL'),('AUDIT_E','SOURCE_ADDRESS')) fixture(code,basis)
+                where s.source_record_key like 'BATCH AUDIT %'
+                and (s.source_record_key not in ('BATCH AUDIT 998','BATCH AUDIT 999')
+                    or (s.source_record_key='BATCH AUDIT 999' and fixture.code='AUDIT_E'))
+                """);
+            class CountingDatabase extends com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase {
+                int statements;
+                CountingDatabase(JdbcTemplate template) { super(template); }
+                @Override public List<Map<String,Object>> rows(String query,Object... args) {
+                    statements++;
+                    return super.rows(query,args);
+                }
+            }
+            var database=new CountingDatabase(sql);
+            var queries=new OfficialDisasterQueryService(database,Clock.systemUTC(),Duration.ofHours(24));
+            for(int size:List.of(10,50,100,500,1000)) {
+                int pageSize=Math.min(size,100);
+                int pageCount=size/pageSize;
+                var legacyTimes=new ArrayList<Long>();
+                var batchedTimes=new ArrayList<Long>();
+                int legacyStatements=0,batchedStatements=0;
+                for(int repetition=0;repetition<6;repetition++) {
+                    database.statements=0;
+                    long started=System.nanoTime();
+                    var legacy=new LinkedHashMap<UUID,String>();
+                    for(int page=0;page<pageCount;page++) {
+                        for(var row:queries.list("EARTHQUAKE","ONGOING",page,pageSize)) {
+                            UUID id=(UUID)row.get("disaster_id");
+                            legacy.put(id,queries.region(id));
+                        }
+                    }
+                    long legacyTime=System.nanoTime()-started;
+                    legacyStatements=database.statements;
+                    database.statements=0;
+                    started=System.nanoTime();
+                    var batch=new LinkedHashMap<UUID,String>();
+                    for(int page=0;page<pageCount;page++) {
+                        var rows=queries.list("EARTHQUAKE","ONGOING",page,pageSize);
+                        var regions=queries.displayRegions(rows);
+                        rows.forEach(row->{
+                            UUID id=(UUID)row.get("disaster_id");
+                            batch.put(id,regions.get(id));
+                        });
+                    }
+                    long batchTime=System.nanoTime()-started;
+                    batchedStatements=database.statements;
+                    assertThat(batch).containsExactlyEntriesOf(legacy);
+                    assertThat(batch.values()).contains("B, A","Source",null).hasSize(size);
+                    if(repetition>0) {
+                        legacyTimes.add(legacyTime);
+                        batchedTimes.add(batchTime);
+                    }
+                }
+                assertThat(legacyStatements).isEqualTo(pageCount+2*size);
+                assertThat(batchedStatements).isEqualTo(2*pageCount);
+                System.out.printf("REGION_AUDIT rows=%d baseline_sql=%d batched_sql=%d baseline_ns=%s batched_ns=%s%n",
+                    size,legacyStatements,batchedStatements,legacyTimes,batchedTimes);
+            }
+            transaction.setRollbackOnly();
+        });
+    }
+    @Test @Order(115) void subscribedParentSigunguMatchesAnOfficiallyImpactedChildGu(){
         var f=regionCase("CITY");
         String parent=sql.queryForObject("select parent_area_code from admin_area where area_code=?",String.class,f.city());
         tx.executeWithoutResult(st->{
@@ -1452,7 +1726,7 @@ class OwnedRuntimeSeparationIntegrationTest {
             UUID parentInterest=UUID.fromString(selected.get("interestAreaId").toString());
             assertThat(app.getBean(com.disasterinfo.eodiisseo.area.repository.AreaRepository.class).region(parent)).isNotNull();
             assertThat(app.getBean(InterestAreas.class).isRelated(f.disaster(),f.interest())).isTrue();
-            assertThat(app.getBean(InterestAreas.class).isRelated(f.disaster(),parentInterest)).as("Known team defect: a subscribed parent SIGUNGU is not matched to an officially impacted child gu").isFalse();
+            assertThat(app.getBean(InterestAreas.class).isRelated(f.disaster(),parentInterest)).isTrue();
             st.setRollbackOnly();
         });
     }

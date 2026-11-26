@@ -1,10 +1,15 @@
 package com.disasterinfo.eodiisseo.disaster.adapter;
 
+import com.disasterinfo.eodiisseo.area.adapter.AreaNotificationInterestAreas;
+import com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase;
 import com.disasterinfo.eodiisseo.disaster.service.OfficialDisasterQueryService;
 import com.disasterinfo.eodiisseo.dashboard.*;
 import com.disasterinfo.eodiisseo.dashboard.port.*;
 import com.disasterinfo.eodiisseo.notification.NotificationContracts.*;
+import com.disasterinfo.eodiisseo.group.repository.GroupRepository;
+import java.time.Clock;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
 import org.springframework.core.Ordered;
 import org.springframework.core.type.AnnotationMetadata;
@@ -20,12 +25,16 @@ public final class OwnedDisasterPortDefaults {
     // Deliberately not a scanned @Configuration: only the opt-in deferred import registers these Beans.
     public static class Bindings {
         @Bean @ConditionalOnMissingBean(DashboardDisasterReader.class)
-        public DashboardDisasterReader ownedNationalDisasters(OfficialDisasterQueryService data) {
+        public DashboardDisasterReader ownedDashboardDisasters(OfficialDisasterQueryService data, OwnedDatabase db,
+                GroupRepository groups, Clock clock, @Value("${LOCATION_STALE_AFTER_SECONDS:300}") long staleSeconds) {
+            var regional = new NormalizedDisasterReader(db,groups,new AreaNotificationInterestAreas(db),clock,staleSeconds);
             return (member,criteria,base)->{
                 if(criteria.basis()!=DashboardQuery.Basis.NATIONWIDE)
-                    throw new DashboardException(DashboardException.Reason.DEPENDENCY_UNAVAILABLE,"Regional relevance service is not connected.");
-                return data.activeNationwide().stream().map(row->new DashboardDisasterReader.Candidate(
-                    DisasterOperationalAdapters.major(data,row),DashboardDisasterReader.DataOrigin.OFFICIAL,
+                    return regional.findCandidates(member,criteria,base);
+                var rows=data.activeNationwide();
+                var regions=data.displayRegions(rows);
+                return rows.stream().map(row->new DashboardDisasterReader.Candidate(
+                    DisasterOperationalAdapters.major(row,regions),DashboardDisasterReader.DataOrigin.OFFICIAL,
                     DashboardDisasterReader.Relevance.UNKNOWN)).toList();
             };
         }

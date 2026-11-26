@@ -27,9 +27,17 @@ import java.util.function.Supplier;
 @Transactional
 public class JpaSummaryStore implements SummaryStore {
     private final Optional<SummaryJpaRepository> repository;
+    private final org.springframework.transaction.support.TransactionTemplate transactions;
 
     public JpaSummaryStore(Optional<SummaryJpaRepository> repository) {
+        this(repository, Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public JpaSummaryStore(Optional<SummaryJpaRepository> repository,
+            Optional<org.springframework.transaction.PlatformTransactionManager> manager) {
         this.repository = Objects.requireNonNull(repository);
+        this.transactions = manager.map(org.springframework.transaction.support.TransactionTemplate::new).orElse(null);
     }
 
     @Override
@@ -81,6 +89,34 @@ public class JpaSummaryStore implements SummaryStore {
         if (!rows.tryClaimWorker(revisionId)) {
             return new Attempt(Result.NOT_ELIGIBLE, null);
         }
+        Attempt ready = eligible(rows, revisionId, maxRetries, retryDelay, startedAt);
+        if (ready.result() == Result.NOT_ELIGIBLE) return ready;
+        return persist(rows, revisionId, startedAt, ready.state(), work.get());
+    }
+
+    @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    public Attempt attemptClaimed(UUID revisionId, UUID claimId, int maxRetries, Duration retryDelay,
+                                  Instant startedAt, Supplier<Outcome> work) {
+        if (transactions == null) throw new SummaryException(SummaryException.Reason.DEPENDENCY_UNAVAILABLE);
+        var ready = transactions.execute(tx -> {
+            var rows = rows();
+            if (rows.lockCurrentTask(revisionId, claimId).isEmpty() || !rows.tryClaimWorker(revisionId))
+                return new Attempt(Result.NOT_ELIGIBLE, null);
+            return eligible(rows, revisionId, maxRetries, retryDelay, startedAt);
+        });
+        if (ready.result() == Result.NOT_ELIGIBLE) return ready;
+        Outcome outcome = work.get();
+        return transactions.execute(tx -> {
+            var rows = rows();
+            if (rows.lockCurrentTask(revisionId, claimId).isEmpty())
+                return new Attempt(Result.NOT_ELIGIBLE, null);
+            return persist(rows, revisionId, startedAt, ready.state(), outcome);
+        });
+    }
+
+    private Attempt eligible(SummaryJpaRepository rows, UUID revisionId, int maxRetries,
+                             Duration retryDelay, Instant startedAt) {
         Optional<AiSummary> found = rows.findBySourceRevisionId(revisionId);
         if (found.isEmpty()) {
             return new Attempt(Result.NOT_ELIGIBLE, null);
@@ -97,7 +133,13 @@ public class JpaSummaryStore implements SummaryStore {
                 && (previous.completedAt() == null || startedAt.isBefore(previous.completedAt().plus(retryDelay)))) {
             return new Attempt(Result.NOT_ELIGIBLE, previous);
         }
-        Outcome outcome = Objects.requireNonNull(work.get());
+        // The state accompanies the successful eligibility check until completion.
+        return new Attempt(Result.COMPLETED, previous);
+    }
+
+    private Attempt persist(SummaryJpaRepository rows, UUID revisionId, Instant startedAt,
+                            SummaryState previous, Outcome outcome) {
+        Objects.requireNonNull(outcome);
         if (outcome.result() == Result.FAILED && outcome.completedAt().isBefore(startedAt)) {
             throw new IllegalArgumentException("Processing completion cannot precede the worker attempt.");
         }
@@ -115,9 +157,11 @@ public class JpaSummaryStore implements SummaryStore {
         int updated = rows.finishAttempt(previous.summaryId(), previous.status().name(), previous.attemptCount(),
                 status, outcome.summary(), outcome.modelName(), retries, outcome.completedAt());
         Optional<SummaryState> persisted = rows.findBySourceRevisionId(revisionId).map(AiSummary::snapshot);
+        if (persisted.filter(state -> state.status() == SummaryStatus.STALE).isPresent()) {
+            return new Attempt(Result.STALE, persisted.orElseThrow());
+        }
         if (updated == 0) {
-            return new Attempt(persisted.filter(state -> state.status() == SummaryStatus.STALE).isPresent()
-                    ? Result.STALE : Result.NOT_ELIGIBLE, persisted.orElse(null));
+            return new Attempt(Result.NOT_ELIGIBLE, persisted.orElse(null));
         }
         return new Attempt(outcome.result(), persisted.orElseThrow());
     }

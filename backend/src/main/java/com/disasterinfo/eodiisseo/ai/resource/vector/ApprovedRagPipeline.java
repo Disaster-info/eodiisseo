@@ -13,6 +13,7 @@ public final class ApprovedRagPipeline {
     private final RagVectorStore vectors;private final EmbeddingPort embeddings;private final EmbeddingPort.Model model;
     private final SemanticGuidanceScope semantic=new SemanticGuidanceScope();
     private final double maximumDistance;private final Clock clock;private final KoreanLexicalParagraphSearch lexical=new KoreanLexicalParagraphSearch();
+    private final Duration queryBudget;
     public ApprovedRagPipeline(OfficialResourceStore resources,ResourceApprovalPort approvals,RagChunkGroup.PlanReview plans,
             RagVectorStore vectors,EmbeddingPort embeddings,EmbeddingPort.Model model,Clock clock){
         this(resources,approvals,plans,vectors,embeddings,model,clock,0.0);
@@ -20,7 +21,15 @@ public final class ApprovedRagPipeline {
     /** Distance calibration is explicit and development-only; default zero is deliberately fail-closed. */
     public ApprovedRagPipeline(OfficialResourceStore resources,ResourceApprovalPort approvals,RagChunkGroup.PlanReview plans,
             RagVectorStore vectors,EmbeddingPort embeddings,EmbeddingPort.Model model,Clock clock,double maximumDistance){
+        this(resources,approvals,plans,vectors,embeddings,model,clock,maximumDistance,Duration.ofSeconds(2));
+    }
+    public ApprovedRagPipeline(OfficialResourceStore resources,ResourceApprovalPort approvals,RagChunkGroup.PlanReview plans,
+            RagVectorStore vectors,EmbeddingPort embeddings,EmbeddingPort.Model model,Clock clock,double maximumDistance,
+            Duration queryBudget){
         if(!Double.isFinite(maximumDistance)||maximumDistance<0||maximumDistance>1)throw new IllegalArgumentException("DISTANCE_POLICY");this.maximumDistance=maximumDistance;
+        if(queryBudget==null||queryBudget.isNegative()||queryBudget.isZero()||queryBudget.compareTo(Duration.ofSeconds(20))>0)
+            throw new IllegalArgumentException("QUERY_EMBEDDING_BUDGET");
+        this.queryBudget=queryBudget;
         this.resources=Objects.requireNonNull(resources);this.approvals=Objects.requireNonNull(approvals);this.plans=Objects.requireNonNull(plans);
         this.vectors=Objects.requireNonNull(vectors);this.embeddings=Objects.requireNonNull(embeddings);this.model=Objects.requireNonNull(model);this.clock=Objects.requireNonNull(clock);
     }
@@ -70,6 +79,8 @@ public final class ApprovedRagPipeline {
         }catch(RuntimeException invalid){vectors.fail(group,model,claim,"INDEXING_FAILED");return "INDEXING_FAILED";}
     }
     public record Bundle(ChatOfficialResourceSearchPort search,ChatAnswerGenerationPort generation) {}
+    String modelKey() { return model.key(); }
+    ChatOfficialResourceSearchPort approvedVectorSearch() { return select(Mode.EXACT); }
     /** Explicit paired activation prevents configuring exact retrieval without its context-generation guard. */
     public Bundle configure(Mode mode,ChatAnswerGenerationPort generation){
         Objects.requireNonNull(generation);
@@ -80,8 +91,29 @@ public final class ApprovedRagPipeline {
         if(!embeddings.configured()||!vectors.available())throw new IllegalStateException("SEMANTIC_MODE_UNAVAILABLE");
         return new ChatEvidenceGenerationPolicy(){
             public SearchResult search(String question){return exact(question);}
+            public SearchResult recheck(String question, SearchResult evidence){return recheckIndexed(question,evidence);}
             public ChatAnswerGenerationPort guardGeneration(ChatAnswerGenerationPort delegate){return new MandatoryContextGenerationGuard(delegate);}
         };
+    }
+    private ChatOfficialResourceSearchPort.SearchResult recheckIndexed(String question,
+            ChatOfficialResourceSearchPort.SearchResult evidence) {
+        try {
+            var query = semantic.prepare(question).orElseThrow();
+            var eligible = vectors.eligible(query.topic(), model, clock.instant());
+            var selected = new LinkedHashMap<UUID,RagChunkGroup>();
+            var documents = new ArrayList<OfficialResourceDocument>();
+            for (var resource : evidence.resources()) {
+                var matches = eligible.stream().filter(group -> group.resourceId().equals(resource.resourceId())
+                        && group.texts().equals(Arrays.asList(RagChunkGroup.BOUNDARY.split(resource.content())))
+                        && eligible(group)).toList();
+                if (matches.size()!=1) return empty();
+                selected.put(resource.resourceId(),matches.getFirst());
+                documents.add(resources.findById(resource.resourceId()).orElseThrow());
+            }
+            return gate(documents,selected,question);
+        } catch (RuntimeException invalid) {
+            return empty();
+        }
     }
     private ChatOfficialResourceSearchPort.SearchResult empty(){return new ChatOfficialResourceSearchPort.SearchResult(List.of(),false);}
     private ChatOfficialResourceSearchPort.SearchResult exact(String question){
@@ -90,7 +122,7 @@ public final class ApprovedRagPipeline {
             // No query embedding if all candidate documents/plans are unapproved or stale.
             var allowed=vectors.eligible(query.get().topic(),model,clock.instant()).stream().filter(this::eligible).toList();if(allowed.isEmpty())return empty();
             var validIds=new HashSet<UUID>();allowed.forEach(g->validIds.add(g.id()));
-            double[] vector=EmbeddingPort.generate(embeddings,new EmbeddingPort.Request(model,EmbeddingPort.Purpose.QUERY,question,false,clock.instant().plusSeconds(2)),clock);
+            double[] vector=EmbeddingPort.generate(embeddings,new EmbeddingPort.Request(model,EmbeddingPort.Purpose.QUERY,question,false,clock.instant().plus(queryBudget)),clock);
             var docs=new ArrayList<OfficialResourceDocument>();var selected=new LinkedHashMap<UUID,RagChunkGroup>();
             for(var hit:vectors.search(query.get().topic(),model,vector,clock.instant(),60)){
                 if(hit.distance()>maximumDistance)continue;

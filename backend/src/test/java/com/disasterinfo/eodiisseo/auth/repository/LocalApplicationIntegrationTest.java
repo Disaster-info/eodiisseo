@@ -33,6 +33,7 @@ class LocalApplicationIntegrationTest {
             "--server.address=127.0.0.1","--server.port=0","--spring.profiles.active=local-db-verification",
             "--spring.datasource.url="+source.getUrl(),"--spring.datasource.username=eodiisseo_audit","--spring.datasource.password=",
             "--spring.flyway.enabled=true","--spring.jpa.hibernate.ddl-auto=validate","--AUTH_BRIDGES_ENABLED=true","--eodiisseo.notification.auth.enabled=true",
+            "--eodiisseo.owned-http.enabled=true","--eodiisseo.notification.persistence.enabled=true",
             "--JWT_SECRET=test-only-key-0123456789abcdefghijk","--debug=false","--logging.level.root=WARN")){
             assertEquals(1,context.getBeansOfType(ChatAuthenticationPort.class).size());
             assertEquals(1,context.getBeansOfType(SummaryAuthPort.class).size());
@@ -51,6 +52,11 @@ class LocalApplicationIntegrationTest {
                 assertEquals(401,send(client,base+"/api/v1/shelters/nearby?latitude=37.5&longitude=127",null,"GET",null));
                 assertEquals(401,send(client,base+"/api/v1/routes/shelters/"+UUID.randomUUID(),null,"GET",null));
                 assertEquals(200,send(client,base+"/api/v1/members/me",token,"GET",null));
+                assertEquals(0,db.count("select count(*) from notification_setting where member_id=?",member));
+                assertEquals(200,send(client,base+"/api/v1/notification-settings",token,"GET",null));
+                assertEquals(200,send(client,base+"/api/v1/notification-settings",token,"GET",null));
+                assertEquals(1,db.count("select count(*) from notification_setting where member_id=? and not enabled",member));
+                assertErrorTraceMatches(client,base+"/api/v1/disasters?type=EARTHQUAKE",token,"GET",null,503);
                 assertEquals(401,send(client,base+"/api/v1/interest-areas",null,"GET",null));
                 assertEquals(200,send(client,base+"/api/v1/interest-areas",token,"GET",null));
                 assertErrorTraceMatches(client,base+"/api/v1/members/me/location-consent",token,"PATCH","{}",400);

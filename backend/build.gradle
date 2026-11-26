@@ -43,3 +43,16 @@ tasks.named('test') {
     useJUnitPlatform()
     systemProperty 'file.encoding', 'UTF-8'
 }
+
+sourceSets {
+    localAdmin {
+        compileClasspath += sourceSets.main.output + configurations.compileClasspath
+        runtimeClasspath += output + sourceSets.main.output + configurations.runtimeClasspath
+    }
+}
+
+tasks.register('importLocalAdministrativeAreas', JavaExec) {
+    classpath = sourceSets.localAdmin.runtimeClasspath
+    mainClass = 'com.disasterinfo.eodiisseo.tools.LocalAdministrativeAreaImport'
+    maxHeapSize = '512m'
+}

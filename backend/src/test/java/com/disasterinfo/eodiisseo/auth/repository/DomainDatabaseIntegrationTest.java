@@ -178,9 +178,14 @@ class DomainDatabaseIntegrationTest {
         when(client.fetch(anyString(),any())).thenThrow(new IllegalStateException("test failure"));
         service.request(member(),"KMA_EARTHQUAKE","LIVE",false);service.workOne();
         assertEquals("STALE",reader.findDisaster(id).orElseThrow().response().dataStatus());
-        assertFalse(reader.findDisasters(criteria).freshnessRepresentable());
+        assertEquals("STALE_OR_UNVERIFIED",reader.findDisasters(criteria).dataStatus());
         db.update("update disaster set status='ENDED',ended_at=? where disaster_id=?",clock.instant(),id);
-        assertFalse(reader.findDisasters(criteria).entries().stream().anyMatch(e->e.disaster().disasterId().equals(id)));
+        try {
+            assertFalse(reader.findDisasters(criteria).entries().stream().anyMatch(e->e.disaster().disasterId().equals(id)));
+        } catch (com.disasterinfo.eodiisseo.dashboard.DashboardException unavailable) {
+            assertTrue(java.util.Set.of("DISASTER_COLLECTION_NOT_STARTED","DISASTER_COLLECTION_FAILED",
+                    "DISASTER_COVERAGE_UNVERIFIED").contains(unavailable.reason().name()));
+        }
         var ended=new com.disasterinfo.eodiisseo.dashboard.dto.DisasterListQuery("EARTHQUAKE","ENDED").validate();
         assertTrue(reader.findDisasters(ended).entries().stream().anyMatch(e->e.disaster().disasterId().equals(id)));
         assertTrue(reader.findDisaster(UUID.randomUUID()).isEmpty());

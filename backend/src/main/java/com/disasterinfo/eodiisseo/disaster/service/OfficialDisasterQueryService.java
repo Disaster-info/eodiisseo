@@ -2,6 +2,7 @@ package com.disasterinfo.eodiisseo.disaster.service;
 
 import com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase;
 import com.disasterinfo.eodiisseo.dashboard.DashboardException;
+import com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader;
 import java.time.*;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -40,12 +41,16 @@ public class OfficialDisasterQueryService {
             """;
     }
     public List<Map<String,Object>> list(String type,String status,int page,int size) {
+        return list(type,status,page,size,false);
+    }
+    private List<Map<String,Object>> list(String type,String status,int page,int size,boolean activeByDefault) {
         if(page<0 || size<1 || size>100) throw new IllegalArgumentException("Invalid page");
         var args=new ArrayList<Object>();
         String sql=projection()+" where d.data_origin='OFFICIAL' and (d.status not in ('ENDED','LIFTED') or d.ended_at>?)";
         args.add(clock.instant().minus(Duration.ofDays(90)));
         if(type!=null){sql+=" and t.code=?";args.add(type);}
         if(status!=null){sql+=" and d.status=?";args.add(status);}
+        else if(activeByDefault){sql+=" and d.status in ('OCCURRED','ONGOING')";}
         sql+=" order by d.occurred_at desc,d.disaster_id desc limit ? offset ?";
         args.add(size);args.add((long)page*size);
         return db.rows(sql,args.toArray());
@@ -54,32 +59,156 @@ public class OfficialDisasterQueryService {
         return Optional.ofNullable(db.one(projection()+" where d.disaster_id=? and d.data_origin='OFFICIAL' and (d.status not in ('ENDED','LIFTED') or d.ended_at>?)",
                 id,clock.instant().minus(Duration.ofDays(90))));
     }
+
+    @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    public VerifiedList verifiedList(String type, String status, int page, int size) {
+        return verifiedList(type,status,page,size,false);
+    }
+
+    public VerifiedList verifiedList(String type, String status, int page, int size, boolean activeByDefault) {
+        var rows = list(type, status, page, size, activeByDefault);
+        if (rows.isEmpty()) {
+            requireVerifiedEmptyList(type);
+            return new VerifiedList(rows, "LATEST");
+        }
+        return new VerifiedList(rows, haveCurrentListCoverage(rows)
+                ? ("EARTHQUAKE".equals(type) ? "LATEST" : "PARTIAL_COVERAGE")
+                : "STALE_OR_UNVERIFIED");
+    }
+
+    public record VerifiedList(List<Map<String,Object>> rows, String dataStatus) {}
+
+    public boolean hasCurrentCoverage(UUID disasterId) {
+        return haveCurrentListCoverage(List.of(Map.of("disaster_id", disasterId)));
+    }
+
+    private boolean haveCurrentListCoverage(List<Map<String,Object>> rows) {
+        if (!db.tableExists("owned_collection_coverage") || !db.tableExists("owned_collection_cursor")) {
+            return false;
+        }
+        var ids = new StringJoiner(",");
+        rows.forEach(row -> ids.add(row.get("disaster_id").toString()));
+        Instant now = clock.instant();
+        var today = java.sql.Date.valueOf(LocalDate.ofInstant(now, ZoneId.of("Asia/Seoul")));
+        // A single batch validates each listed incident and every linked provider. Unsupported
+        // sources remain visible as historical facts without asserting current coverage.
+        return db.count("""
+                select count(*) from unnest(string_to_array(?, ',')::uuid[]) ids(id)
+                where exists(select 1 from source_disaster s where s.disaster_id=ids.id)
+                  and not exists (
+                    select 1 from source_disaster s join data_source p using(source_id)
+                    left join lateral (
+                      select run_id,status,finished_at from collection_run r
+                      where r.source_id=p.source_id and r.mode='LIVE'
+                      order by started_at desc,run_id desc limit 1
+                    ) r on true
+                    where s.disaster_id=ids.id and not coalesce(
+                      p.active and p.endpoint_key='KMA_EARTHQUAKE' and r.status='SUCCESS'
+                      and r.finished_at between ? and ?
+                      and (p.collection_interval_minutes is null or
+                          r.finished_at >= cast(? as timestamptz)-p.collection_interval_minutes*interval '1 minute')
+                      and s.collected_at <= ?
+                      and exists(select 1 from owned_collection_coverage c join owned_collection_cursor o using(source_id)
+                        where c.run_id=r.run_id and c.source_id=p.source_id
+                          and c.from_day<=? and c.to_day>=? and o.completed_through>=?)
+                      and exists(select 1 from lateral (
+                        select content_hash,original_text,observed_at from source_disaster_revision r2
+                        where r2.source_disaster_id=s.source_disaster_id order by revision_no desc limit 1
+                      ) latest where latest.content_hash=s.content_hash and latest.original_text=s.original_text
+                        and latest.observed_at<=?), false)
+                  )
+                """, ids.toString(), now.minus(freshness), now, now, now, today, today, today, now) == rows.size();
+    }
+
+    /** A recent run alone cannot establish that the requested scope was searched. */
+    private void requireVerifiedEmptyList(String type) {
+        String sourceKey = "EARTHQUAKE".equals(type) ? "KMA_EARTHQUAKE" : null;
+        if (type != null && sourceKey == null)
+            throw new DashboardException(DashboardException.Reason.DISASTER_COVERAGE_UNVERIFIED, "Provider coverage is unverified.");
+        var run = db.one("""
+                select p.source_id, p.active source_active, p.collection_interval_minutes,
+                       r.run_id, r.status, r.finished_at collected_at
+                from collection_run r join data_source p using(source_id)
+                where r.mode='LIVE' and p.source_kind='DISASTER' and (cast(? as text) is null or p.endpoint_key=?)
+                order by r.started_at desc,r.run_id desc limit 1
+                """, sourceKey, sourceKey);
+        if (run == null)
+            throw new DashboardException(DashboardException.Reason.DISASTER_COLLECTION_NOT_STARTED, "Official collection has not run.");
+        if ("FAILED".equals(run.get("status")))
+            throw new DashboardException(DashboardException.Reason.DISASTER_COLLECTION_FAILED, "Official collection failed.");
+        if (sourceKey != null && "SUCCESS".equals(run.get("status")) && latest(run)
+                && db.tableExists("owned_collection_coverage") && db.tableExists("owned_collection_cursor")) {
+            var today = java.sql.Date.valueOf(LocalDate.ofInstant(clock.instant(), ZoneId.of("Asia/Seoul")));
+            if (db.count("""
+                    select count(*) from owned_collection_coverage c join owned_collection_cursor p using(source_id)
+                    where c.run_id=? and c.source_id=? and c.from_day<=? and c.to_day>=? and p.completed_through>=?
+                    """, run.get("run_id"), run.get("source_id"), today, today, today) == 1) return;
+        }
+        throw new DashboardException(DashboardException.Reason.DISASTER_COVERAGE_UNVERIFIED, "Provider coverage is unverified.");
+    }
     @org.springframework.beans.factory.annotation.Autowired(required=false)
-    private com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader impacts;
+    private DisasterImpactAreaReader impacts;
     public String region(UUID id) { return region(id,false); }
+    public Map<UUID,String> displayRegions(List<Map<String,Object>> disasters) {
+        var areas=new LinkedHashMap<UUID,Set<String>>();
+        var ordinary=new StringJoiner(",");
+        var rain=new ArrayList<UUID>();
+        for(var disaster:disasters) {
+            UUID id=(UUID)disaster.get("disaster_id");
+            if("HEAVY_RAIN".equals(disaster.get("type_code")))rain.add(id);
+            else ordinary.add(id.toString());
+        }
+        if(ordinary.length()>0) {
+            for(var row:areaRows("x.disaster_id=any(string_to_array(?, ',')::uuid[])",ordinary.toString(),false)) {
+                areas.computeIfAbsent((UUID)row.get("disaster_id"),id->new LinkedHashSet<>()).add((String)row.get("name"));
+            }
+        }
+        var regions=new HashMap<UUID,String>();
+        areas.forEach((id,names)->regions.put(id,String.join(", ",names)));
+        for(UUID id:rain) {
+            String region=rainRegion(id,false);
+            if(region!=null)regions.put(id,region);
+        }
+        return regions;
+    }
     /** Notification eligibility requires official impact evidence, never a source address. */
     public String notificationRegion(UUID id) { return region(id,true); }
     private String region(UUID id,boolean officialImpactOnly) {
         var type=db.one("select t.code from disaster d join disaster_type t using(disaster_type_id) where d.disaster_id=?",id);
         if(type!=null && "HEAVY_RAIN".equals(type.get("code"))) {
-            var impact=impacts==null?com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Snapshot.unknown():impacts.find(id,clock.instant());
-            if(impact.knowledge()!=com.disasterinfo.eodiisseo.disaster.port.DisasterImpactAreaReader.Knowledge.VERIFIED)return null;
-            if(officialImpactOnly){
-                Set<String> materialized=new TreeSet<>();db.rows("select x.area_code from disaster_area x join admin_area a using(area_code) where x.disaster_id=? and x.area_role='IMPACT' and x.basis='OFFICIAL' and a.active and a.level='SIGUNGU'",id).forEach(r->materialized.add((String)r.get("area_code")));
-                // Read-only safety gate: revoked/changed mappings cannot authorize stale area-owner matches on retry.
-                if(!materialized.equals(impact.exactAdminAreaCodes()))return null;
-            }
-            return impact.exactAdminAreaCodes().stream().sorted().map(code->(String)db.one("select name from admin_area where area_code=? and active",code).get("name")).distinct().collect(java.util.stream.Collectors.joining(", "));
+            return rainRegion(id,officialImpactOnly);
         }
-        var regions=db.rows("""
-            select a.name from disaster_area x join admin_area a using(area_code)
-            where x.disaster_id=? and x.area_role='IMPACT' and a.active
+        var regions=areaRows("x.disaster_id=?",id,officialImpactOnly);
+        return regions.isEmpty()?null:String.join(", ",regions.stream().map(r->(String)r.get("name")).distinct().toList());
+    }
+    private String rainRegion(UUID id,boolean officialImpactOnly) {
+        var impact=impacts==null?DisasterImpactAreaReader.Snapshot.unknown():impacts.find(id,clock.instant());
+        if(impact.knowledge()!=DisasterImpactAreaReader.Knowledge.VERIFIED)return null;
+        if(officialImpactOnly){
+            Set<String> materialized=new TreeSet<>();
+            db.rows("select x.area_code from disaster_area x join admin_area a using(area_code) where x.disaster_id=? and x.area_role='IMPACT' and x.basis='OFFICIAL' and a.active and a.level='SIGUNGU'",id)
+                .forEach(r->materialized.add((String)r.get("area_code")));
+            // Read-only safety gate: revoked/changed mappings cannot authorize stale area-owner matches on retry.
+            if(!materialized.equals(impact.exactAdminAreaCodes()))return null;
+        }
+        var codes=impact.exactAdminAreaCodes().stream().sorted().toList();
+        var names=new LinkedHashSet<String>();
+        for(String code:codes) {
+            var area=db.one("select name from admin_area where area_code=? and active",code);
+            if(area==null)return null;
+            names.add((String)area.get("name"));
+        }
+        return String.join(", ",names);
+    }
+    private List<Map<String,Object>> areaRows(String idPredicate,Object ids,boolean officialImpactOnly) {
+        return db.rows("""
+            select x.disaster_id,a.name from disaster_area x join admin_area a using(area_code)
+            where %s and x.area_role='IMPACT' and a.active
             and (? or x.basis='OFFICIAL')
             and x.basis=case when exists(select 1 from disaster_area o where o.disaster_id=x.disaster_id
                 and o.area_role='IMPACT' and o.basis='OFFICIAL') then 'OFFICIAL' else 'SOURCE_ADDRESS' end
-            order by a.area_code
-            """,id,!officialImpactOnly);
-        return regions.isEmpty()?null:String.join(", ",regions.stream().map(r->(String)r.get("name")).distinct().toList());
+            order by x.disaster_id,a.area_code
+            """.formatted(idPredicate),ids,!officialImpactOnly);
     }
     public Optional<Map<String,Object>> representative(UUID disaster) {
         // The current text/hash must match its latest immutable provider revision.

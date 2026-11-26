@@ -34,7 +34,6 @@ public class NormalizedDisasterReader implements DashboardDisasterReader,Notific
             else if(latitude!=null){
                 var coverage=groups.findImpactCoverage(longitude,latitude,id);
                 if(coverage.stream().anyMatch(r->Boolean.TRUE.equals(r.get("included"))))relevance=Relevance.RELATED;
-                else if(!coverage.isEmpty()&&coverage.stream().allMatch(r->Boolean.TRUE.equals(r.get("known"))))relevance=Relevance.UNRELATED;
             }
             result.add(new Candidate(new MajorDisaster(id,(String)row.get("type_code"),(String)row.get("title"),(String)row.get("region"),DisasterStatus.valueOf((String)row.get("status")),(String)row.get("severity_code"),OwnedDatabase.instant(row.get("occurred_at")),OwnedDatabase.instant(row.get("updated_at"))),DataOrigin.OFFICIAL,relevance));
         }

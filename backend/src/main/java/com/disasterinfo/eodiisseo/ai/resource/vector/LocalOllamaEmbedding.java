@@ -12,9 +12,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.JsonNode;
 
-/** No Bean or default activation. Only explicitly reviewed synthetic input hashes may reach loopback. */
+/** Bounded embedding transport for a local Ollama or its loopback tunnel. */
 public final class LocalOllamaEmbedding implements EmbeddingPort {
     public static final String INPUT_VERSION="qwen3-retrieval-v1";
+    public static final String NOMIC_MODEL="nomic-embed-text:latest";
+    public static final String NOMIC_INPUT_VERSION="nomic-retrieval-prefix-v1";
     public record AllowedInput(Purpose purpose,String hash){
         public AllowedInput{if(purpose==null||hash==null||!hash.matches("[a-f0-9]{64}"))throw new IllegalArgumentException("SYNTHETIC_INPUT_ALLOWLIST_REQUIRED");}
         public static AllowedInput of(Purpose purpose,String text){return new AllowedInput(purpose,EmbeddingPort.sha(text));}
@@ -34,30 +36,46 @@ public final class LocalOllamaEmbedding implements EmbeddingPort {
     private static final JsonMapper JSON=JsonMapper.builder().build();
     private final URI base;private final Model model;private final SyntheticPermit permit;private final Clock clock;private final HttpClient client;
     public LocalOllamaEmbedding(URI base,Model model,SyntheticPermit permit,Clock clock){
+        this(base, model, permit, clock, false);
+    }
+    static LocalOllamaEmbedding forApprovedPipeline(URI base, Model model, Clock clock) {
+        if (!NOMIC_MODEL.equals(model.id())) throw new IllegalArgumentException("NOMIC_MODEL_REQUIRED");
+        return new LocalOllamaEmbedding(base, model, null, clock, true);
+    }
+    private final boolean approvedPipeline;
+    private LocalOllamaEmbedding(URI base, Model model, SyntheticPermit permit, Clock clock, boolean approvedPipeline) {
         if(base==null||!"http".equals(base.getScheme())||!"127.0.0.1".equals(base.getHost())||base.getPort()<1||base.getPort()>65535
             ||base.getRawUserInfo()!=null||base.getRawQuery()!=null||base.getRawFragment()!=null||!(base.getPath().isEmpty()||base.getPath().equals("/")))throw new IllegalArgumentException("EXPLICIT_IPV4_LOOPBACK_ONLY");
-        if(!"qwen3-embedding:0.6b".equals(model.id())||!INPUT_VERSION.equals(model.inputVersion())||model.dimension()>1024||model.maxTokens()>32768)throw new IllegalArgumentException("QWEN_RETRIEVAL_CONTRACT_REQUIRED");
-        this.base=base;this.model=model;this.permit=permit;this.clock=Objects.requireNonNull(clock);
+        boolean qwen = "qwen3-embedding:0.6b".equals(model.id()) && INPUT_VERSION.equals(model.inputVersion())
+                && model.dimension() <= 1024 && model.maxTokens() <= 32768;
+        boolean nomic = NOMIC_MODEL.equals(model.id()) && NOMIC_INPUT_VERSION.equals(model.inputVersion())
+                && model.dimension() == 768 && model.maxTokens() <= 2048;
+        if (!qwen && !nomic) throw new IllegalArgumentException("SUPPORTED_RETRIEVAL_CONTRACT_REQUIRED");
+        this.approvedPipeline=approvedPipeline;this.base=base;this.model=model;this.permit=permit;this.clock=Objects.requireNonNull(clock);
         client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).followRedirects(HttpClient.Redirect.NEVER)
             .proxy(new ProxySelector(){public List<Proxy> select(URI uri){return List.of(Proxy.NO_PROXY);}public void connectFailed(URI uri,SocketAddress sa,IOException failure){}}).build();
     }
-    public boolean configured(){return permit!=null&&permit.ready(model,clock);}
-    public boolean permits(Request r){return permit!=null&&model.equals(r.model())&&permit.allows(r,clock);}
+    public boolean configured(){return approvedPipeline || permit!=null&&permit.ready(model,clock);}
+    public boolean permits(Request r){return model.equals(r.model()) && (approvedPipeline || permit!=null&&permit.allows(r,clock));}
     public Result embed(Request r){
         if(!permits(r))throw new IllegalStateException("LOCAL_SYNTHETIC_PERMISSION_REQUIRED");
-        permit.consume(r,clock); // A failed call consumes budget as well. No retries or download endpoints.
+        if (!approvedPipeline) permit.consume(r,clock); // A failed call consumes budget as well. No retries or download endpoints.
         try{
-            Instant deadline=Collections.min(List.of(r.deadline(),permit.expires,clock.instant().plusSeconds(10)));
+            boolean nomic = NOMIC_MODEL.equals(model.id());
+            Instant deadline=Collections.min(List.of(r.deadline(),approvedPipeline ? r.deadline() : permit.expires,clock.instant().plusSeconds(nomic ? 20 : 10)));
             verifyDigest(deadline);
-            String input=r.purpose()==Purpose.QUERY?"Instruct: Given a search query, retrieve relevant disaster safety guidance.\nQuery: "+r.text():r.text();
-            var request=Map.of("model",model.id(),"input",input,"truncate",false,"dimensions",model.dimension(),"keep_alive",0);
+            String input = nomic
+                    ? (r.purpose()==Purpose.QUERY ? "search_query: " : "search_document: ") + r.text()
+                    : r.purpose()==Purpose.QUERY ? "Instruct: Given a search query, retrieve relevant disaster safety guidance.\nQuery: "+r.text() : r.text();
+            var request=Map.of("model",model.id(),"input",input,"truncate",false,"dimensions",model.dimension(),
+                    "keep_alive",nomic ? "30s" : 0);
             JsonNode response=exchange("/api/embed",JSON.writeValueAsBytes(request),deadline);
             if(!model.id().equals(response.path("model").asString()))throw new IllegalStateException("MODEL_RESPONSE_MISMATCH");
             var vectors=response.path("embeddings");if(!vectors.isArray()||vectors.size()!=1||!vectors.get(0).isArray())throw new IllegalStateException("EMBEDDING_RESPONSE");
             var array=vectors.get(0);double[] vector=new double[array.size()];for(int n=0;n<vector.length;n++){if(!array.get(n).isNumber())throw new IllegalStateException("EMBEDDING_RESPONSE");vector[n]=array.get(n).asDouble();}
             var tokens=response.path("prompt_eval_count");if(!tokens.isIntegralNumber()||!tokens.canConvertToInt()||tokens.asInt()<1||tokens.asInt()>model.maxTokens())throw new IllegalStateException("TOKEN_CONTRACT");
             EmbeddingPort.vector(model,vector);verifyDigest(deadline);
-            if(!permitsAfterConsumption(r)||!clock.instant().isBefore(r.deadline()))throw new IllegalStateException("LOCAL_PERMISSION_EXPIRED");
+            if((!approvedPipeline && !permitsAfterConsumption(r)) ||!clock.instant().isBefore(r.deadline()))throw new IllegalStateException("LOCAL_PERMISSION_EXPIRED");
             return new Result(model,EmbeddingPort.sha(r.text()),tokens.asInt(),true,vector);
         }catch(RuntimeException safe){String code=safe.getMessage();throw new IllegalStateException(code!=null&&code.matches("[A-Z][A-Z0-9_]{1,80}")?code:"LOCAL_EMBEDDING_FAILED");}catch(InterruptedException failure){Thread.currentThread().interrupt();throw new IllegalStateException("EMBEDDING_INTERRUPTED");}catch(Exception failure){throw new IllegalStateException("LOCAL_EMBEDDING_FAILED");}
     }

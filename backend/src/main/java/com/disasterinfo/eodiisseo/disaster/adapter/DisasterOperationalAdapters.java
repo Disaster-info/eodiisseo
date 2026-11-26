@@ -19,9 +19,12 @@ public class DisasterOperationalAdapters {
         return new DashboardDisasterQueryReader() {
             public boolean existsType(String code){return data.existsType(code);}
             public ListSnapshot findDisasters(DisasterListQuery.Criteria c) {
-                var entries=data.list(c.type(),c.status()==null?null:c.status().name(),c.page(),c.size()).stream()
-                    .map(row->new Entry(major(data,row),DashboardDisasterReader.DataOrigin.OFFICIAL)).toList();
-                return new ListSnapshot(entries,true,true);
+                var verified=data.verifiedList(c.type(),c.status()==null?null:c.status().name(),c.page(),c.size());
+                var rows=verified.rows();
+                var regions=data.displayRegions(rows);
+                var entries=rows.stream()
+                    .map(row->new Entry(major(row,regions),DashboardDisasterReader.DataOrigin.OFFICIAL)).toList();
+                return new ListSnapshot(entries,true,true,verified.dataStatus());
             }
             public Optional<DetailSnapshot> findDisaster(UUID id) {
                 return data.find(id).map(row->{
@@ -32,14 +35,14 @@ public class DisasterOperationalAdapters {
                         data.region(id),OwnedDatabase.instant(row.get("occurred_at")),(String)row.get("severity_code"),
                         DisasterStatus.valueOf((String)row.get("status")),(String)source.get("revision_text"),
                         new DisasterDetailResponse.Source((String)source.get("organization")),
-                        OwnedDatabase.instant(row.get("updated_at")),data.latest(source)?"LATEST":"STALE"),DashboardDisasterReader.DataOrigin.OFFICIAL);
+                        OwnedDatabase.instant(row.get("updated_at")),data.hasCurrentCoverage(id)?"LATEST":"STALE"),DashboardDisasterReader.DataOrigin.OFFICIAL);
                 });
             }
         };
     }
-    static MajorDisaster major(OfficialDisasterQueryService data,Map<String,Object> row) {
+    static MajorDisaster major(Map<String,Object> row,Map<UUID,String> regions) {
         return new MajorDisaster((UUID)row.get("disaster_id"),(String)row.get("type_code"),(String)row.get("title"),
-            data.region((UUID)row.get("disaster_id")),DisasterStatus.valueOf((String)row.get("status")),
+            regions.get((UUID)row.get("disaster_id")),DisasterStatus.valueOf((String)row.get("status")),
             (String)row.get("severity_code"),OwnedDatabase.instant(row.get("occurred_at")),OwnedDatabase.instant(row.get("updated_at")));
     }
     @Bean public SummarySourceReader operationalSummarySources(OfficialDisasterQueryService data) {

@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * Opt-in local Ollama generation; configuration owns bean activation.
@@ -32,9 +31,6 @@ import java.util.regex.Pattern;
  */
 public class OllamaChatAnswerGenerator implements ChatAnswerGenerationPort {
 
-    private static final String LINE_BREAK = "(?>\\r\\n|[\\n\\r\\u000B\\u000C\\u0085\\u2028\\u2029])";
-    private static final Pattern PARAGRAPH_BOUNDARY = Pattern.compile(
-            LINE_BREAK + "[\\p{Zs}\\t]*" + LINE_BREAK + "(?:[\\p{Zs}\\t]*" + LINE_BREAK + ")*");
     private static final Set<String> RESPONSE_FIELDS = Set.of("answer", "usedResourceIds", "sufficientEvidence", "citations");
     private static final Set<String> CITATION_FIELDS = Set.of("resourceId", "excerpt");
 
@@ -61,8 +57,7 @@ public class OllamaChatAnswerGenerator implements ChatAnswerGenerationPort {
         checkDeadline(request.deadline());
         if (!client.isConfigured()) throw new OllamaException(Reason.CONFIGURATION_INVALID);
         var paragraphs = new LinkedHashMap<UUID, List<String>>();
-        evidence.forEach((id, resource) -> paragraphs.put(id,
-                PARAGRAPH_BOUNDARY.splitAsStream(resource.content()).filter(ChatText::hasText).toList()));
+        evidence.forEach((id, resource) -> paragraphs.put(id, ChatText.paragraphs(resource.content()).toList()));
         List<Map<String, Object>> inputResources = paragraphs.entrySet().stream()
                 .map(entry -> Map.<String, Object>of("resourceId", entry.getKey().toString(),
                         "paragraphs", entry.getValue())).toList();

@@ -11,6 +11,7 @@ import com.disasterinfo.eodiisseo.ai.resource.port.*;
 import com.disasterinfo.eodiisseo.ai.resource.vector.*;
 import com.disasterinfo.eodiisseo.auth.repository.*;
 import com.disasterinfo.eodiisseo.auth.security.*;
+import com.disasterinfo.eodiisseo.auth.service.OwnedRateLimiter;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -40,7 +41,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/** Real Spring HTTP/JWT/ACTIVE sessions/consent/approval/JPA; fake model transport and fake array vectors only. */
+/** Spring HTTP/JWT/consent/approval/JPA. Network model use is confined to the explicit live vector case. */
 @EnabledIfEnvironmentVariable(named="EODIISSEO_LOCAL_DB_TESTS",matches="true")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS) @Timeout(120)
 class ChatRagHttpAuditTest {
@@ -50,6 +51,7 @@ class ChatRagHttpAuditTest {
     static final class Scenario implements ChatEvidenceGenerationPolicy {
         final AuditClock clock=new AuditClock();final AtomicInteger generated=new AtomicInteger();String mode="LEXICAL",fault="OK";volatile boolean failSearch,failApproval;volatile Runnable duringModel=()->{},beforeCommit=()->{},atSave=()->{};
         JdbcTemplate failureDatabase;ChatOfficialResourceSearchPort lexical,vector;String outbound;final Map<UUID,String> plans=new ConcurrentHashMap<>();
+        OllamaChatClient liveClient;
         ChatOfficialResourceSearchPort selected(){return mode.equals("VECTOR")?vector:lexical;}
         public SearchResult search(String question){if(failSearch)failureDatabase.queryForObject("select count(*) from deliberately_missing_chat_search_table",Long.class);return selected().search(question);}
         public ChatAnswerGenerationPort guardGeneration(ChatAnswerGenerationPort delegate){return ((ChatEvidenceGenerationPolicy)selected()).guardGeneration(delegate);}
@@ -75,7 +77,18 @@ class ChatRagHttpAuditTest {
         @Bean @Primary Clock auditClock(Scenario s){return s.clock;}
         @Bean @Primary ChatOfficialResourceSearchPort auditSearch(Scenario s){return s;}
         @Bean @Primary ResourceApprovalPort auditApprovals(Scenario s,DatabaseResourceApproval actual){return id->{if(s.failApproval)throw new IllegalStateException("SYNTHETIC provider failure");return actual.findApproval(id);};}
-        @Bean @Primary ChatAnswerGenerationPort auditGenerator(Scenario s){var client=mock(OllamaChatClient.class);when(client.isConfigured()).thenReturn(true);when(client.modelName()).thenReturn("SYNTHETIC-NO-MODEL");when(client.chat(anyString(),anyString(),anyMap(),any())).thenAnswer(call->s.respond(call.getArgument(1)));return new OllamaChatAnswerGenerator(client,s.clock);}
+        @Bean @Primary ChatAnswerGenerationPort auditGenerator(Scenario s){
+            var client=mock(OllamaChatClient.class);
+            when(client.isConfigured()).thenReturn(true);
+            when(client.modelName()).thenAnswer(call->s.liveClient==null?"SYNTHETIC-NO-MODEL":s.liveClient.modelName());
+            when(client.chat(anyString(),anyString(),anyMap(),any())).thenAnswer(call->{
+                if(s.liveClient==null)return s.respond(call.getArgument(1));
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+                s.generated.incrementAndGet();
+                return s.liveClient.chat(call.getArgument(0),call.getArgument(1),call.getArgument(2),call.getArgument(3));
+            });
+            return new OllamaChatAnswerGenerator(client,s.clock);
+        }
         @Bean @Primary ChatAnswerStore auditAnswers(Scenario s,JpaChatAnswerStore actual){return new ChatAnswerStore(){public boolean isAvailable(){return actual.isAvailable();}public void save(com.disasterinfo.eodiisseo.ai.chat.entity.ChatAnswer answer,List<UUID> ids){actual.save(answer,ids);s.atSave.run();}public int deleteExpired(Instant now){return actual.deleteExpired(now);}public int deleteByMemberId(UUID id){return actual.deleteByMemberId(id);}};}
         @Bean @Primary ChatEvidenceCommitPort auditCommit(Scenario s,DatabaseChatEvidenceCommit actual){return (e,p)->{s.beforeCommit.run();actual.withCurrentEvidence(e,p);};}
         @Bean @Primary ChatService auditChat(ChatAuthenticationPort auth,ChatOfficialResourceSearchPort search,ChatAnswerGenerationPort generation,ChatAnswerStore store,ChatRetentionPolicy retention,ChatPromptPrivacyPort privacy,Clock clock,ChatEvidenceCommitPort commit){return new ChatService(Optional.of(auth),Optional.of(search),Optional.of(generation),Optional.of(store),Optional.of(retention),Optional.of(privacy),clock,Optional.of(commit));}
@@ -115,11 +128,73 @@ class ChatRagHttpAuditTest {
         // Deliberately inject the raw generator bean, not Bundle.generation: ChatService must enforce the search policy.
     }
     MemberPrincipal actor(boolean ops){UUID m=UUID.randomUUID(),s=UUID.randomUUID();var r=context.getBean(AuthRepository.class);r.createMember(m,"SYNTHETIC",state.clock.now);r.grantUserRole(m,state.clock.now);if(ops)sql.update("insert into member_role values(?,'OPS',?)",m,java.sql.Timestamp.from(state.clock.now));r.createSession(s,m,UUID.randomUUID().toString().replace("-","").repeat(2),state.clock.now,state.clock.now.plus(Duration.ofDays(14)));return new MemberPrincipal(m,s);}
-    HttpResponse<String> send(String question,String bearer)throws Exception {var b=HttpRequest.newBuilder(URI.create(base+"/api/v1/ai/guidance")).timeout(Duration.ofSeconds(30)).header("Content-Type","application/json");if(bearer!=null)b.header("Authorization","Bearer "+bearer);return http.send(b.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("question",question)))).build(),HttpResponse.BodyHandlers.ofString());}
+    HttpResponse<String> send(String question,String bearer)throws Exception {var b=HttpRequest.newBuilder(URI.create(base+"/api/v1/ai/guidance")).timeout(Duration.ofSeconds(state.liveClient==null?30:90)).header("Content-Type","application/json");if(bearer!=null)b.header("Authorization","Bearer "+bearer);return http.send(b.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("question",question)))).build(),HttpResponse.BodyHandlers.ofString());}
     JsonNode ok(String q)throws Exception {var response=send(q,token);assertThat(response.statusCode()).isEqualTo(200);return JSON.readTree(response.body());}
     long count(String table){return sql.queryForObject("select count(*) from "+table,Long.class);}
     void stored(JsonNode body,String status){assertThat(count("ai_answer")).isEqualTo(1);var row=sql.queryForMap("select * from ai_answer");assertThat(row.get("status")).isEqualTo(status);assertThat(row.get("answer_text")).isEqualTo(body.path("answer").asString());assertThat(((java.sql.Timestamp)row.get("completed_at")).toInstant()).isEqualTo(Instant.parse(body.path("generatedAt").asString()));assertThat(((java.sql.Timestamp)row.get("expires_at")).toInstant()).isEqualTo(((java.sql.Timestamp)row.get("created_at")).toInstant().plus(Duration.ofDays(90)));}
     void fallback(String q,String status)throws Exception{var body=ok(q);assertThat(body.path("answerType").asString()).isEqualTo("FALLBACK");assertThat(body.path("sources").isEmpty()).isTrue();assertThat(count("ai_answer_resource")).isZero();stored(body,status);}
+
+    @Test
+    @EnabledIfEnvironmentVariable(named="EODIISSEO_LOCAL_NOMIC_RAG_TEST",matches="true")
+    void actualLocalEmbeddingAndPgvectorFeedTheAuthenticatedRealOllamaRagEndpoint() throws Exception {
+        String paragraph = "테스트용 가상 안내입니다. 지진 때는 탁자 아래에서 몸을 보호하세요.";
+        String question = "지진 때 어떻게 행동해야 하나요?";
+        UUID resourceId = UUID.randomUUID();
+        var model = new EmbeddingPort.Model(LocalOllamaEmbedding.NOMIC_MODEL,
+                System.getenv("EODIISSEO_LOCAL_NOMIC_DIGEST"),768,2048,LocalOllamaEmbedding.NOMIC_INPUT_VERSION);
+        var clock = Clock.systemUTC();
+        String retrievalQuestion = context.getBean(ChatPromptPrivacyPort.class).minimizeLocally(member,question)
+                .orElseThrow().retrievalQuestion();
+        var allow = Set.of(LocalOllamaEmbedding.AllowedInput.of(EmbeddingPort.Purpose.DOCUMENT,paragraph),
+                LocalOllamaEmbedding.AllowedInput.of(EmbeddingPort.Purpose.QUERY,retrievalQuestion));
+        var permit = new LocalOllamaEmbedding.SyntheticPermit(true,"Explicit local synthetic audit",model,
+                allow,8,clock.instant().plusSeconds(120));
+        URI local = URI.create("http://127.0.0.1:11434");
+        var embedding = new LocalOllamaEmbedding(local,model,permit,clock);
+        assertThat(EmbeddingPort.generate(embedding,new EmbeddingPort.Request(model,EmbeddingPort.Purpose.DOCUMENT,
+                paragraph,false,clock.instant().plusSeconds(20)),clock)).hasSize(768);
+        sql.execute("create extension if not exists vector");
+        sql.execute("""
+                create table rag_vector_embedding(chunk_id uuid,model_key char(64),embedding_dimension integer,embedding vector,
+                    primary key(chunk_id,model_key), foreign key(chunk_id,model_key) references rag_vector_chunk on delete cascade,
+                    check(vector_dims(embedding)=embedding_dimension))
+                """);
+        try (var client = new OllamaChatClient(new OllamaSettings(local,"qwen3-vl:4b-instruct",
+                Duration.ofSeconds(60),Duration.ofSeconds(5),Set.of("127.0.0.1")))) {
+            var resources=context.getBean(JdbcOfficialResourceStore.class);
+            var vectors=new JdbcRagVectorStore(sql,context.getBean(PlatformTransactionManager.class),new PgVectorBackend(sql),clock);
+            var chunk=new RagChunkGroup.Paragraph(UUID.randomUUID(),0,paragraph,EmbeddingPort.sha(paragraph),"Synthetic test",false);
+            var document = new OfficialResourceDocument(resourceId,"행정안전부","지진 테스트 Fixture",
+                    "https://safekorea.go.kr/synthetic-chat/"+resourceId,"SYNTHETIC",paragraph,state.clock.instant());
+            resources.append(document);
+            context.getBean(DatabaseResourceApproval.class).review(reviewer,resourceId,document.revisionFingerprint(),
+                    state.clock.instant().plusSeconds(120),"SYNTHETIC HTTP TEST ONLY",true,true);
+            var group=new RagChunkGroup(UUID.randomUUID(),resourceId,document.revisionFingerprint(),"EARTHQUAKE",
+                    List.of("SYNTHETIC"),"SYNTHETIC-1",List.of(chunk));
+            state.plans.put(group.id(),group.manifestHash());
+            var pipeline=new ApprovedRagPipeline(resources,context.getBean(ResourceApprovalPort.class),
+                    (id,fp,hash,now)->hash.equals(state.plans.get(id)),vectors,embedding,model,clock,0.85,Duration.ofSeconds(20));
+            assertThat(pipeline.index(group,Duration.ofSeconds(10))).isEqualTo("READY");
+            assertThat(sql.queryForObject("select vector_dims(embedding) from rag_vector_embedding where model_key=?",
+                    Integer.class,model.key())).isEqualTo(768);
+            state.vector=pipeline.configure(ApprovedRagPipeline.Mode.EXACT,context.getBean(ChatAnswerGenerationPort.class)).search();
+            assertThat(state.vector.search(retrievalQuestion).resources()).extracting(ChatOfficialResourceSearchPort.OfficialResource::resourceId)
+                    .containsExactly(resourceId);
+            assertThat(pipeline.index(group,Duration.ofSeconds(10))).isEqualTo("DUPLICATE");
+            state.mode="VECTOR";
+            state.liveClient=client;
+            var response=ok(question);
+            assertThat(state.generated).hasValue(1);
+            assertThat(sql.queryForObject("select status from ai_answer",String.class)).isEqualTo("COMPLETED");
+            assertThat(response.path("answerType").asString()).isEqualTo("AI");
+            stored(response,"COMPLETED");
+            assertThat(sql.queryForObject("select model_name from ai_answer",String.class)).isEqualTo(client.modelName());
+            assertThat(sql.queryForObject("select resource_id from ai_answer_resource",UUID.class)).isEqualTo(resourceId);
+        } finally {
+            state.liveClient=null;
+            sql.execute("drop table rag_vector_embedding");
+        }
+    }
     @ParameterizedTest @ValueSource(strings={"LEXICAL","VECTOR"})
     void sixRequiredQuestionsUseAuthenticatedMinimizedApprovedEvidenceAndPersistHttpResults(String mode)throws Exception{
         state.mode=mode;String[] questions={INDOOR,"지진이 나면 엘리베이터를 이용해도 되나?","호우가 내릴 때 지하차도에 접근해도 되나?","침수된 지하공간에서는 어떻게 행동해야 하나?","산불이 발생했을 때 어떻게 대피해야 하나?","산불 연기가 보일 때 주의할 점은 무엇인가?"};int[] docs={0,1,3,4,6,8};
@@ -140,6 +215,43 @@ class ChatRagHttpAuditTest {
     @ParameterizedTest @ValueSource(strings={"REVOKED","EXPIRED"})
     void activeSessionIsRecheckedAfterGeneration(String stateValue)throws Exception{state.mode="VECTOR";state.duringModel=()->sql.update(stateValue.equals("REVOKED")?"update auth_session set revoked_at=now() where session_id=?":"update auth_session set created_at=now()-interval '15 days',expires_at=now()-interval '1 day' where session_id=?",session);assertThat(send(INDOOR,token).statusCode()).isEqualTo(401);assertThat(count("ai_answer")).isZero();}
     @Test void unauthenticatedInvalidAndDeniedInputsNeverReachModel()throws Exception{assertThat(send(INDOOR,null).statusCode()).isEqualTo(401);assertThat(send("   ",token).statusCode()).isEqualTo(400);assertThat(count("ai_answer")).isZero();context.getBean(ExternalAiConsentService.class).record(member,session,false);assertThat(send(INDOOR,token).statusCode()).isEqualTo(500);assertThat(count("ai_answer")).isZero();assertThat(state.generated.get()).isZero();}
+    @Test void atomicRequestWindowLimitsConcurrentHttpRequestsWithoutInvokingModel() throws Exception {
+        assertThat(context.getBean(OwnedRateLimiter.class)).isNotNull();
+        state.clock.now = state.clock.now.truncatedTo(java.time.temporal.ChronoUnit.MINUTES).plusSeconds(119);
+        sql.update("insert into auth_request_window(member_id, scope, window_start, request_count) values (?, 'AI_GUIDANCE', ?, 99998)",
+                member, java.sql.Timestamp.from(state.clock.now.minusSeconds(59)));
+        var responses = new ArrayList<HttpResponse<String>>();
+        try (var callers = Executors.newVirtualThreadPerTaskExecutor()) {
+            var start = new CountDownLatch(1);
+            var pending = new ArrayList<Future<HttpResponse<String>>>();
+            for (int i = 0; i < 5; i++) {
+                pending.add(callers.submit(() -> {
+                    start.await();
+                    return send("가".repeat(2001), token);
+                }));
+            }
+            start.countDown();
+            for (var request : pending) {
+                responses.add(request.get(30, TimeUnit.SECONDS));
+            }
+        }
+        assertThat(responses).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(400, 400, 429, 429, 429);
+        for (var response : responses) {
+            if (response.statusCode() == 429) {
+                assertThat(JSON.readTree(response.body()).path("code").asString()).isEqualTo("RATE_LIMITED");
+            }
+        }
+        assertThat(sql.queryForObject("select request_count from auth_request_window where member_id=? and scope='AI_GUIDANCE'",
+                Integer.class, member)).isEqualTo(100003);
+        var other = actor(false);
+        var otherToken = context.getBean(TokenService.class).issue(other.memberId(), other.sessionId(),
+                state.clock.now.plusSeconds(3600));
+        assertThat(send("가".repeat(2001), otherToken).statusCode()).isEqualTo(400);
+        state.clock.now = state.clock.now.plusSeconds(1);
+        assertThat(send("가".repeat(2001), token).statusCode()).isEqualTo(400);
+        assertThat(count("ai_answer")).isZero();
+        assertThat(state.generated).hasValue(0);
+    }
     @Test void searchFailureAndModelDeadlineUseSafeExistingStatuses()throws Exception{state.mode="VECTOR";state.failSearch=true;fallback(INDOOR,"FAILED");assertThat(state.generated.get()).isZero();sql.update("delete from ai_answer");state.failSearch=false;state.fault="TIMEOUT";fallback(INDOOR,"TIMEOUT");}
     @Test void failedPersistenceRollsBackAndRetriedRequestsAreCurrentlyDistinct()throws Exception{state.atSave=()->{throw new ChatException(ChatException.Reason.PERSISTENCE_FAILURE,"SYNTHETIC");};assertThat(send(INDOOR,token).statusCode()).isEqualTo(500);assertThat(count("ai_answer")).isZero();state.atSave=()->{};assertThat(ok(INDOOR).path("answerType").asString()).isEqualTo("AI");assertThat(ok(INDOOR).path("answerType").asString()).isEqualTo("AI");assertThat(count("ai_answer")).isEqualTo(2);state.clock.now=state.clock.now.plus(Duration.ofDays(91));assertThat(context.getBean(ChatService.class).deleteExpiredAnswers()).isEqualTo(2);assertThat(count("ai_answer_resource")).isZero();}
     @Test void expiryDuringTheActualFlushRollsBackAnswerAndSourceLinks()throws Exception{

@@ -136,47 +136,76 @@ public class SummaryService {
 
     /** Called by the connected background worker, not by GET or official transaction threads. */
     public Processing processRevision(UUID revisionId, Instant attemptedAt) {
+        ProcessingDecision decision = processClaimedRevision(revisionId, attemptedAt);
+        if (decision.outcome() == Processing.FAILED && decision.retryAt() != null) {
+            try {
+                dispatcher.orElseThrow().enqueue(revisionId, decision.retryAt());
+            } catch (RuntimeException failure) {
+                recordFailure(SummaryFailureRecorder.Code.DISPATCH_FAILED,
+                        decision.summary().disasterId(), revisionId, attemptedAt);
+            }
+        }
+        return decision.outcome();
+    }
+
+    /** Gives a durable worker the retry time so it can reschedule under its own claim. */
+    public ProcessingDecision processClaimedRevision(UUID revisionId, Instant attemptedAt) {
+        return processClaimedRevision(revisionId, null, attemptedAt);
+    }
+
+    public ProcessingDecision processClaimedRevision(UUID revisionId, UUID claimId, Instant attemptedAt) {
         if (revisionId == null || attemptedAt == null || sources.isEmpty() || store.isEmpty()
                 || generator.isEmpty() || dispatcher.isEmpty()) {
-            return Processing.DEPENDENCY_UNAVAILABLE;
+            return new ProcessingDecision(Processing.DEPENDENCY_UNAVAILABLE, null, null);
         }
         Optional<SummaryRetryPolicy.Policy> configured;
         try {
             configured = retryPolicy.flatMap(SummaryRetryPolicy::configuredPolicy);
         } catch (RuntimeException failure) {
-            return Processing.POLICY_UNCONFIGURED;
+            return new ProcessingDecision(Processing.POLICY_UNCONFIGURED, null, null);
         }
         if (configured.isEmpty()) {
-            return Processing.POLICY_UNCONFIGURED;
+            return new ProcessingDecision(Processing.POLICY_UNCONFIGURED, null, null);
         }
         SummaryRetryPolicy.Policy policy = configured.get();
         try {
             if (attemptedAt.isAfter(clock.instant())) {
-                return Processing.NOT_ELIGIBLE;
+                return new ProcessingDecision(Processing.NOT_ELIGIBLE, null, attemptedAt);
             }
             if (!generator.get().isConfigured()) {
-                return Processing.DEPENDENCY_UNAVAILABLE;
+                return new ProcessingDecision(Processing.DEPENDENCY_UNAVAILABLE, null, null);
             }
-            SummaryStore.Attempt result = store.get().attempt(revisionId, policy.maxRetries(), policy.retryDelay(), attemptedAt,
-                    () -> generate(revisionId, attemptedAt));
-            if (result.result() == SummaryStore.Result.FAILED
-                    && result.state().attemptCount() < policy.maxRetries()) {
-                try {
-                    dispatcher.get().enqueue(revisionId, result.state().completedAt().plus(policy.retryDelay()));
-                } catch (RuntimeException failure) {
-                    recordFailure(SummaryFailureRecorder.Code.DISPATCH_FAILED,
-                            result.state().disasterId(), revisionId, attemptedAt);
-                }
-            }
-            return switch (result.result()) {
+            SummaryStore.Attempt result = claimId == null
+                    ? store.get().attempt(revisionId, policy.maxRetries(), policy.retryDelay(), attemptedAt,
+                            () -> generate(revisionId, attemptedAt))
+                    : store.get().attemptClaimed(revisionId, claimId, policy.maxRetries(), policy.retryDelay(), attemptedAt,
+                            () -> generate(revisionId, attemptedAt));
+            Processing outcome = switch (result.result()) {
                 case NOT_ELIGIBLE -> Processing.NOT_ELIGIBLE;
                 case COMPLETED -> Processing.COMPLETED;
                 case FAILED -> Processing.FAILED;
                 case STALE -> Processing.STALE;
             };
+            SummaryState state = result.state();
+            if (outcome == Processing.NOT_ELIGIBLE && state == null) {
+                state = store.orElseThrow().findByRevision(revisionId).orElse(null);
+            }
+            Instant retryAt = null;
+            if (state != null && state.status() == SummaryStatus.FAILED && state.completedAt() != null
+                    && state.attemptCount() < policy.maxRetries()) {
+                retryAt = state.completedAt().plus(policy.retryDelay());
+            } else if (outcome == Processing.NOT_ELIGIBLE && state != null && state.status() == SummaryStatus.PENDING) {
+                retryAt = state.createdAt();
+            }
+            if (outcome == Processing.NOT_ELIGIBLE && retryAt != null && !retryAt.isAfter(attemptedAt)) {
+                retryAt = attemptedAt.plusSeconds(60);
+            }
+            return new ProcessingDecision(outcome, state, retryAt);
+        } catch (SummaryGenerator.CapacityUnavailable failure) {
+            return new ProcessingDecision(Processing.DEPENDENCY_UNAVAILABLE, null, null);
         } catch (RuntimeException failure) {
             recordFailure(SummaryFailureRecorder.Code.STORAGE_FAILED, null, revisionId, attemptedAt);
-            return Processing.DEPENDENCY_UNAVAILABLE;
+            return new ProcessingDecision(Processing.DEPENDENCY_UNAVAILABLE, null, null);
         }
     }
 
@@ -207,6 +236,8 @@ public class SummaryService {
                 return SummaryStore.Outcome.stale();
             }
             return SummaryStore.Outcome.completed(generated.text(), generated.modelName(), generated.generatedAt());
+        } catch (SummaryGenerator.CapacityUnavailable failure) {
+            throw failure;
         } catch (RuntimeException failure) {
             // Exception messages can contain keys, source content or locations; never store them.
             recordFailure(SummaryFailureRecorder.Code.GENERATION_FAILED, disasterId, revisionId, attemptedAt);
@@ -245,6 +276,8 @@ public class SummaryService {
     public enum Submission {
         QUEUED, ALREADY_HANDLED, IGNORED, SOURCE_INCOMPLETE, POLICY_UNCONFIGURED, DEPENDENCY_UNAVAILABLE
     }
+
+    public record ProcessingDecision(Processing outcome, SummaryState summary, Instant retryAt) {}
 
     public enum Processing {
         COMPLETED, FAILED, STALE, NOT_ELIGIBLE, POLICY_UNCONFIGURED, DEPENDENCY_UNAVAILABLE

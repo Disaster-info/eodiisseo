@@ -165,6 +165,20 @@ class SummaryPostgresIntegrationTest {
     }
 
     @Test
+    void newerRevisionWithoutSummaryRegistrationDiscardsTheInFlightResult() {
+        withStore(store -> store.register(revision(revisionId, 1), NOW));
+        var result = withStore(store -> store.attempt(revisionId, 2, Duration.ZERO, NOW, () -> {
+            addRevision(UUID.randomUUID(), 2);
+            return SummaryStore.Outcome.completed("Superseded result", "audit-model", NOW.plusSeconds(1));
+        }));
+
+        assertThat(result.result()).isEqualTo(SummaryStore.Result.STALE);
+        assertThat(result.state().status()).isEqualTo(SummaryStatus.STALE);
+        assertThat(result.state().summaryText()).isNull();
+        assertThat(result.state().completedAt()).isNull();
+    }
+
+    @Test
     void cleanupRechecksLifecycleAndDeletesOnlyAtTheRealNinetyDayCutoff() throws Exception {
         withStore(store -> store.register(revision(revisionId, 1), NOW));
         Instant cutoff = NOW.minus(SummaryService.RETENTION);

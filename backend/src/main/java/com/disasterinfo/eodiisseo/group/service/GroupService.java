@@ -102,14 +102,15 @@ public class GroupService {
         if(!repository.tableExists("disaster") || !repository.tableExists("disaster_area") || !repository.tableExists("admin_area")) throw new ApiProblem(503,"GIS_DEPENDENCY_NOT_READY","공통 GIS 스키마 연결이 필요합니다.");
         var disasters=repository.listActiveOfficialDisasters();
         for(var m:members) {
-            var affected=new ArrayList<Map<String,Object>>();boolean unknown=false;
+            var affected=new ArrayList<Map<String,Object>>();
             if("AVAILABLE".equals(m.get("locationStatus"))) for(var disaster:disasters) {
                 var areas=repository.findImpactCoverage(m.get("longitude"),m.get("latitude"),(UUID)disaster.get("disaster_id"));
-                if(areas.isEmpty() || areas.stream().anyMatch(a->!Boolean.TRUE.equals(a.get("known")))) unknown=true;
                 var included=areas.stream().filter(a->Boolean.TRUE.equals(a.get("included"))).findFirst();
                 if(included.isPresent()) affected.add(object("disasterId",disaster.get("disaster_id"),"basis",included.get().get("basis")));
             }
-            String state=!"AVAILABLE".equals(m.get("locationStatus"))?"LOCATION_UNAVAILABLE":!affected.isEmpty()?"INSIDE_AFFECTED_AREA":unknown?"AFFECTED_AREA_UNKNOWN":"OUTSIDE_AFFECTED_AREA";
+            // This feed cannot prove complete all-hazard coverage for a negative result.
+            String state=!"AVAILABLE".equals(m.get("locationStatus"))?"LOCATION_UNAVAILABLE"
+                    :!affected.isEmpty()?"INSIDE_AFFECTED_AREA":"AFFECTED_AREA_UNKNOWN";
             results.add(object("memberId",m.get("memberId"),"name",m.get("name"),"status",state,"locationStatus",m.get("locationStatus"),"locationUpdatedAt",m.get("updatedAt"),"evaluatedAt",now,"affectedDisasters",affected));
         }
         return object("members",results);

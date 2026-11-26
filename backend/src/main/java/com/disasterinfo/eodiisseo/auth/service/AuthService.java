@@ -12,6 +12,8 @@ import java.security.*;
 import java.nio.charset.StandardCharsets;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Profile;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -26,11 +28,19 @@ public class AuthService {
     private final Clock clock;
     private final TransactionTemplate transaction;
     private final long sessionSeconds;
+    private final ApplicationEventPublisher lifecycle;
     private final SecureRandom random=new SecureRandom();
     public AuthService(AuthRepository repository,TokenService tokens,SocialIdentityVerifier social,Clock clock,
         PlatformTransactionManager manager,@Value("${AUTH_SESSION_TTL_SECONDS:1209600}") long sessionSeconds) {
+        this(repository,tokens,social,clock,manager,sessionSeconds,event -> {});
+    }
+    @Autowired
+    public AuthService(AuthRepository repository,TokenService tokens,SocialIdentityVerifier social,Clock clock,
+        PlatformTransactionManager manager,@Value("${AUTH_SESSION_TTL_SECONDS:1209600}") long sessionSeconds,
+        ApplicationEventPublisher lifecycle) {
         this.repository=repository;this.tokens=tokens;this.social=social;this.clock=clock;
         this.transaction=new TransactionTemplate(manager);this.sessionSeconds=sessionSeconds;
+        this.lifecycle=lifecycle;
         if(sessionSeconds<=0) throw new IllegalStateException("AUTH_SESSION_TTL_SECONDS must be positive");
     }
     public Login login(String provider,String credential) {
@@ -49,6 +59,7 @@ public class AuthService {
                 repository.createMember(id,identity.name(),now);
                 repository.linkSocialAccount(UUID.randomUUID(),id,provider,identity.subject(),now);
                 repository.grantUserRole(id,now);
+                lifecycle.publishEvent(new MemberCreated(id,now));
                 m=object("member_id",id,"display_name",identity.name());created=true;
             }
             var body=newSession((UUID)m.get("member_id"));body.put("memberId",m.get("member_id"));body.put("name",m.get("display_name"));

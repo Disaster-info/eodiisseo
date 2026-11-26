@@ -19,6 +19,9 @@ public class DashboardException extends RuntimeException {
         UNAUTHENTICATED,
         FORBIDDEN,
         NOT_FOUND,
+        DISASTER_COLLECTION_NOT_STARTED,
+        DISASTER_COLLECTION_FAILED,
+        DISASTER_COVERAGE_UNVERIFIED,
         DEPENDENCY_UNAVAILABLE,
         POLICY_UNRESOLVED
     }

@@ -12,6 +12,14 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class NotificationServiceTest {
+    @Test void missingLegacySettingsAreInitializedWithoutOverwritingAnExistingChoice() {
+        var f=new NotificationFixture();
+        f.store.settings.remove(f.member);
+        assertThat(f.service().getSettings(f.session).enabled()).isFalse();
+        f.service().updateSettings(f.session,new SettingsRequest(true,List.of(),null,true));
+        assertThat(f.service().getSettings(f.session).enabled()).isTrue();
+        assertThat(f.store.settings).hasSize(1);
+    }
     @Test void readsOnlyOwnSelectedPresentAreas() {
         var f = new NotificationFixture();
         assertThat(f.service().getSettings(f.session).interestAreaIds()).containsExactly(f.area1,f.area2);
@@ -78,10 +86,6 @@ class NotificationServiceTest {
                     assertThat(e.reason()).isEqualTo(NotificationException.Reason.DEPENDENCY_UNAVAILABLE);
                     assertThat(e.status()).isEqualTo(500);
                 });
-    }
-    @Test void missingSettingDoesNotReturnFabricatedDefault() {
-        var f=new NotificationFixture();f.store.settings.clear();
-        assertThatThrownBy(() -> f.service().getSettings(f.session)).isInstanceOfSatisfying(NotificationException.class,e -> assertThat(e.status()).isEqualTo(500));
     }
     @Test void registrationHashesEncryptsAndUpdatesLatestTokenWithSameId() {
         var f=new NotificationFixture();f.device("install-a");Device old=f.store.findDevice("install-a");

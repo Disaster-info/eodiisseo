@@ -25,6 +25,8 @@ public class DashboardHttpErrors {
             case UNAUTHENTICATED -> body(401, "UNAUTHORIZED", "인증이 필요합니다.");
             case FORBIDDEN -> body(403, "FORBIDDEN", "접근 권한이 없습니다.");
             case NOT_FOUND -> common(ErrorCode.NOT_FOUND);
+            case DISASTER_COLLECTION_NOT_STARTED, DISASTER_COLLECTION_FAILED, DISASTER_COVERAGE_UNVERIFIED ->
+                    body(503, failure.reason().name(), "공식 재난정보의 수집 범위를 확인할 수 없습니다.");
             case DEPENDENCY_UNAVAILABLE, POLICY_UNRESOLVED -> common(ErrorCode.INTERNAL_ERROR);
         };
     }

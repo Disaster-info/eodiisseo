@@ -7,6 +7,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.UUID;
 import org.slf4j.MDC;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -25,6 +27,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
 
     public static final String MDC_KEY = "traceId";
     public static final String HEADER = "X-Trace-Id";
+    private static final org.slf4j.Logger LOG = LoggerFactory.getLogger(TraceIdFilter.class);
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -32,9 +35,21 @@ public class TraceIdFilter extends OncePerRequestFilter {
         String traceId = UUID.randomUUID().toString();
         MDC.put(MDC_KEY, traceId);
         response.setHeader(HEADER, traceId);
+        long started = System.nanoTime();
+        boolean completed = false;
         try {
             chain.doFilter(request, response);
+            completed = true;
         } finally {
+            long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            if (!completed || elapsedMs >= 1000 || response.getStatus() >= 500) {
+                Object route = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+                String ingressId=request.getHeader("X-Edge-Request-Id");
+                if (ingressId==null || !ingressId.matches("[0-9a-f]{32}")) ingressId="-";
+                LOG.info("http traceId={} ingressId={} method={} route={} status={} durationMs={} handlerReturned={}",
+                        traceId, ingressId, request.getMethod(), route == null ? "unmapped" : route,
+                        response.getStatus(), elapsedMs, completed);
+            }
             MDC.remove(MDC_KEY); // 스레드 재사용 시 다른 요청에 섞이지 않도록
         }
     }

@@ -46,6 +46,7 @@ class DashboardHttpErrorsTest {
             case UNAUTHENTICATED -> 401;
             case FORBIDDEN -> 403;
             case NOT_FOUND -> 404;
+            case DISASTER_COLLECTION_NOT_STARTED, DISASTER_COLLECTION_FAILED, DISASTER_COVERAGE_UNVERIFIED -> 503;
             case DEPENDENCY_UNAVAILABLE, POLICY_UNRESOLVED -> 500;
         };
         String code = switch (reason) {
@@ -53,6 +54,7 @@ class DashboardHttpErrorsTest {
             case UNAUTHENTICATED -> "UNAUTHORIZED";
             case FORBIDDEN -> "FORBIDDEN";
             case NOT_FOUND -> "NOT_FOUND";
+            case DISASTER_COLLECTION_NOT_STARTED, DISASTER_COLLECTION_FAILED, DISASTER_COVERAGE_UNVERIFIED -> reason.name();
             case DEPENDENCY_UNAVAILABLE, POLICY_UNRESOLVED -> "INTERNAL_ERROR";
         };
         assertError(mvc.perform(get("/__test/dashboard-errors/" + reason)).andReturn(), status, code);

@@ -1,17 +1,61 @@
-param([int]$Port=8080,[switch]$SkipBuild,[switch]$EnableCollection,[switch]$EnableDomainHttp,[string]$BuildOutputDir=(Join-Path $env:TEMP 'eodiisseo-db-build'))
+param([int]$Port=8080,[switch]$SkipBuild,[switch]$EnableCollection,[switch]$EnableDomainHttp,[switch]$ApplyApprovedMigrations,[switch]$EnableLocalOllama,[switch]$EnableDevelopmentKakaoOAuth,[string]$BuildOutputDir=(Join-Path $env:TEMP 'eodiisseo-db-build'))
 $ErrorActionPreference='Stop'
 $backend=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+if($EnableCollection){throw 'External collection is disabled for this local launcher.'}
+if($EnableDevelopmentKakaoOAuth){
+    if($Port -ne 8081 -or !$EnableDomainHttp){throw 'Development OAuth requires the 8081 domain HTTP launcher.'}
+    foreach($key in 'KAKAO_APP_ID','KAKAO_REST_API_KEY','KAKAO_CLIENT_SECRET'){
+        if([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($key,'Process'))){
+            throw 'Set the registered development Kakao client settings in this process.'
+        }
+    }
+}
 if(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue){throw "Port $Port already in use; preserve the existing process."}
+$logs=Join-Path $backend 'build/local'
+$pidPath=Join-Path $logs 'backend.pid'
+if(Test-Path -LiteralPath $pidPath){
+    $recordedId=0
+    if([int]::TryParse([IO.File]::ReadAllText($pidPath),[ref]$recordedId) -and
+            (Get-Process -Id $recordedId -ErrorAction SilentlyContinue)){
+        throw 'An existing process owns the local launcher state. Preserve its PID and logs.'
+    }
+}
 Push-Location $backend
 try {
     if(!$SkipBuild){& .\gradlew.bat bootJar --console=plain "-PbuildOutputDir=$BuildOutputDir";if($LASTEXITCODE -ne 0){throw 'Build failed'}}
     $jar=Get-ChildItem -LiteralPath (Join-Path $BuildOutputDir 'libs') -Filter '*.jar' | Where-Object {$_.Name -notlike '*-plain.jar'} | Select-Object -First 1
     if(!$jar){throw 'Build the executable JAR first'}
     $java=if($env:JAVA_HOME){Join-Path $env:JAVA_HOME 'bin/java.exe'}else{(Get-Command java.exe).Source}
-    $logs=Join-Path $backend 'build/local';New-Item -ItemType Directory -Force -Path $logs | Out-Null
+    New-Item -ItemType Directory -Force -Path $logs | Out-Null
     $args=@('-Dfile.encoding=UTF-8','-jar',('"'+$jar.FullName+'"'),'--server.address=127.0.0.1',"--server.port=$Port",'--spring.profiles.active=local','--spring.jpa.hibernate.ddl-auto=validate','--logging.level.root=INFO')
-    if($EnableCollection){$args+='--COLLECTION_WORKER_ENABLED=true'}
-    if($EnableDomainHttp){$args+='--eodiisseo.owned-http.enabled=true'}
+    $owned = $EnableDomainHttp.IsPresent.ToString().ToLowerInvariant()
+    $ollama = $EnableLocalOllama.IsPresent.ToString().ToLowerInvariant()
+    $args+=@(
+      '--spring.datasource.url=jdbc:postgresql://127.0.0.1:55432/eodiisseo_local',
+      '--spring.flyway.locations=classpath:db/migration,classpath:db/owned-runtime',
+      "--spring.flyway.enabled=$($ApplyApprovedMigrations.IsPresent.ToString().ToLowerInvariant())",
+      '--COLLECTION_WORKER_ENABLED=false','--eodiisseo.disaster.collection.enabled=false',
+      "--EODIISSEO_AI_OLLAMA_ENABLED=$ollama",'--eodiisseo.fcm.enabled=false',
+      '--eodiisseo.runtime.enabled=false','--eodiisseo.notification.retry-worker.enabled=false',
+      '--eodiisseo.collection.login-plane.enabled=false','--MOCK_API_ENABLED=false',
+      '--eodiisseo.notification.crypto.enabled=false',
+      "--AUTH_BRIDGES_ENABLED=$owned","--eodiisseo.owned-http.enabled=$owned",
+      "--eodiisseo.owned-runtime.enabled=$owned","--eodiisseo.notification.persistence.enabled=$owned",
+      '--GOOGLE_CLIENT_IDS=','--GOOGLE_CLIENT_ID=','--GOOGLE_WEB_CLIENT_ID=',
+      '--KMA_SERVICE_KEY=','--DATA_GO_KR_SERVICE_KEY=','--TMAP_APP_KEY=',
+      '--external.tmap.app-key=','--external.safetydata.earthquake-shelter-key='
+    )
+    if($EnableDevelopmentKakaoOAuth){
+        $args+=@('--OAUTH_ALLOWED_REDIRECT_URIS=http://127.0.0.1:8082/')
+    }else{
+        $args+=@('--KAKAO_APP_ID=','--KAKAO_REST_API_KEY=','--KAKAO_CLIENT_SECRET=')
+    }
+    if($EnableLocalOllama){
+        $args+=@('--EODIISSEO_AI_OLLAMA_BASE_URL=http://127.0.0.1:11434',
+            '--EODIISSEO_AI_OLLAMA_ALLOWED_HOSTS=127.0.0.1',
+            '--EODIISSEO_AI_OLLAMA_MODEL=qwen3-vl:4b-instruct',
+            '--EODIISSEO_AI_OLLAMA_CONNECT_TIMEOUT=PT5S','--EODIISSEO_AI_OLLAMA_REQUEST_TIMEOUT=PT60S')
+    }
     $process=Start-Process -FilePath $java -ArgumentList $args -WorkingDirectory $backend -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logs 'backend.out.log') -RedirectStandardError (Join-Path $logs 'backend.err.log')
     [IO.File]::WriteAllText((Join-Path $logs 'backend.pid'),[string]$process.Id)
     $metadata=@{pid=$process.Id;jar=$jar.FullName;startedAtUtc=$process.StartTime.ToUniversalTime().ToString('O')}

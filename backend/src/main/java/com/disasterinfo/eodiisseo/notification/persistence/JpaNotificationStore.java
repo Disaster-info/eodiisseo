@@ -18,6 +18,7 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "eodiisseo.notification.persistence", name = "enabled", havingValue = "true")
 @Transactional
 public class JpaNotificationStore implements Store {
+    private static final String INITIAL_PLANNED = "INITIAL_PLANNED";
     private final EntityManager em;
     private final NotificationSettingRepository settings;
     private final NotificationDeviceRepository devices;
@@ -49,16 +50,24 @@ public class JpaNotificationStore implements Store {
 
     @Override public void upsertDevice(Device d) {
         requireActiveMemberLock(d.memberId());
-        // ON CONFLICT avoids a failed transaction while distinguishing installation ownership.
-        int inserted = nativeQuery("""
-                INSERT INTO device_token(device_token_id,member_id,device_id,token_hash,token_ciphertext,platform,active,updated_at)
-                VALUES (:id,:member,:device,:hash,:cipher,:platform,true,:updated) ON CONFLICT DO NOTHING
-                """, "id", d.id(), "member", d.memberId(), "device", d.deviceId(), "hash", d.tokenHash(),
-                "cipher", d.tokenCiphertext(), "platform", d.platform().name(), "updated", d.updatedAt()).executeUpdate();
-        if (inserted == 1) return;
-        Device owner = findDevice(d.deviceId());
-        if (owner == null) throw new NotificationException(NotificationException.Reason.DEVICE_TOKEN_CONFLICT);
-        if (!owner.memberId().equals(d.memberId())) throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
+        Device existing = findDevice(d.deviceId());
+        if (existing != null && !existing.memberId().equals(d.memberId()))
+            throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
+        if ((existing == null || !existing.active())
+                && devices.countByMemberIdAndActiveTrue(d.memberId()) >= MAX_DEVICES_PER_MEMBER)
+            throw new NotificationException(NotificationException.Reason.DEVICE_LIMIT_EXCEEDED);
+        if (existing == null) {
+            // A different member may race on the globally unique installation or token.
+            int inserted = nativeQuery("""
+                    INSERT INTO device_token(device_token_id,member_id,device_id,token_hash,token_ciphertext,platform,active,updated_at)
+                    VALUES (:id,:member,:device,:hash,:cipher,:platform,true,:updated) ON CONFLICT DO NOTHING
+                    """, "id", d.id(), "member", d.memberId(), "device", d.deviceId(), "hash", d.tokenHash(),
+                    "cipher", d.tokenCiphertext(), "platform", d.platform().name(), "updated", d.updatedAt()).executeUpdate();
+            if (inserted == 1) return;
+            if (findDevice(d.deviceId()) != null)
+                throw new NotificationException(NotificationException.Reason.DEVICE_OWNERSHIP_CONFLICT);
+            throw new NotificationException(NotificationException.Reason.DEVICE_TOKEN_CONFLICT);
+        }
         try {
             int changed = nativeQuery("""
                     UPDATE device_token SET token_hash=:hash,token_ciphertext=:cipher,platform=:platform,active=true,updated_at=:updated
@@ -101,6 +110,52 @@ public class JpaNotificationStore implements Store {
                 "created", e.createdAt(), "retention", e.retentionUntil()).executeUpdate() == 1;
     }
     @Override public Event findEvent(UUID id) { return events.findById(id).map(NotificationEntities.EventRecord::value).orElse(null); }
+    @Override public boolean supportsDurableInitialPlan() { return true; }
+
+    @Override public InitialPlan planInitialDeliveries(Event requested) {
+        if (!lockActiveMember(requested.memberId())) return new InitialPlan(requested, List.of(), false);
+        boolean created = claimEvent(requested);
+        Event event = requested;
+        if (!created) {
+            var ids = nativeQuery("""
+                    SELECT event_id FROM notification_event
+                    WHERE member_id=:member AND disaster_id=:disaster AND event_key=:key FOR UPDATE
+                    """, "member", requested.memberId(), "disaster", requested.disasterId(),
+                    "key", requested.eventKey()).getResultList();
+            if (ids.isEmpty()) return new InitialPlan(requested, List.of(), false);
+            event = findEvent(uuid(ids.getFirst()));
+        }
+        if (!requested.createdAt().isBefore(event.retentionUntil())) return new InitialPlan(event, List.of(), created);
+        UUID eventId = event.id();
+        // No prior delivery means the old process could not have crossed the submission boundary.
+        if (findDeliveries(eventId).isEmpty()) {
+            var active = findActiveDevices(event.memberId()).stream()
+                    .sorted(java.util.Comparator.comparing(Device::id)).toList();
+            if (active.isEmpty()) {
+                nativeQuery("""
+                        INSERT INTO notification_delivery(delivery_id,event_id,target_ordinal,attempt_no,result,error_code)
+                        VALUES (:id,:event,1,1,'FAILED','NO_VALID_DEVICE')
+                        """, "id", UUID.randomUUID(), "event", eventId).executeUpdate();
+            }
+            for (int i = 0; i < active.size(); i++) {
+                nativeQuery("""
+                        INSERT INTO notification_delivery(delivery_id,event_id,device_token_id,target_ordinal,attempt_no,result,error_code)
+                        VALUES (:id,:event,:device,:ordinal,1,'PENDING',:planned)
+                        """, "id", UUID.randomUUID(), "event", eventId, "device", active.get(i).id(),
+                        "ordinal", i + 1, "planned", INITIAL_PLANNED).executeUpdate();
+            }
+        }
+        List<?> pending = em.createNativeQuery("""
+                SELECT * FROM notification_delivery
+                WHERE event_id=:event AND attempt_no=1 AND result='PENDING' AND error_code=:planned
+                  AND submission_authorized_at IS NULL ORDER BY target_ordinal
+                """, NotificationEntities.DeliveryRecord.class)
+                .setParameter("event", eventId).setParameter("planned", INITIAL_PLANNED).getResultList();
+        List<Delivery> recoverable = pending.stream().map(NotificationEntities.DeliveryRecord.class::cast)
+                .map(NotificationEntities.DeliveryRecord::value).toList();
+        return new InitialPlan(event, recoverable, created);
+    }
+
     @Override public List<Delivery> findDeliveries(UUID eventId) { return deliveries.findByEventId(eventId).stream().map(NotificationEntities.DeliveryRecord::value).toList(); }
     @Override public boolean beginDelivery(Delivery d) {
         List<?> owners = nativeQuery("SELECT member_id FROM notification_event WHERE event_id=:event", "event", d.eventId()).getResultList();
@@ -143,6 +198,12 @@ public class JpaNotificationStore implements Store {
         return value instanceof Instant instant?instant:value instanceof java.sql.Timestamp stamp?stamp.toInstant():((java.time.OffsetDateTime)value).toInstant();
     }
     @Override public void finishDelivery(Delivery d) {
+        finishDelivery(d, false);
+    }
+    @Override public void finishUnsubmitted(Delivery d) {
+        finishDelivery(d, true);
+    }
+    private void finishDelivery(Delivery d, boolean beforeSubmission) {
         // Establish the same member -> event -> delivery lock order as withdrawal.
         List<?> owners = nativeQuery("SELECT member_id FROM notification_event WHERE event_id=:event", "event", d.eventId()).getResultList();
         if (owners.isEmpty()) return;
@@ -154,7 +215,8 @@ public class JpaNotificationStore implements Store {
                 UPDATE notification_delivery SET sent_at=:sent,result=:result,
                 provider_message_id=:provider,error_code=:error
                 WHERE delivery_id=:id AND event_id=:event AND result='PENDING'
-                """, "sent", d.sentAt(), "result", d.result().name(), "provider", providerId,
+                """ + (beforeSubmission ? " AND submission_authorized_at IS NULL" : ""),
+                "sent", d.sentAt(), "result", d.result().name(), "provider", providerId,
                 "error", d.errorCode(), "id", d.id(), "event", d.eventId()).executeUpdate();
         em.clear();
     }

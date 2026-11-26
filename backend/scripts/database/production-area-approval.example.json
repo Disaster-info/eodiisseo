@@ -1,0 +1,16 @@
+{
+  "status": "PENDING",
+  "target": "production",
+  "origin": "",
+  "payloadSha256": "81DEC63275B517B611A5358EBEE3FFA515D5239B8B6AB3297D7083F2825F8001",
+  "rows": 285,
+  "bytes": 64026755,
+  "reviewReference": "",
+  "legacyPlanReference": "",
+  "sourceUrl": "https://www.vworld.kr/dtmk/dtmk_ntads_s002.do?svcCde=NA&dsId=21",
+  "sourceDate": "2026-11-09",
+  "licenseUrl": "https://creativecommons.org/licenses/by/2.0/kr/",
+  "transformSha256": "E700428121569FD96D3171EF373A9F09CD7121D0FF0C33B84C14BA71ACBF6DEA",
+  "provenanceSha256": "0F966609AE1D85C304377DB34AE1B307F6639A5C46E56ABA00186B7DD178EF72",
+  "backupSha256": ""
+}

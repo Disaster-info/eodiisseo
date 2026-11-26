@@ -1,6 +1,8 @@
 package com.disasterinfo.eodiisseo.notification;
 
 import com.disasterinfo.eodiisseo.notification.NotificationContracts.Store;
+import com.disasterinfo.eodiisseo.auth.service.MemberCreated;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,6 +15,10 @@ import java.util.UUID;
 public class NotificationRetentionService {
     private final Optional<Store> store;
     public NotificationRetentionService(Optional<Store> store) { this.store = store; }
+    @EventListener
+    public void initializeSettingsForSignup(MemberCreated event) {
+        store.ifPresent(connected -> connected.initializeSettings(event.memberId(), event.createdAt()));
+    }
     @Transactional
     public void onMemberCreated(UUID memberId, Instant now) {
         if (memberId == null || now == null) throw NotificationService.invalid();

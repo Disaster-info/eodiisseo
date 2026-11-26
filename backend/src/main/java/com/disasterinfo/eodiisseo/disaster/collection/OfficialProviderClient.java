@@ -114,6 +114,11 @@ public final class OfficialProviderClient {
                 if(rows==null || "".equals(rows))throw new CollectionFailure("SCHEMA");
             }else{
                 body=map(envelope.get("body"));total=body.get("totalCount");Object container=body.get("items");
+                if (provider==Provider.EARTHQUAKE) {
+                    boolean empty="".equals(container) || (container instanceof List<?> list && list.isEmpty());
+                    boolean hasItems=container instanceof Map<?,?> wrapper && wrapper.get("item")!=null;
+                    if(!empty && !hasItems)throw new CollectionFailure("SCHEMA");
+                }
                 if(strictRain && (!body.keySet().containsAll(Set.of("pageNo","numOfRows","totalCount","items"))
                     ||container==null||(!(container instanceof Map<?,?>)&&!container.equals("")
                         &&!(container instanceof List<?> emptyList&&emptyList.isEmpty()))))throw new CollectionFailure("SCHEMA");

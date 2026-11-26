@@ -18,8 +18,9 @@ import org.springframework.context.annotation.*;
 @ConditionalOnBean(OwnedDatabase.class)
 public class DomainReadAutoConfiguration {
     @Bean @ConditionalOnMissingBean(com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterQueryReader.class)
-    public com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterQueryReader domainDisasterQueries(OwnedDatabase db,Clock clock){
-        return new com.disasterinfo.eodiisseo.disaster.adapter.JdbcDisasterQueryReader(db,clock);
+    public com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterQueryReader domainDisasterQueries(OwnedDatabase db,Clock clock,
+            com.disasterinfo.eodiisseo.disaster.service.OfficialDisasterQueryService officialQueries){
+        return new com.disasterinfo.eodiisseo.disaster.adapter.JdbcDisasterQueryReader(db,clock,officialQueries);
     }
     @Bean @ConditionalOnMissingBean(InterestAreas.class)
     public InterestAreas domainInterestAreas(OwnedDatabase db){return new AreaNotificationInterestAreas(db);}

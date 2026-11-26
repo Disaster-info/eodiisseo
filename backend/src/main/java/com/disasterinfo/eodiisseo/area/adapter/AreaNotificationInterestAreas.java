@@ -21,6 +21,24 @@ public class AreaNotificationInterestAreas implements InterestAreas {
     }
     public boolean isRelated(UUID disaster,UUID area){
         // Match documented administrative ancestry, never recipient names or epicenter proximity.
-        return db.count("with recursive region as (select a.area_code,a.parent_area_code from interest_area i join member m using(member_id) join admin_area a using(area_code) where i.interest_area_id=? and m.status='ACTIVE' and a.active union select a.area_code,a.parent_area_code from admin_area a join region r on a.area_code=r.parent_area_code where a.active) select count(*) from disaster_area da join disaster d using(disaster_id) where da.disaster_id=? and d.data_origin='OFFICIAL' and da.area_role='IMPACT' and da.area_code in (select area_code from region) and da.basis=case when exists(select 1 from disaster_area x where x.disaster_id=da.disaster_id and x.area_role='IMPACT' and x.basis='OFFICIAL') then 'OFFICIAL' else 'SOURCE_ADDRESS' end",area,disaster)>0;
+        return db.count("""
+                with recursive selected as (
+                    select a.area_code,a.parent_area_code from interest_area i join member m using(member_id)
+                    join admin_area a using(area_code) where i.interest_area_id=? and m.status='ACTIVE' and a.active
+                ), ancestors as (
+                    select * from selected union
+                    select a.area_code,a.parent_area_code from admin_area a join ancestors r on a.area_code=r.parent_area_code
+                    where a.active
+                ), descendants as (
+                    select * from selected union
+                    select a.area_code,a.parent_area_code from admin_area a join descendants r on a.parent_area_code=r.area_code
+                    where a.active
+                )
+                select count(*) from disaster_area da join disaster d using(disaster_id)
+                where da.disaster_id=? and d.data_origin='OFFICIAL' and da.area_role='IMPACT'
+                and da.area_code in (select area_code from ancestors union select area_code from descendants)
+                and da.basis=case when exists(select 1 from disaster_area x where x.disaster_id=da.disaster_id
+                  and x.area_role='IMPACT' and x.basis='OFFICIAL') then 'OFFICIAL' else 'SOURCE_ADDRESS' end
+                """,area,disaster)>0;
     }
 }

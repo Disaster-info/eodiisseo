@@ -13,4 +13,16 @@ class EarthquakeResponseContractTest {
  @ParameterizedTest @ValueSource(booleans={false,true}) void existingEmptyFormsAndValidShortPageArePreservedWithoutCoverageApproval(boolean hub){assertEquals(1,client(hub).decode(bytes(envelope(1,"{\"item\":["+ROW+"]}",",\"numOfRows\":10")),1).items().size());for(String empty:List.of("\"\"","[]","{\"item\":[]}"))assertTrue(client(hub).decode(bytes(envelope(0,empty,",\"numOfRows\":10")),1).items().isEmpty());String xml="<response><header><resultCode>00</resultCode></header><body><pageNo>1</pageNo><numOfRows>10</numOfRows><totalCount>0</totalCount><items/></body></response>";assertTrue(client(hub).decode(bytes(xml),1).items().isEmpty());}
  @ParameterizedTest @ValueSource(booleans={false,true}) void xmlTotalsAndDeclaredSizesAreValidatedOnBothRoutes(boolean hub){for(String metadata:List.of("<numOfRows>10</numOfRows><totalCount>0</totalCount>","<numOfRows>0</numOfRows><totalCount>1</totalCount>")){String xml="<response><header><resultCode>00</resultCode></header><body><pageNo>1</pageNo>"+metadata+"<items><item><tmSeq>1</tmSeq></item></items></body></response>";assertThrows(CollectionFailure.class,()->client(hub).decode(bytes(xml),1));}}
 
+ @ParameterizedTest
+ @ValueSource(booleans={false,true})
+ void malformedItemsCannotSupplyEmptyCoverage(boolean hub) {
+     for (String items : List.of("null", "0", "\"unexpected\"", "[{}]", "{\"other\":[]}", "{\"item\":null}")) {
+         CollectionFailure failure=assertThrows(CollectionFailure.class,
+             ()->client(hub).decode(bytes(envelope(0,items,"")),1));
+         assertEquals("SCHEMA",failure.code());
+     }
+     String missing=envelope(0,"\"\"","").replace(",\"items\":\"\"","");
+     assertEquals("SCHEMA",assertThrows(CollectionFailure.class,()->client(hub).decode(bytes(missing),1)).code());
+ }
+
 }

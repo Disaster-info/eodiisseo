@@ -11,7 +11,7 @@ public final class SyntheticRagEvaluation {
         public Question{requiredParagraphs=List.copyOf(requiredParagraphs);if((expected==null)!=requiredParagraphs.isEmpty())throw new IllegalArgumentException("EXPECTED_CONTEXT_REQUIRED");}
         public boolean unsupported(){return expected==null;}
     }
-    public record Metrics(int questions,int supported,int unsupported,int failures,double recallAt3,double mrr,
+    public record Metrics(int questions,int supported,int unsupported,int failures,double precisionAt3,double recallAt3,double mrr,
         double paragraphHitRate,double wrongHazardRate,double missingContextRate,double unsupportedResponseRate,
         double fallbackRate,double p50Millis,double p95Millis){}
     private static Document doc(String key,String hazard,String title,String... paragraphs){return new Document(UUID.nameUUIDFromBytes(("SYNTHETIC-RAG-"+key).getBytes(StandardCharsets.UTF_8)),hazard,"SYNTHETIC "+title,Arrays.asList(paragraphs));}
@@ -67,7 +67,8 @@ public final class SyntheticRagEvaluation {
             }
             if(correct)hit++;if(primary)paragraphHit++;if(incomplete)missing++;
         }
-        latency.sort(Long::compare);return new Metrics(questions.size(),supported,unsupported,failures,ratio(hit,supported),ratio(rr,supported),ratio(paragraphHit,supported),ratio(leak,returned),ratio(missing,supported),ratio(bad,unsupported),ratio(fallback,questions.size()),percentile(latency,.5),percentile(latency,.95));
+        // A supported question has exactly one gold document. Empty ranks count as non-relevant.
+        latency.sort(Long::compare);return new Metrics(questions.size(),supported,unsupported,failures,ratio(hit,3*supported),ratio(hit,supported),ratio(rr,supported),ratio(paragraphHit,supported),ratio(leak,returned),ratio(missing,supported),ratio(bad,unsupported),ratio(fallback,questions.size()),percentile(latency,.5),percentile(latency,.95));
     }
     private static double ratio(double n,int d){return d==0?0:n/d;}
     private static double percentile(List<Long> ns,double p){return ns.get(Math.max(0,(int)Math.ceil(ns.size()*p)-1))/1_000_000.0;}

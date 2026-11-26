@@ -19,7 +19,7 @@ class SyntheticRagEvaluationTest {
         var blocked=new SyntheticRagEvaluation.Question("BLOCKED",null,"BLOCKED",null,List.of());
         ChatOfficialResourceSearchPort strategy=q->new ChatOfficialResourceSearchPort.SearchResult(q.equals("GOOD")?List.of(evidence(other.id(),other.paragraphs().getFirst()),evidence(d.id(),String.join("\n\n",d.paragraphs()))):List.of(evidence(d.id(),d.paragraphs().getFirst())),true);
         var m=SyntheticRagEvaluation.evaluate(strategy,List.of(good,missing,blocked),docs);
-        assertThat(m.recallAt3()).isEqualTo(.5);assertThat(m.mrr()).isEqualTo(.25);assertThat(m.paragraphHitRate()).isEqualTo(1);assertThat(m.missingContextRate()).isEqualTo(.5);assertThat(m.unsupportedResponseRate()).isEqualTo(1);assertThat(m.wrongHazardRate()).isEqualTo(1.0/3);assertThat(m.p95Millis()).isGreaterThanOrEqualTo(m.p50Millis());
+        assertThat(m.precisionAt3()).isEqualTo(1.0/6);assertThat(m.recallAt3()).isEqualTo(.5);assertThat(m.mrr()).isEqualTo(.25);assertThat(m.paragraphHitRate()).isEqualTo(1);assertThat(m.missingContextRate()).isEqualTo(.5);assertThat(m.unsupportedResponseRate()).isEqualTo(1);assertThat(m.wrongHazardRate()).isEqualTo(1.0/3);assertThat(m.p95Millis()).isGreaterThanOrEqualTo(m.p50Millis());
         var missingPrimary=SyntheticRagEvaluation.evaluate(q->new ChatOfficialResourceSearchPort.SearchResult(List.of(evidence(d.id(),d.paragraphs().get(1))),true),List.of(good),docs);
         assertThat(missingPrimary.missingContextRate()).isEqualTo(1);assertThat(missingPrimary.paragraphHitRate()).isZero();
         var failed=SyntheticRagEvaluation.evaluate(q->{throw new IllegalStateException("SYNTHETIC");},List.of(good,blocked),docs);

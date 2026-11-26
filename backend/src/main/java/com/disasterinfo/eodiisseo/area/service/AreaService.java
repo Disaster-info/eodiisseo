@@ -1,6 +1,7 @@
 package com.disasterinfo.eodiisseo.area.service;
 
 import com.disasterinfo.eodiisseo.area.repository.AreaRepository;
+import com.disasterinfo.eodiisseo.area.AdministrativeAreaCode;
 import com.disasterinfo.eodiisseo.auth.exception.ApiProblem;
 import java.time.Clock;
 import java.util.*;
@@ -14,7 +15,7 @@ public class AreaService {
     private final AreaRepository repository;private final Clock clock;
     public AreaService(AreaRepository repository,Clock clock){this.repository=repository;this.clock=clock;}
     @Transactional public Map<String,Object> create(UUID member,String code,String name){
-        repository.lock(member);validate(code,name);
+        repository.lock(member);code=AdministrativeAreaCode.catalogKey(code);validate(code,name);
         if(repository.duplicate(member,code,new UUID(0,0)))throw ApiProblem.conflict("INTEREST_AREA_DUPLICATED");
         if(repository.count(member)>=5)throw ApiProblem.conflict("INTEREST_AREA_LIMIT_EXCEEDED");
         UUID id=UUID.randomUUID();repository.create(id,member,code,name.strip(),clock.instant());return response(id,code,name.strip());
@@ -23,7 +24,7 @@ public class AreaService {
     @Transactional public Map<String,Object> update(UUID member,UUID id,String code,String name){
         repository.lock(member);var old=owned(member,id);
         if(code==null&&name==null)throw ApiProblem.bad("변경할 항목이 필요합니다.");
-        code=code==null?(String)old.get("area_code"):code;name=name==null?(String)old.get("display_name"):name;
+        code=code==null?(String)old.get("area_code"):AdministrativeAreaCode.catalogKey(code);name=name==null?(String)old.get("display_name"):name;
         validate(code,name);
         if(repository.duplicate(member,code,id))throw ApiProblem.conflict("INTEREST_AREA_DUPLICATED");
         repository.update(id,code,name.strip());return response(id,code,name.strip());

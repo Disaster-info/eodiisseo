@@ -96,6 +96,19 @@ public class NotificationDispatchService {
                             increase ? EventKind.SEVERITY_INCREASE : EventKind.INITIAL,
                             disaster.severity() == null ? null : disaster.severity().id(), disaster.title(),
                             now, now.plus(Duration.ofDays(30)), null);
+                    if (store.get().supportsDurableInitialPlan()) {
+                        InitialPlan plan = store.get().planInitialDeliveries(event);
+                        if (plan.created()) created++;
+                        else if (plan.pending().isEmpty()) skipped++;
+                        for (Delivery pending : plan.pending()) {
+                            var device = store.get().findActiveDevices(memberId).stream()
+                                    .filter(d -> d.id().equals(pending.deviceTokenId())).findFirst().orElse(null);
+                            DeliveryResult result = submit(plan.event(), device, pending, disaster, time);
+                            if (result == DeliveryResult.SUCCESS) success++;
+                            else if (result == DeliveryResult.FAILED) failed++;
+                        }
+                        continue;
+                    }
                     if (!store.get().claimEvent(event)) { skipped++; continue; }
                     created++;
                     List<Device> devices = store.get().findActiveDevices(memberId);
@@ -188,6 +201,16 @@ public class NotificationDispatchService {
         Delivery pending = new Delivery(UUID.randomUUID(), event.id(), current.id(), ordinal,
                 attemptNo, null, DeliveryResult.PENDING, null, null);
         if (!data.beginDelivery(pending)) return null;
+        return submit(event, current, pending, disaster, time);
+    }
+
+    private DeliveryResult submit(Event event, Device current, Delivery pending,
+                                  OfficialDisaster disaster, DispatchTime time) {
+        Store data = store.orElseThrow();
+        if (current == null) {
+            data.finishUnsubmitted(completed(pending, null, DeliveryResult.FAILED, null, "DEVICE_REGISTRATION_CHANGED"));
+            return DeliveryResult.FAILED;
+        }
         String error = null, providerId = null;
         Instant sentAt = null;
         boolean success = false;
@@ -249,9 +272,15 @@ public class NotificationDispatchService {
             success = false; providerId = null;
         }
         DeliveryResult outcome = success ? DeliveryResult.SUCCESS : DeliveryResult.FAILED;
-        data.finishDelivery(new Delivery(pending.id(), pending.eventId(), pending.deviceTokenId(), ordinal,
-                attemptNo, sentAt, outcome, providerId, error));
+        var finished = completed(pending, sentAt, outcome, providerId, error);
+        if (sentAt == null) data.finishUnsubmitted(finished);
+        else data.finishDelivery(finished);
         return outcome;
+    }
+
+    private static Delivery completed(Delivery pending, Instant sentAt, DeliveryResult result, String provider, String error) {
+        return new Delivery(pending.id(), pending.eventId(), pending.deviceTokenId(), pending.targetOrdinal(),
+                pending.attemptNo(), sentAt, result, provider, error);
     }
 
     private static boolean acceptanceUnknown(Delivery attempt) {
