@@ -11,10 +11,12 @@ COPY . .
 # EXPO_PUBLIC_* 는 빌드할 때 JS 코드에 그대로 박힘 → 값을 바꾸면 이미지를 다시 빌드해야 함 (비밀값 넣지 않기)
 # API_URL 을 비워 두면 웹은 같은 서버의 /api/... 로 요청 → nginx 가 백엔드로 전달 (CORS 설정 필요 없음)
 ARG EXPO_PUBLIC_API_URL=""
+ARG EXPO_PUBLIC_TMAP_MAP_KEY=""
 ARG EXPO_PUBLIC_TMAP_APP_KEY=""
 ARG EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=""
 ARG EXPO_PUBLIC_KAKAO_REST_API_KEY=""
-RUN npx expo export -p web
+# 웹 빌드 + 자산 경로 보정(assets/node_modules → assets/vendor). Cloudflare 배포와 같은 명령을 씀
+RUN npm run build:web
 
 FROM nginx:1.27-alpine
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf

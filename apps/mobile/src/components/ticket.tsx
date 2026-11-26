@@ -67,7 +67,8 @@ export function Field({ label, value, color, mono }: { label: string; value: str
   return (
     <View style={{ flex: 1, minWidth: 0 }} accessible accessibilityLabel={`${label} ${value}`}>
       <Text style={s.small}>{label}</Text>
-      <Text style={[s.bold, mono && { fontFamily: MONO, fontSize: 20, lineHeight: 26, color: C.carbon }, color && { color }]} numberOfLines={1}>{value}</Text>
+      {/* 시각(MM-DD HH:mm)은 좁은 화면에서 한 줄이면 끝의 시간이 '…'로 잘림 → 두 줄까지 (넓은 화면은 그대로 한 줄) */}
+      <Text style={[s.bold, mono && { fontFamily: MONO, fontSize: 20, lineHeight: 26, color: C.carbon }, color && { color }]} numberOfLines={mono ? 2 : 1}>{value}</Text>
     </View>
   );
 }

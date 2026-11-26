@@ -10,12 +10,28 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); }
 }
 
-/** 로그인이 필요한 API 를 JSON 으로. 204 는 null. 실패 상태면 서버 문구(없으면 기본 문구)로 ApiError */
-export async function call<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await api(path, init.body ? { ...init, headers: { 'Content-Type': 'application/json', ...init.headers } } : init);
+// 상태별 안내: 서버 문구가 없거나(nginx 의 HTML 오류 페이지 등) 한국어가 아니면 이 문구로
+// 413·429 는 프록시(nginx)가 먼저 막으면 본문이 HTML 이라 서버 문구가 없음
+const STATUS_TEXT: Record<number, string> = {
+  400: '입력한 내용을 확인해 주세요.',
+  401: '로그인이 만료됐어요. 다시 로그인해 주세요.',
+  403: '이 기능을 사용할 권한이 없어요.',
+  404: '요청한 정보를 찾을 수 없어요.',
+  409: '다른 변경과 겹쳤어요. 화면을 새로고침한 뒤 다시 시도해 주세요.',
+  413: '보내는 내용이 너무 커요. 내용을 줄여서 다시 시도해 주세요.',
+  429: '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.',
+  503: '서비스를 잠시 사용할 수 없어요. 잠시 후 다시 시도해 주세요.',
+};
+const korean = (s: unknown): s is string => typeof s === 'string' && /[가-힣]/.test(s);
+const errorText = (status: number, message: unknown) =>
+  korean(message) ? message : STATUS_TEXT[status] ?? `서버 오류가 났어요. 잠시 후 다시 시도해 주세요. (${status})`;
+
+/** 로그인이 필요한 API 를 JSON 으로. 204 는 null. 실패 상태면 서버 문구(없으면 상태별 문구)로 ApiError. ms = 응답 제한 시간 */
+export async function call<T = any>(path: string, init: RequestInit = {}, ms?: number): Promise<T> {
+  const res = await api(path, init.body ? { ...init, headers: { 'Content-Type': 'application/json', ...init.headers } } : init, ms);
   if (res.status === 204) return null as T;
   const json = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(json?.message ?? `서버 오류가 났어요. (${res.status})`, res.status, json?.code);
+  if (!res.ok) throw new ApiError(errorText(res.status, json?.message), res.status, json?.code);
   if (json === null) throw new ApiError('서버 응답이 올바르지 않아요. 잠시 후 다시 시도해 주세요.', res.status);
   return json as T;
 }
@@ -66,6 +82,15 @@ async function allPages(type: string | undefined, status: string): Promise<RawDi
     if (rows.length < PAGE) return out;
   }
   throw new ApiError('재난 정보가 너무 많아 모두 받지 못했어요.', 0);
+}
+// 재난 목록 화면용: 상태별로 page 번째 묶음(size 개)만 받음 → 아래로 내리면 다음 묶음. more = 다음 묶음이 더 있을 수 있음
+// (홈 화면은 영향 판단에 전체가 필요해 fetchDisasters 로 모두 받음)
+export async function fetchDisasterPage(opt: { type?: DisasterType; ended?: boolean }, page: number, size = 20): Promise<{ items: Disaster[]; more: boolean }> {
+  const type = opt.type ? TYPE_CODE[opt.type] : undefined;
+  const statuses = opt.ended ? ['ENDED', 'LIFTED'] : ['OCCURRED', 'ONGOING'];
+  const rows = await Promise.all(statuses.map(status =>
+    call<{ disasters: RawDisaster[] }>(`/api/v1/disasters?${q({ type, status, page, size })}`).then(r => r.disasters ?? [])));
+  return { items: rows.flat().map(toDisaster).filter((d): d is Disaster => !!d), more: rows.some(r => r.length === size) };
 }
 export async function fetchDisasters(opt: { type?: DisasterType; ended?: boolean } = {}): Promise<Disaster[]> {
   const type = opt.type ? TYPE_CODE[opt.type] : undefined;
@@ -253,8 +278,10 @@ export const checkItem = (listId: string, itemId: string, completed: boolean) =>
   call(`/api/v1/checklists/${listId}/items/${itemId}/completion`, send('PATCH', { completed }));
 
 // ── AI 행동요령 (FS-CHAT-001) ─────────────────────────
+export const AI_QUESTION_MAX = 2000; // 백엔드 ChatRequest.MAX_LENGTH 와 같게
+// 공식 자료 검색 + AI 생성이라 일반 요청(15초)보다 길게 기다림
 export async function askGuidance(question: string) {
-  const r = await call<{ answerType: 'AI' | 'FALLBACK'; answer: string; sources: { organization: string; title: string }[] }>('/api/v1/ai/guidance', send('POST', { question }));
+  const r = await call<{ answerType: 'AI' | 'FALLBACK'; answer: string; sources: { organization: string; title: string }[] }>('/api/v1/ai/guidance', send('POST', { question }), 60_000);
   return { text: r.answer, fallback: r.answerType !== 'AI', sources: (r.sources ?? []).map(x => `${x.organization} · ${x.title}`) };
 }
 

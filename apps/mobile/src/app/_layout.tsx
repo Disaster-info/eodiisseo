@@ -1,10 +1,11 @@
 // 앱 시작점: 전역 상태 + 테마 + 화면 스택. 로그인 여부로 접근 가능한 화면을 나눔 (FS-AUTH-004)
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
+import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import * as WebBrowser from 'expo-web-browser';
-import { Platform, Pressable, Text, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { AppThemeProvider, useTheme } from '../components/ui';
@@ -34,7 +35,11 @@ function Navigator({ dark }: { dark: boolean }) {
   const { ready, member, needConsent, needLocation } = useApp();
   const { C } = useTheme();
   useEffect(() => { if (ready) SplashScreen.hideAsync().catch(() => {}); }, [ready]);
-  if (!ready) return null; // 저장된 로그인 확인 중 — 이 동안은 스플래시가 덮고 있음. 끝나면 로그인 화면 또는 바로 홈
+  // 저장된 로그인 확인 중 — 앱은 이 동안 스플래시가 덮고 있음. 끝나면 로그인 화면 또는 바로 홈
+  // 웹은 스플래시가 없어 서버 응답이 늦으면 흰 화면만 보임 → 로딩 표시
+  if (!ready) return Platform.OS === 'web'
+    ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg }}><ActivityIndicator color={C.primary} accessibilityLabel="로그인 정보를 확인하는 중" /></View>
+    : null;
   const base = dark ? DarkTheme : DefaultTheme;
   const navTheme = { ...base, colors: { ...base.colors, primary: C.primary, background: C.bg, card: C.card, text: C.text, border: C.border } };
 
@@ -43,7 +48,7 @@ function Navigator({ dark }: { dark: boolean }) {
       {/* 로그인·위치 동의 화면(밝은 바탕, 헤더 없음) 밖은 모두 페트롤 블루 헤더 또는 어두운 홈이라 밝은 상태 표시줄 */}
       <StatusBar style={dark || (member && !needConsent) ? 'light' : 'dark'} />
       {/* 상세 화면들도 페트롤 블루 헤더 + 흰 글자 (탭 화면과 같은 머리) */}
-      <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal', headerTintColor: '#FFFFFF', headerTitleStyle: { fontWeight: '700', color: '#FFFFFF' },
+      <Stack screenOptions={{ headerBackImageSource: WEB_BACK_ICON, headerBackButtonDisplayMode: 'minimal', headerTintColor: '#FFFFFF', headerTitleStyle: { fontWeight: '700', color: '#FFFFFF' },
         headerStyle: { backgroundColor: C.head }, headerShadowVisible: false }}>
         {/* 상태마다 열 수 있는 화면만 남김 → 상태가 바뀌면 라우터가 첫 번째로 열 수 있는 화면으로 한 번에 이동
             비로그인 → 로그인 / 로그인 직후 동의 전 → 위치 동의 / 동의 거부·기준 위치 없음 → 위치 직접 지정 / 그 외 → 탭
@@ -81,10 +86,21 @@ function Navigator({ dark }: { dark: boolean }) {
   );
 }
 
+// 웹 배포본(Cloudflare)은 node_modules 폴더를 올리지 않아, 라이브러리가 그 아래에서 부르는 아이콘 폰트·뒤로 가기 이미지가 404
+// → 같은 파일을 프로젝트 assets 에 두고 웹에서는 그쪽을 씀 (빌드 명령과 관계없이 동작. 앱은 라이브러리 기본 그대로)
+// 아이콘 라이브러리는 'Ionicons' 폰트가 이미 등록돼 있으면 자기 폰트 파일을 요청하지 않음 → 화면을 그리기 전에 먼저 등록
+const WEB_FONTS: Record<string, number> = Platform.OS === 'web' ? { Ionicons: require('../../assets/fonts/Ionicons.ttf') } : {};
+const WEB_BACK_ICON = Platform.OS === 'web' ? require('../../assets/images/back-icon.png') : undefined;
+
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts(WEB_FONTS);
   if (isAuthPopup) return null;
+  // 폰트가 올 때까지 잠깐 로딩 (아이콘이 빈칸으로 그려졌다 바뀌지 않게). 실패해도 앱은 염 (아이콘만 빈칸)
+  if (Platform.OS === 'web' && !fontsLoaded && !fontError) {
+    return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E7EAF0' }}><ActivityIndicator color="#0B4A6B" accessibilityLabel="화면을 준비하는 중" /></View>;
+  }
   return (
-    // KeyboardProvider: 키보드 애니메이션을 프레임 단위로 받아 입력창을 키보드와 동시에 움직임 (Expo Go 포함)
+    // KeyboardProvider: 키보드 애니메이션을 프레임 단위로 받아 입력창을 키보드와 동시에 움직임
     // GestureHandlerRootView: 탭 좌우 스와이프(react-native-gesture-handler)가 동작하려면 앱 맨 바깥에 필요
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>

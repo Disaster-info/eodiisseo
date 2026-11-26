@@ -1,6 +1,6 @@
 // 공통 UI 컴포넌트 + 스타일
 import { ComponentProps, ReactNode, createContext, useContext, useState } from 'react';
-import { ActionSheetIOS, Alert, Linking, Modal, Platform, Pressable, PressableProps, ScrollViewProps, StyleSheet, Switch, SwitchProps, Text, View, useWindowDimensions } from 'react-native';
+import { ActionSheetIOS, Alert, Modal, Platform, Pressable, PressableProps, ScrollViewProps, StyleSheet, Switch, SwitchProps, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { Stack } from 'expo-router';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
@@ -38,7 +38,6 @@ const LIGHT = {
   bar: '#FFFFFF', barBorder: '#D3DEEA',
   rim: '#000000', // 아이콘·배지 테두리: 색이 바탕과 비슷해도 경계가 보이게 (바탕 대비 17.8:1)
   sign: SIGN, signInk: SIGN_INK, signLine: SIGN_LINE, onSign: '#FFFFFF',
-  emergency: SIGN.red, // 119 전화 버튼: 어느 테마·시안에서도 강한 빨강
   // C안(탑승권): navy = 승차권 머리 띠·채운 버튼 색(페트롤 블루로 통일), 고정폭 숫자색, 절취선 / B안(노선도): 노선 녹색, 출구 번호 노랑
   navy: '#0B4A6B', carbon: '#4A3C8C', perf: '#C3CAD6',
   // 화면 상단(헤더 + 본문 위 띠) = 페트롤 블루. headSub = 띠 위 보조 글자, headLine = 띠 위 칩 테두리
@@ -53,7 +52,6 @@ const DARK: typeof LIGHT = {
   bar: '#1C1F22', barBorder: '#30353A',
   rim: '#C9CED6', // 어두운 하얀색 (바탕 대비 11.7:1)
   ...DARK_SIGN, onSign: '#FFFFFF',
-  emergency: SIGN.red,
   navy: '#0B4A6B', carbon: '#B9AEF0', perf: '#3A4048',
   head: '#0B4A6B', headSub: '#CFE3EE', headLine: '#4C82A3',
   line: '#2F9466', exit: '#FFC629', tabOn: '#7DB2EC',
@@ -87,15 +85,6 @@ export function confirm(title: string, message: string, okText: string, onOk: ()
 export function notify(title: string, message = '') {
   if (Platform.OS === 'web') window.alert(message ? `${title}\n\n${message}` : title);
   else Alert.alert(title, message);
-}
-
-// 119 전화. 전화 기능이 없는 기기(태블릿·컴퓨터 등)는 실패하므로 안내로 대신 (홈·행동요령 화면이 함께 씀)
-// 웹은 tel: 링크를 열기만 하고 늘 성공으로 처리해 전화가 연결됐는지 알 수 없음 → 웹은 열리지 않았을 때의 안내를 항상 함께 띄움
-export function dial119() {
-  const noPhone = () => notify('이 기기에서는 전화를 걸 수 없어요', '휴대폰으로 119에 전화하거나, 119로 문자를 보내 신고하세요.');
-  Linking.openURL('tel:119').then(() => {
-    if (Platform.OS === 'web') notify('119 전화', '전화 앱이 열리지 않으면 휴대폰으로 119에 전화하거나, 119로 문자를 보내 신고하세요.');
-  }, noPhone);
 }
 
 // 행마다 붙는 보조 동작(이름 변경·삭제 등)을 '…' 버튼 하나로 모음. 작은 글자 링크를 나란히 두지 않음

@@ -26,3 +26,7 @@ jobs:
       - run: npx tsc --noEmit
         if: ${{ hashFiles('apps/mobile/tsconfig.json') != '' }}
       - run: npm test --if-present -- --watchAll=false
+      # Cloudflare 와 같은 웹 빌드 (env 검사 + 아이콘 자산 경로 보정까지 실패하면 여기서 잡힘)
+      - run: npm run build:web
+        env:
+          EXPO_PUBLIC_API_URL: https://api.example.com

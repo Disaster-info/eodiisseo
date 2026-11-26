@@ -32,6 +32,7 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addMapping("/api/**")
                 .allowedOriginPatterns(allowedOriginPatterns)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE")
+                .allowCredentials(true) // 웹 refresh 토큰 HttpOnly 쿠키(M5) 전달. 허용 출처 목록에 * 를 넣으면 안 됨
                 .exposedHeaders(TraceIdFilter.HEADER); // 브라우저 JS가 응답의 X-Trace-Id를 읽을 수 있도록
     }
 }

@@ -11,6 +11,7 @@
     "expo-build-properties": "~58.0.12",
     "expo-clipboard": "~58.0.4",
     "expo-constants": "~58.0.13",
+    "expo-dev-client": "~58.0.21",
     "expo-font": "~58.0.10",
     "expo-linking": "~58.0.14",
     "expo-location": "~58.0.20",
@@ -41,10 +42,14 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
+    "build:web": "node scripts/check-web-env.mjs && expo export --platform web && node scripts/fix-web-assets.mjs dist",
     "lint": "expo lint"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
 }
