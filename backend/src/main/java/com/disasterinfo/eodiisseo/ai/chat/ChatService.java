@@ -41,6 +41,7 @@ import java.util.concurrent.TimeoutException;
  */
 @Service
 public class ChatService {
+    private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(ChatService.class);
 
     public static final Duration RESPONSE_LIMIT = Duration.ofMinutes(10);
     private static final String FALLBACK_ANSWER = "공식기관에서 제공하는 재난 행동요령을 확인하세요.";
@@ -53,6 +54,7 @@ public class ChatService {
     private final Optional<ChatPromptPrivacyPort> promptPrivacy;
     private final Optional<ChatEvidenceCommitPort> completion;
     private final Clock clock;
+    private final Duration responseLimit;
     private final Set<UUID> generatingMembers = ConcurrentHashMap.newKeySet();
 
     public ChatService(Optional<ChatAuthenticationPort> authentication,Optional<ChatOfficialResourceSearchPort> officialSearch,
@@ -64,8 +66,11 @@ public class ChatService {
                        Optional<ChatAnswerGenerationPort> generation,
                        Optional<ChatAnswerStore> persistence,
                        Optional<ChatRetentionPolicy> retention,
-                       Optional<ChatPromptPrivacyPort> promptPrivacy, Optional<ChatEvidenceCommitPort> completion) {
-        this(authentication, officialSearch, generation, persistence, retention, promptPrivacy, Clock.systemUTC(), completion);
+                       Optional<ChatPromptPrivacyPort> promptPrivacy, Optional<ChatEvidenceCommitPort> completion,
+                       @org.springframework.beans.factory.annotation.Value("${EODIISSEO_AI_GUIDANCE_BUDGET:PT12S}")
+                       String responseLimit) {
+        this(authentication, officialSearch, generation, persistence, retention, promptPrivacy, Clock.systemUTC(), completion,
+                Duration.parse(responseLimit));
     }
 
     ChatService(Optional<ChatAuthenticationPort> authentication,
@@ -78,6 +83,16 @@ public class ChatService {
     public ChatService(Optional<ChatAuthenticationPort> authentication, Optional<ChatOfficialResourceSearchPort> officialSearch,
             Optional<ChatAnswerGenerationPort> generation, Optional<ChatAnswerStore> persistence, Optional<ChatRetentionPolicy> retention,
             Optional<ChatPromptPrivacyPort> promptPrivacy, Clock clock, Optional<ChatEvidenceCommitPort> completion) {
+        this(authentication,officialSearch,generation,persistence,retention,promptPrivacy,clock,completion,RESPONSE_LIMIT);
+    }
+    private ChatService(Optional<ChatAuthenticationPort> authentication, Optional<ChatOfficialResourceSearchPort> officialSearch,
+            Optional<ChatAnswerGenerationPort> generation, Optional<ChatAnswerStore> persistence, Optional<ChatRetentionPolicy> retention,
+            Optional<ChatPromptPrivacyPort> promptPrivacy, Clock clock, Optional<ChatEvidenceCommitPort> completion,
+            Duration responseLimit) {
+        if (responseLimit.isZero() || responseLimit.isNegative() || responseLimit.compareTo(RESPONSE_LIMIT)>0) {
+            throw new IllegalArgumentException("Invalid AI guidance budget.");
+        }
+        this.responseLimit=responseLimit;
         this.completion=Objects.requireNonNull(completion);
         this.authentication = Objects.requireNonNull(authentication);
         this.officialSearch = Objects.requireNonNull(officialSearch);
@@ -100,7 +115,7 @@ public class ChatService {
         }
         Outcome outcome;
         try {
-            outcome = generate(authenticatedMemberId, question, requestedAt.plus(RESPONSE_LIMIT));
+            outcome = generate(authenticatedMemberId, question, requestedAt.plus(responseLimit));
         } finally {
             generatingMembers.remove(authenticatedMemberId);
         }
@@ -123,8 +138,12 @@ public class ChatService {
             });
         } catch (ChatException failure) { throw failure; }
         catch (RuntimeException failure) {
-            throw new ChatException(ChatException.Reason.UNAUTHENTICATED,"An authenticated active member and valid service session are required.");
+            LOG.warn("ai guidance transaction failed traceId={} exceptionType={}",
+                    org.slf4j.MDC.get("traceId"),failure.getClass().getSimpleName());
+            throw new ChatException(ChatException.Reason.PERSISTENCE_FAILURE,"AI guidance persistence failed.");
         }
+        LOG.info("ai guidance traceId={} outcome={} durationMs={}",org.slf4j.MDC.get("traceId"),
+                finished[0].status(),Duration.between(requestedAt,clock.instant()).toMillis());
         return new ChatResponse(finished[0].status()==Status.COMPLETED?AnswerType.AI:AnswerType.FALLBACK,
             finished[0].text(),finished[0].usedResources().stream().map(r->new Source(r.organization(),r.title())).toList(),saved[0].getCompletedAt());
     }
@@ -192,7 +211,7 @@ public class ChatService {
             if(stillApproved==null || stillApproved.isEmpty() || !stillApproved.get().usableForOutbound()
                     || !safeQuestion.equals(stillApproved.get().safeQuestion()))return basicGuidance;
             // Recheck current approvals after privacy/consent and immediately before outbound generation.
-            Map<UUID,OfficialResource> currentEvidence=validateEvidence(deadline.await(()->officialSearch.orElseThrow().search(searchQuestion)));
+            Map<UUID,OfficialResource> currentEvidence=validateEvidence(deadline.await(()->recheck(searchQuestion,searchResult)));
             if(!currentEvidence.entrySet().containsAll(evidence.entrySet()))return fallback(Status.INSUFFICIENT).withQuestion(safeQuestion);
             ChatAnswerGenerationPort generator=generation.orElseThrow();
             if(officialSearch.orElseThrow() instanceof ChatEvidenceGenerationPolicy policy)generator=policy.guardGeneration(generator);
@@ -205,7 +224,7 @@ public class ChatService {
             var postModelPrivacy=deadline.await(()->promptPrivacy.orElseThrow().minimizeLocally(memberId,question));
             if(postModelPrivacy==null||postModelPrivacy.isEmpty()||!postModelPrivacy.get().usableForOutbound()||!safeQuestion.equals(postModelPrivacy.get().safeQuestion()))return fallback(Status.FALLBACK).withQuestion(safeQuestion);
             // A review can expire or be revoked while the model is working. Do not publish stale evidence.
-            Map<UUID,OfficialResource> finalEvidence=validateEvidence(deadline.await(()->officialSearch.orElseThrow().search(searchQuestion)));
+            Map<UUID,OfficialResource> finalEvidence=validateEvidence(deadline.await(()->recheck(searchQuestion,searchResult)));
             if(answer.usedResourceIds().stream().anyMatch(id->!Objects.equals(evidence.get(id),finalEvidence.get(id))))
                 return fallback(Status.INSUFFICIENT).withQuestion(safeQuestion);
             List<OfficialResource> used = answer.usedResourceIds().stream().distinct()
@@ -220,6 +239,13 @@ public class ChatService {
             // Provider details can contain prompts, locations, tokens or keys. Do not expose them.
             return basicGuidance.withStatus(Status.FAILED);
         }
+    }
+
+    private SearchResult recheck(String question, SearchResult evidence) {
+        var search = officialSearch.orElseThrow();
+        return search instanceof ChatEvidenceGenerationPolicy policy
+                ? policy.recheck(question, evidence)
+                : search.search(question);
     }
 
     private static Outcome selectedBasicGuidance(SearchResult searchResult) {

@@ -40,10 +40,6 @@ public final class OllamaSummaryGenerator implements SummaryGenerator {
             Prefer paragraphs covering the reported disaster and official precautions.
             If no supported content can be selected, return {"excerpts":[]}.
             """;
-    private static final Map<String, Object> RESPONSE_SCHEMA = Map.of(
-            "type", "object", "additionalProperties", false,
-            "required", List.of("excerpts"), "properties", Map.of("excerpts", Map.of(
-                    "type", "array", "items", Map.of("type", "string"))));
 
     private final OllamaChatClient client;
     private final Clock clock;
@@ -90,7 +86,10 @@ public final class OllamaSummaryGenerator implements SummaryGenerator {
                 "originalText", revision.originalText(), "allowedParagraphs", paragraphs));
         OllamaChatClient.Response response;
         try {
-            response = client.chat(SYSTEM_PROMPT, data, RESPONSE_SCHEMA, null);
+            Map<String, Object> schema = Map.of("type", "object", "additionalProperties", false,
+                    "required", List.of("excerpts"), "properties", Map.of("excerpts", Map.of(
+                            "type", "array", "items", Map.of("type", "string", "enum", paragraphs))));
+            response = client.chat(SYSTEM_PROMPT, data, schema, null);
         } catch (OllamaException failure) {
             if (failure.reason() == OllamaException.Reason.CAPACITY_EXCEEDED) throw new CapacityUnavailable();
             throw failure;

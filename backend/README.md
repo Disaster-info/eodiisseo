@@ -150,7 +150,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/database/Run
 
 `db/assigned/V2026101601`~`1605`는 기존 이력과 기존 격리 테스트를 위해 보존하지만 기본 실행 경로에서는 제외합니다. 독립 DDL과 새 마이그레이션을 같은 DB에 중복 실행하지 마세요. 기존 assigned 이력이 있는 DB를 자동 전환하거나 baseline/repair/clean하지 않습니다. 그런 DB는 별도의 현황 조사와 전환 migration이 필요합니다.
 
-`Test-LocalDatabase.ps1`는 기존 타 기능 audit 테스트가 직접 만드는 최소 스키마에서는 Flyway를 끄고, `CanonicalDatabaseIntegrationTest`에서는 완전히 새 DB에 실제 production migrations를 명시적으로 실행합니다. 따라서 최소 fixture와 실제 전체 스키마 검증이 섞이지 않습니다. Docker 전용 테스트와 실제 Ollama 호출 테스트는 각각 해당 환경이 있어야 실행됩니다.
+`Test-LocalDatabase.ps1`는 기존 타 기능 audit 테스트가 직접 만드는 최소 스키마에서는 Flyway를 끄고, `CanonicalDatabaseIntegrationTest`에서는 완전히 새 DB에 실제 production migrations를 명시적으로 실행합니다. 따라서 최소 fixture와 실제 전체 스키마 검증이 섞이지 않습니다. Docker 전용 테스트와 실제 Ollama 호출 테스트는 각각 해당 환경이 있어야 실행됩니다. [로컬 Ollama 실행과 RAG 검증](docs/local-ollama-audit.md)
+
+공식 행정구역 데이터의 변환과 검증, OPS 적재 리허설은 격리 Audit DB에서 실행합니다. [행정구역 검증 가이드](docs/administrative-area-audit.md)
 
 API 키는 `.env`에 `KMA_SERVICE_KEY` 또는 `DATA_GO_KR_SERVICE_KEY`, `GOOGLE_CLIENT_IDS`, `KAKAO_APP_ID` 등으로 별도 설정합니다. 키·토큰·DB 비밀번호는 커밋하지 않습니다. 실제 사용자 로그인은 앱에서 얻은 Google ID token 또는 Kakao access token으로 확인해야 합니다.
 

@@ -2,10 +2,16 @@ param(
     [Parameter(Mandatory=$true)][string]$InputFile,
     [Parameter(Mandatory=$true)][string]$ExpectedSha256,
     [uri]$BaseUri,
-    [switch]$Apply
+    [switch]$Apply,
+    [switch]$AllowLocalDevelopment,
+    [string]$ApprovalManifest,
+    [string]$ExpectedManifestSha256
 )
 $ErrorActionPreference = 'Stop'
 $path = (Resolve-Path -LiteralPath $InputFile).Path
+if ($Apply -and !$path.EndsWith('.approved.json',[StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Only a reviewed .approved.json file can be applied. Audit and candidate payloads cannot be applied.'
+}
 $bytes = [IO.File]::ReadAllBytes($path)
 $sha = [Security.Cryptography.SHA256]::Create()
 try { $digest = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '') }
@@ -24,18 +30,65 @@ foreach ($area in $areas) {
         throw 'Every active SIGUNGU must have a reviewed polygon boundary.'
     }
 }
-if (!$Apply) { return [pscustomobject]@{ rows = $areas.Count; sha256 = $digest; applied = $false } }
-if (!$BaseUri -or !$BaseUri.IsAbsoluteUri -or $BaseUri.Scheme -ne 'https' -or
+if (!$Apply) { return [pscustomobject]@{ rows = $areas.Count; bytes = $bytes.Length; sha256 = $digest; applied = $false } }
+if (!$BaseUri -or !$BaseUri.IsAbsoluteUri -or
         $BaseUri.UserInfo -or $BaseUri.Query -or $BaseUri.Fragment -or $BaseUri.AbsolutePath -ne '/') {
     throw 'Provide the approved HTTPS API origin.'
+}
+$target = 'production'
+if ($AllowLocalDevelopment) {
+    if ($BaseUri.Scheme -ne 'http' -or $BaseUri.Host -ne '127.0.0.1' -or $BaseUri.Port -ne 8081) {
+        throw 'The development option accepts only http://127.0.0.1:8081/.'
+    }
+    $target = 'local-development'
+} elseif ($BaseUri.Scheme -ne 'https') { throw 'Production imports require HTTPS.' }
+if (!$ApprovalManifest -or $ExpectedManifestSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+    throw 'Provide the approval manifest and its independently recorded SHA-256.'
+}
+$manifestPath = (Resolve-Path -LiteralPath $ApprovalManifest).Path
+$manifestBytes = [IO.File]::ReadAllBytes($manifestPath)
+$sha = [Security.Cryptography.SHA256]::Create()
+try { $manifestDigest = [BitConverter]::ToString($sha.ComputeHash($manifestBytes)).Replace('-', '') }
+finally { $sha.Dispose() }
+if ($manifestDigest -ine $ExpectedManifestSha256) { throw 'Approval manifest SHA-256 mismatch.' }
+$approval = [Text.Encoding]::UTF8.GetString($manifestBytes).TrimStart([char]0xFEFF) | ConvertFrom-Json
+if ($approval.status -cne 'APPROVED' -or $approval.target -cne $target -or
+        $approval.origin -cne $BaseUri.AbsoluteUri -or $approval.payloadSha256 -ine $digest -or
+        $approval.rows -ne $areas.Count -or $approval.bytes -ne $bytes.Length) {
+    throw 'The manifest does not approve this payload and origin.'
+}
+foreach ($field in 'reviewReference','sourceUrl','sourceDate','licenseUrl','transformSha256','provenanceSha256','backupSha256','legacyPlanReference') {
+    if ([string]::IsNullOrWhiteSpace($approval.$field)) { throw "Missing approval field: $field" }
+}
+foreach ($field in 'transformSha256','provenanceSha256','backupSha256') {
+    if ($approval.$field -notmatch '^[0-9a-fA-F]{64}$') { throw "Invalid SHA-256 field: $field" }
 }
 $token = $env:EODIISSEO_OPS_IMPORT_BEARER
 if ([string]::IsNullOrWhiteSpace($token)) { throw 'Set an authorized OPS session token in the process environment.' }
 $endpoint = [uri]::new($BaseUri, '/api/v1/ops/admin-areas/import')
 try {
-    $result = Invoke-RestMethod -Uri $endpoint -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($payload)) `
-        -ContentType 'application/json; charset=utf-8' -Headers @{Authorization = "Bearer $token"} `
-        -TimeoutSec 60 -MaximumRedirection 0
+    if ($AllowLocalDevelopment) {
+        Add-Type -AssemblyName System.Net.Http
+        $handler = [Net.Http.HttpClientHandler]::new()
+        $handler.UseProxy = $false
+        $handler.AllowAutoRedirect = $false
+        $client = [Net.Http.HttpClient]::new($handler)
+        $content = [Net.Http.ByteArrayContent]::new($bytes)
+        try {
+            $client.Timeout = [TimeSpan]::FromSeconds(120)
+            $client.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$token)
+            $content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::new('application/json')
+            $response = $client.PostAsync($endpoint,$content).GetAwaiter().GetResult()
+            try {
+                $null = $response.EnsureSuccessStatusCode()
+                $result = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json
+            } finally { $response.Dispose() }
+        } finally { $content.Dispose(); $client.Dispose() }
+    } else {
+        $result = Invoke-RestMethod -Uri $endpoint -Method Post -Body $bytes `
+            -ContentType 'application/json; charset=utf-8' -Headers @{Authorization = "Bearer $token"} `
+            -TimeoutSec 120 -MaximumRedirection 0
+    }
 } catch {
     throw 'The OPS import did not return a success response. Check its status before retrying.'
 }

@@ -16,9 +16,14 @@ public class AreaDashboardLocationReader implements DashboardLocationReader {
     private final AreaRepository repository;private final AreaService areas;
     public AreaDashboardLocationReader(AreaRepository repository,AreaService areas){this.repository=repository;this.areas=areas;}
     public BaseLocation resolveCoordinates(double latitude,double longitude){
-        LocationService.coordinates(latitude,longitude);var area=repository.at(latitude,longitude);
-        if(area==null)throw new DashboardException(DashboardException.Reason.DEPENDENCY_UNAVAILABLE,"Verified administrative boundary is unavailable.");
-        return new BaseLocation((String)area.get("name"),latitude,longitude);
+        LocationService.coordinates(latitude,longitude);
+        var matches = repository.coveringSigungu(latitude,longitude);
+        if (matches.size() != 1) {
+            String detail = matches.isEmpty() ? "Verified administrative boundary is unavailable."
+                    : "The location is covered by multiple administrative boundaries.";
+            throw new DashboardException(DashboardException.Reason.DEPENDENCY_UNAVAILABLE,detail);
+        }
+        return new BaseLocation((String)matches.getFirst().get("name"),latitude,longitude);
     }
     public BaseLocation resolveInterestArea(UUID member,UUID id){
         try{areas.owned(member,id);}catch(ApiProblem e){throw new DashboardException(e.status()==403?DashboardException.Reason.FORBIDDEN:DashboardException.Reason.NOT_FOUND,"Interest area is unavailable.");}

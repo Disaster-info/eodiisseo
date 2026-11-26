@@ -53,7 +53,14 @@ public class WeatherService {
         // 잠금을 얻은 뒤 캐시를 다시 확인해 기상청은 한 번만 부른다.
         // ponytail: 서버 인스턴스별 잠금 — 여러 대로 늘리면 같은 격자를 인스턴스 수만큼 중복 호출할 수 있음 (필요 시 DB 갱신 담당 표시로 확장)
         var lock=fresh(previous,now)?null:gridLocks.computeIfAbsent(id+":"+grid.x()+":"+grid.y(),k->new ReentrantLock());
-        if(lock!=null) { lock.lock(); try { previous=latest(id,grid);observation=previous;
+        if(lock!=null && !awaitRefresh(lock)) {
+            observation=latest(id,grid);
+            Instant checkedAt=clock.instant();
+            if(observation==null || !observation.observedAt().plusSeconds(fallbackSeconds).isAfter(checkedAt)) {
+                throw new ApiProblem(503,"WEATHER_REFRESH_IN_PROGRESS","기상정보 갱신 중입니다.");
+            }
+            failed=!fresh(observation,checkedAt);
+        } else if(lock!=null) { try { previous=latest(id,grid);observation=previous;
         if(!fresh(previous,now)) {
             try {
                 observation=provider.current(grid,now);
@@ -68,6 +75,14 @@ public class WeatherService {
         return object("location",object("name",name,"latitude",latitude,"longitude",longitude),"temperature",observation.temperature(),
             "weatherCode",observation.code(),"weatherText",weatherText(observation.code()),"observedAt",observation.observedAt(),"collectedAt",observation.collectedAt(),
             "conditionBasis",observation.basis(),"skyValidAt",observation.skyValidAt(),"stale",failed||!observation.observedAt().plusSeconds(staleSeconds).isAfter(now),"guidance",guidance(observation.code()));
+    }
+    private boolean awaitRefresh(ReentrantLock lock) {
+        try {
+            return lock.tryLock(2,java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new ApiProblem(503,"WEATHER_REFRESH_INTERRUPTED","기상정보 요청이 중단되었습니다.");
+        }
     }
     private boolean fresh(WeatherObservation previous,Instant now) {
         return previous!=null && previous.collectedAt().plusSeconds(cacheSeconds).isAfter(now) && previous.observedAt().plusSeconds(staleSeconds).isAfter(now)

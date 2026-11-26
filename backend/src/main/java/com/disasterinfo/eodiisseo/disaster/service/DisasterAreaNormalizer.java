@@ -1,6 +1,7 @@
 package com.disasterinfo.eodiisseo.disaster.service;
 
 import com.disasterinfo.eodiisseo.auth.repository.OwnedDatabase;
+import com.disasterinfo.eodiisseo.area.AdministrativeAreaCode;
 import java.util.*;
 
 /** Catalog normalization only: never grants impact, incident, recipient or ownership evidence. */
@@ -20,7 +21,8 @@ public final class DisasterAreaNormalizer {
     }
     public Optional<Match> byCode(String code,Meaning meaning){
         if(code==null||!code.matches("[A-Za-z0-9_-]{1,20}")||meaning==null)return Optional.empty();
-        var path=new ArrayList<String>();var seen=new HashSet<String>();String current=code,target=null;String previous=null;
+        String catalogCode=AdministrativeAreaCode.catalogKey(code);
+        var path=new ArrayList<String>();var seen=new HashSet<String>();String current=catalogCode,target=null;String previous=null;
         for(int depth=0;depth<16&&current!=null;depth++){
             if(!seen.add(current))return Optional.empty();var row=node(current);
             if(row==null||!Boolean.TRUE.equals(row.get("active")))return Optional.empty();
@@ -30,7 +32,7 @@ public final class DisasterAreaNormalizer {
             if(target==null&&level.equals("SIGUNGU"))target=current;
             path.add(current);String parent=(String)row.get("parent_area_code");
             // Standalone SIGUNGU catalogs already accepted by the team remain usable; a specified parent must resolve.
-            if(parent==null){if(target==null||level.equals("EUPMYEONDONG")||!code.equals(target)&&hasSigunguChildren(target))return Optional.empty();return Optional.of(new Match(code,target,path,meaning));}
+            if(parent==null){if(target==null||level.equals("EUPMYEONDONG")||!catalogCode.equals(target)&&hasSigunguChildren(target))return Optional.empty();return Optional.of(new Match(code,target,path,meaning));}
             previous=level;current=parent;
         }
         return Optional.empty();
@@ -39,7 +41,10 @@ public final class DisasterAreaNormalizer {
     public Optional<Match> byAddress(String address,Meaning meaning){
         if(address==null||meaning==null||address.length()>300||!address.equals(address.strip())
                 ||java.util.regex.Pattern.compile("(^|\\s)외\\s*([0-9]+|지역)").matcher(address).find()||address.contains(",")||address.contains(";")||address.contains("·")||address.contains("전국")||address.contains("해상"))return Optional.empty();
-        String[] words=address.split("\\s+");if(words.length<2||words.length>6)return Optional.empty();
+        String[] words=address.split("\\s+");if(words.length>6)return Optional.empty();
+        if(words.length==1)return "세종특별자치시".equals(address)
+                ? byCode("36110",meaning).map(m->new Match(address,m.sigungu(),m.catalogPath(),meaning))
+                : Optional.empty();
         var roots=db.rows("select area_code,name,level,parent_area_code,active from admin_area where name=? and level='SIDO'",words[0]);
         if(roots.size()!=1||!Boolean.TRUE.equals(roots.getFirst().get("active"))||roots.getFirst().get("parent_area_code")!=null)return Optional.empty();
         String parent=(String)roots.getFirst().get("area_code"),target=null;

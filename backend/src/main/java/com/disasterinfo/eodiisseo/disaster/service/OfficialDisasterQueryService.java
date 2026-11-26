@@ -41,12 +41,16 @@ public class OfficialDisasterQueryService {
             """;
     }
     public List<Map<String,Object>> list(String type,String status,int page,int size) {
+        return list(type,status,page,size,false);
+    }
+    private List<Map<String,Object>> list(String type,String status,int page,int size,boolean activeByDefault) {
         if(page<0 || size<1 || size>100) throw new IllegalArgumentException("Invalid page");
         var args=new ArrayList<Object>();
         String sql=projection()+" where d.data_origin='OFFICIAL' and (d.status not in ('ENDED','LIFTED') or d.ended_at>?)";
         args.add(clock.instant().minus(Duration.ofDays(90)));
         if(type!=null){sql+=" and t.code=?";args.add(type);}
         if(status!=null){sql+=" and d.status=?";args.add(status);}
+        else if(activeByDefault){sql+=" and d.status in ('OCCURRED','ONGOING')";}
         sql+=" order by d.occurred_at desc,d.disaster_id desc limit ? offset ?";
         args.add(size);args.add((long)page*size);
         return db.rows(sql,args.toArray());
@@ -58,7 +62,11 @@ public class OfficialDisasterQueryService {
 
     @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public VerifiedList verifiedList(String type, String status, int page, int size) {
-        var rows = list(type, status, page, size);
+        return verifiedList(type,status,page,size,false);
+    }
+
+    public VerifiedList verifiedList(String type, String status, int page, int size, boolean activeByDefault) {
+        var rows = list(type, status, page, size, activeByDefault);
         if (rows.isEmpty()) {
             requireVerifiedEmptyList(type);
             return new VerifiedList(rows, "LATEST");
@@ -75,6 +83,9 @@ public class OfficialDisasterQueryService {
     }
 
     private boolean haveCurrentListCoverage(List<Map<String,Object>> rows) {
+        if (!db.tableExists("owned_collection_coverage") || !db.tableExists("owned_collection_cursor")) {
+            return false;
+        }
         var ids = new StringJoiner(",");
         rows.forEach(row -> ids.add(row.get("disaster_id").toString()));
         Instant now = clock.instant();

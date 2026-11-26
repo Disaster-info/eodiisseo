@@ -40,6 +40,11 @@ class CanonicalDatabaseIntegrationTest {
     static Clock clock=Clock.systemUTC();
     static Flyway flyway;
     @BeforeAll static void createDatabase() {
+        createEmptyDatabase();
+        flyway=Flyway.configure().dataSource(source).locations("classpath:db/migration").load();
+        flyway.migrate();flyway.validate();
+    }
+    static void createEmptyDatabase() {
         String url=System.getenv("EODIISSEO_AUDIT_JDBC_URL");
         if(!"true".equals(System.getenv("EODIISSEO_AUDIT_DISPOSABLE")) || url==null || !url.matches("jdbc:postgresql://127\\.0\\.0\\.1:55433/postgres"))
             throw new IllegalStateException("Use only the isolated local audit cluster on 55433");
@@ -48,8 +53,6 @@ class CanonicalDatabaseIntegrationTest {
         admin.execute("CREATE DATABASE "+name);
         source=new DriverManagerDataSource(url.replace("/postgres","/"+name),"eodiisseo_audit","");
         db=new OwnedDatabase(new JdbcTemplate(source));manager=new DataSourceTransactionManager(source);tx=new TransactionTemplate(manager);
-        flyway=Flyway.configure().dataSource(source).locations("classpath:db/migration").load();
-        flyway.migrate();flyway.validate();
     }
     @AfterAll static void dropOnlyCreatedDatabase() {
         if(admin!=null && name!=null && name.matches("eodiisseo_verify_[0-9a-f]{32}")) admin.execute("DROP DATABASE "+name+" WITH (FORCE)");

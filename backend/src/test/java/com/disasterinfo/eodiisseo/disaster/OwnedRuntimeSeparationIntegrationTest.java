@@ -144,6 +144,19 @@ class OwnedRuntimeSeparationIntegrationTest {
         assertThat(sql.queryForObject("select count(*) from notification_setting where member_id=?",Long.class,member.memberId())).isEqualTo(1);
         assertThat(http(member,"GET","/api/v1/notification-settings",null).statusCode()).isEqualTo(200);
         assertThat(http(member,"GET","/api/v1/dashboard?latitude=37&longitude=127",null).statusCode()).isEqualTo(500);
+        String dashboardArea="DASH-"+UUID.randomUUID().toString().substring(0,8);
+        sql.update("""
+                insert into admin_area(area_code,name,level,active,boundary)
+                values(?,'SYNTHETIC dashboard area','SIGUNGU',true,
+                  ST_GeomFromText('MULTIPOLYGON(((126.9 36.9,127.1 36.9,127.1 37.1,126.9 37.1,126.9 36.9)))',4326))
+                """,dashboardArea);
+        try {
+            var dashboard=http(member,"GET","/api/v1/dashboard?latitude=37&longitude=127",null);
+            assertThat(dashboard.statusCode()).isEqualTo(200);
+            assertThat(dashboard.body()).contains("SYNTHETIC dashboard area","majorDisasters","weatherStatus");
+        } finally {
+            sql.update("delete from admin_area where area_code=?",dashboardArea);
+        }
         // Explicit repair remains idempotent for a member already initialized at signup.
         app.getBean(NotificationRetentionService.class).onMemberCreated(member.memberId(),Instant.now());
         assertThat(sql.queryForObject("select enabled from notification_setting where member_id=?",Boolean.class,member.memberId())).isFalse();
@@ -1478,7 +1491,7 @@ class OwnedRuntimeSeparationIntegrationTest {
         }
     }
     /** Audit reproduction of team-owned relevance; true SOURCE_ADDRESS is a known defect, not approval of that policy. */
-    @Test @Order(100) void c1AreaRelevanceAuditExposesSourceAddressFallbackAndAncestorOnlyTraversal(){
+    @Test @Order(100) void c1AreaRelevanceFollowsAncestorsAndDescendantsAndRetainsOfficialDispatchGate(){
         UUID disaster=write("c1-area-"+UUID.randomUUID(),"first");var member=actor();
         UUID source=sql.queryForObject("select source_disaster_id from source_disaster where disaster_id=?",UUID.class,disaster);
         tx.executeWithoutResult(status->{
@@ -1508,10 +1521,10 @@ class OwnedRuntimeSeparationIntegrationTest {
             assertThat(dispatch.process(change,Instant.now()).createdEvents()).isZero();assertThat(sent.get()).isEqualTo(1);
             assertThat(interests.isRelated(disaster,subscribed.get(city))).isTrue();
             assertThat(interests.isRelated(disaster,subscribed.get(dong))).isTrue();
-            assertThat(interests.isRelated(disaster,subscribed.get(root))).as("Ancestor subscription misses descendant impact; broader subscription product contract unconfirmed").isFalse();
+            assertThat(interests.isRelated(disaster,subscribed.get(root))).isTrue();
             assertThat(interests.isRelated(disaster,subscribed.get(other))).isFalse();
             sql.update("update disaster_area set area_code=? where disaster_area_id=?",dong,impact);
-            assertThat(interests.isRelated(disaster,subscribed.get(city))).as("City subscription misses dong impact").isFalse();
+            assertThat(interests.isRelated(disaster,subscribed.get(city))).isTrue();
             sql.update("update admin_area set active=false where area_code=?",dong);
             assertThat(interests.isRelated(disaster,subscribed.get(dong))).isFalse();
             sql.update("update admin_area set active=true where area_code=?",dong);
@@ -1703,8 +1716,7 @@ class OwnedRuntimeSeparationIntegrationTest {
             transaction.setRollbackOnly();
         });
     }
-    /** Known team-owned limitation, kept as an audit reproduction rather than accepted notification policy. */
-    @Test @Order(115) void subscribedParentSigunguStillMissesAChildGuUnderTheTeamAncestorOnlyRule(){
+    @Test @Order(115) void subscribedParentSigunguMatchesAnOfficiallyImpactedChildGu(){
         var f=regionCase("CITY");
         String parent=sql.queryForObject("select parent_area_code from admin_area where area_code=?",String.class,f.city());
         tx.executeWithoutResult(st->{
@@ -1714,7 +1726,7 @@ class OwnedRuntimeSeparationIntegrationTest {
             UUID parentInterest=UUID.fromString(selected.get("interestAreaId").toString());
             assertThat(app.getBean(com.disasterinfo.eodiisseo.area.repository.AreaRepository.class).region(parent)).isNotNull();
             assertThat(app.getBean(InterestAreas.class).isRelated(f.disaster(),f.interest())).isTrue();
-            assertThat(app.getBean(InterestAreas.class).isRelated(f.disaster(),parentInterest)).as("Known team defect: a subscribed parent SIGUNGU is not matched to an officially impacted child gu").isFalse();
+            assertThat(app.getBean(InterestAreas.class).isRelated(f.disaster(),parentInterest)).isTrue();
             st.setRollbackOnly();
         });
     }

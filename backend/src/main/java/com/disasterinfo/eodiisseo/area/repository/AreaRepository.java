@@ -20,5 +20,14 @@ public class AreaRepository {
     public void delete(UUID id){db.update("delete from interest_area where interest_area_id=?",id);}
     public List<Map<String,Object>> list(UUID member){return db.rows("select interest_area_id as \"interestAreaId\",area_code as \"regionCode\",display_name as \"displayName\" from interest_area where member_id=? order by created_at,interest_area_id",member);}
     public Map<String,Object> center(UUID member,UUID id){return db.one("select i.member_id,a.name,ST_Y(a.center_point::geometry) as latitude,ST_X(a.center_point::geometry) as longitude from interest_area i join admin_area a using(area_code) where i.interest_area_id=? and i.member_id=? and a.active",id,member);}
-    public Map<String,Object> at(double latitude,double longitude){return db.one("select name from admin_area where active and level='SIGUNGU' and boundary is not null and ST_Covers(boundary,ST_SetSRID(ST_MakePoint(?,?),4326)) order by area_code limit 1",longitude,latitude);}
+    public List<Map<String,Object>> coveringSigungu(double latitude,double longitude) {
+        return db.rows("""
+                select a.area_code,a.name from admin_area a
+                where a.active and a.level='SIGUNGU' and a.boundary is not null
+                  and ST_Covers(a.boundary,ST_SetSRID(ST_MakePoint(?,?),4326))
+                  and not exists (select 1 from admin_area child where child.parent_area_code=a.area_code
+                                  and child.active and child.level='SIGUNGU')
+                limit 2
+                """,longitude,latitude);
+    }
 }

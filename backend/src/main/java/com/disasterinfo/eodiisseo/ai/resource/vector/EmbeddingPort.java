@@ -4,7 +4,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-/** No HTTP/model implementation is registered. This phase accepts explicitly network-free test ports only. */
+/** Embedding adapters must check input permission explicitly. No network implementation is registered by default. */
 public interface EmbeddingPort {
     default boolean networkFree(){return false;}
     default boolean configured(){return networkFree();}

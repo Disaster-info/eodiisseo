@@ -59,6 +59,9 @@ public class WeatherServiceDashboardReader implements DashboardWeatherReader {
         } catch (AccessDeniedException failure) {
             throw rejected(DashboardException.Reason.FORBIDDEN);
         } catch (RuntimeException failure) {
+            org.slf4j.LoggerFactory.getLogger(WeatherServiceDashboardReader.class)
+                    .warn("dashboard weather dependency failed traceId={} exceptionType={}",
+                            org.slf4j.MDC.get("traceId"),failure.getClass().getSimpleName());
             throw unavailable();
         }
         if (result == null) {

@@ -1,0 +1,16 @@
+{
+  "status": "PENDING",
+  "target": "local-development",
+  "origin": "http://127.0.0.1:8081/",
+  "payloadSha256": "",
+  "rows": 285,
+  "bytes": 0,
+  "reviewReference": "",
+  "legacyPlanReference": "",
+  "sourceUrl": "https://www.vworld.kr/dtmk/dtmk_ntads_s002.do?svcCde=NA&dsId=21",
+  "sourceDate": "2026-11-09",
+  "licenseUrl": "https://creativecommons.org/licenses/by/2.0/kr/",
+  "transformSha256": "",
+  "provenanceSha256": "",
+  "backupSha256": ""
+}

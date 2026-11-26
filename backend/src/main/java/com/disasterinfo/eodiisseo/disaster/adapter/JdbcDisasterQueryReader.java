@@ -7,6 +7,7 @@ import com.disasterinfo.eodiisseo.dashboard.dto.DisasterDetailResponse;
 import com.disasterinfo.eodiisseo.dashboard.dto.DisasterListQuery.Criteria;
 import com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterQueryReader;
 import com.disasterinfo.eodiisseo.dashboard.port.DashboardDisasterReader.DataOrigin;
+import com.disasterinfo.eodiisseo.disaster.service.OfficialDisasterQueryService;
 import java.time.Clock;
 import java.util.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,7 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class JdbcDisasterQueryReader implements DashboardDisasterQueryReader {
     private final OwnedDatabase db;
     private final Clock clock;
-    public JdbcDisasterQueryReader(OwnedDatabase db,Clock clock){this.db=db;this.clock=clock;}
+    private final OfficialDisasterQueryService officialQueries;
+    public JdbcDisasterQueryReader(OwnedDatabase db,Clock clock){
+        this(db,clock,new OfficialDisasterQueryService(db,clock,java.time.Duration.ofHours(24)));
+    }
+    public JdbcDisasterQueryReader(OwnedDatabase db,Clock clock,OfficialDisasterQueryService officialQueries){
+        this.db=db;this.clock=clock;this.officialQueries=officialQueries;
+    }
     private static final String SELECT="""
         select d.*,t.code type_code,v.code severity_code,
           (select case when count(*)=1 then min(s.source_address) end
@@ -26,34 +33,19 @@ public class JdbcDisasterQueryReader implements DashboardDisasterQueryReader {
         """;
     public boolean existsType(String code){return db.count("select count(*) from disaster_type where code=?",code)>0;}
     public ListSnapshot findDisasters(Criteria criteria){
-        var sql=new StringBuilder(SELECT).append(" where d.data_origin='OFFICIAL'");
-        var args=new ArrayList<Object>();
-        if(criteria.type()!=null){sql.append(" and t.code=?");args.add(criteria.type());}
-        if(criteria.status()!=null){sql.append(" and d.status=?");args.add(criteria.status().name());}
-        else sql.append(" and d.status in ('OCCURRED','ONGOING')");
-        sql.append(" order by d.occurred_at desc,d.disaster_id");
-        // Lists have no per-item freshness field. Refuse a stale list instead of claiming it is latest.
-        var rows=db.rows(sql.toString(),args.toArray());
-        boolean fresh=rows.isEmpty()?earthquakeCollectionReady():rows.stream().allMatch(r->fresh((UUID)r.get("disaster_id")));
-        return new ListSnapshot(rows.stream().map(r->new Entry(major(r),DataOrigin.OFFICIAL)).toList(),true,fresh);
-    }
-    private boolean earthquakeCollectionReady(){
-        // Only the earthquake collector currently produces normalized disaster facts.
-        var row=db.one("""
-            select p.active,p.collection_interval_minutes,r.status latest_status,r.finished_at collected_at
-            from data_source p left join lateral
-              (select status,finished_at from collection_run where source_id=p.source_id and mode='LIVE'
-               order by started_at desc,run_id desc limit 1) r on true
-            where p.endpoint_key='KMA_EARTHQUAKE'
-            """);
-        return row!=null&&isFresh(row);
+        var verified=officialQueries.verifiedList(criteria.type(),criteria.status()==null?null:criteria.status().name(),
+                criteria.page(),criteria.size(),true);
+        var regions=officialQueries.displayRegions(verified.rows());
+        return new ListSnapshot(verified.rows().stream().map(row->new Entry(
+                major(row,regions.get((UUID)row.get("disaster_id"))),DataOrigin.OFFICIAL)).toList(),
+                true,true,verified.dataStatus());
     }
     public Optional<DetailSnapshot> findDisaster(UUID id){
         var row=db.one(SELECT+" where d.disaster_id=? and d.data_origin='OFFICIAL'",id);
         if(row==null)return Optional.empty();
         var sources=db.rows("select s.*,p.name organization from source_disaster s join data_source p using(source_id) where s.disaster_id=? order by s.source_disaster_id",id);
         if(sources.size()!=1)throw new DashboardException(DashboardException.Reason.POLICY_UNRESOLVED,"A single official source is required; originals are never combined.");
-        var source=sources.getFirst();var d=major(row);
+        var source=sources.getFirst();var d=major(row,(String)row.get("region"));
         return Optional.of(new DetailSnapshot(new DisasterDetailResponse(id,d.type(),d.title(),d.region(),d.occurredAt(),d.severity(),d.status(),
             (String)source.get("original_text"),new DisasterDetailResponse.Source((String)source.get("organization")),d.updatedAt(),fresh(id)?"LATEST":"STALE"),DataOrigin.OFFICIAL));
     }
@@ -75,5 +67,5 @@ public class JdbcDisasterQueryReader implements DashboardDisasterQueryReader {
             return interval!=null&&interval.longValue()>0&&collected!=null&&!collected.isAfter(clock.instant())
                 &&collected.isAfter(clock.instant().minusSeconds(interval.longValue()*60));
     }
-    private MajorDisaster major(Map<String,Object> r){return new MajorDisaster((UUID)r.get("disaster_id"),(String)r.get("type_code"),(String)r.get("title"),(String)r.get("region"),DisasterStatus.valueOf((String)r.get("status")),(String)r.get("severity_code"),OwnedDatabase.instant(r.get("occurred_at")),OwnedDatabase.instant(r.get("updated_at")));}
+    private MajorDisaster major(Map<String,Object> r,String region){return new MajorDisaster((UUID)r.get("disaster_id"),(String)r.get("type_code"),(String)r.get("title"),region,DisasterStatus.valueOf((String)r.get("status")),(String)r.get("severity_code"),OwnedDatabase.instant(r.get("occurred_at")),OwnedDatabase.instant(r.get("updated_at")));}
 }

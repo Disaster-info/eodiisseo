@@ -14,6 +14,8 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service @Profile("!test")
 public class AdministrativeAreaImportService {
+    private static final URI VWORLD_LEGAL_AREA_CATALOG =
+            URI.create("https://www.vworld.kr/dtmk/dtmk_ntads_s002.do?svcCde=NA&dsId=21");
     private final OwnedDatabase db;private final ObjectMapper json;private final Clock clock;
     public AdministrativeAreaImportService(OwnedDatabase db,ObjectMapper json,Clock clock){this.db=db;this.json=json;this.clock=clock;}
     @Transactional public int importAreas(List<AdministrativeAreaInput> rows){
@@ -23,7 +25,8 @@ public class AdministrativeAreaImportService {
         for(var row:rows){
             if(!Set.of("SIDO","SIGUNGU","EUPMYEONDONG").contains(row.level())||!seen.add(row.regionCode()))throw ApiProblem.bad("행정구역 단위 또는 중복 코드를 확인하세요.");
             URI uri;try{uri=URI.create(row.sourceUrl());}catch(Exception e){throw ApiProblem.bad("출처 URL을 확인하세요.");}
-            if(!Set.of("http","https").contains(uri.getScheme())||uri.getHost()==null||uri.getUserInfo()!=null||uri.getQuery()!=null)throw ApiProblem.bad("인증정보 없는 출처 URL이 필요합니다.");
+            if(!Set.of("http","https").contains(uri.getScheme())||uri.getHost()==null||uri.getUserInfo()!=null
+                    ||(uri.getRawQuery()!=null&&!VWORLD_LEGAL_AREA_CATALOG.equals(uri)))throw ApiProblem.bad("인증정보 없는 출처 URL이 필요합니다.");
             if(row.sourceUpdatedAt().isAfter(clock.instant())||row.baseYear()>java.time.Year.now(clock).getValue())throw ApiProblem.bad("자료 기준시각을 확인하세요.");
             if((row.latitude()==null)!=(row.longitude()==null))throw ApiProblem.bad("중심 좌표를 함께 입력하세요.");
             if(row.latitude()!=null)LocationService.coordinates(row.latitude(),row.longitude());

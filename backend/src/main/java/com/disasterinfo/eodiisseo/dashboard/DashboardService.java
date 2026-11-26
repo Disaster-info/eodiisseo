@@ -29,6 +29,7 @@ import java.util.UUID;
  */
 @Service
 public class DashboardService {
+    private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(DashboardService.class);
 
     private final Optional<DashboardLocationReader> locationReader;
     private final Optional<DashboardDisasterReader> disasterReader;
@@ -143,6 +144,8 @@ public class DashboardService {
             }
             return null;
         } catch (RuntimeException exception) {
+            LOG.warn("dashboard weather degraded traceId={} exceptionType={}",
+                    org.slf4j.MDC.get("traceId"),exception.getClass().getSimpleName());
             return null;
         }
     }

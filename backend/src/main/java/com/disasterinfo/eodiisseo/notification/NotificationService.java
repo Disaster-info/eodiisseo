@@ -37,7 +37,12 @@ public class NotificationService {
 
     public SettingsResponse getSettings(MemberSession session) {
         requireAuthenticated(session);
-        Settings settings = connected(store).findSettings(session.memberId());
+        Store data = connected(store);
+        Settings settings = data.findSettings(session.memberId());
+        if (settings == null) {
+            data.initializeSettings(session.memberId(), Instant.now());
+            settings = data.findSettings(session.memberId());
+        }
         if (settings == null) throw unavailable();
         SettingsResponse result = response(session.memberId(), settings);
         requireAuthenticated(session);
@@ -53,6 +58,11 @@ public class NotificationService {
         Settings locked;
         try { locked = connected(store).findSettingsForUpdate(session.memberId()); }
         catch (UnsupportedOperationException unsupported) { throw unavailable(); }
+        if (locked == null) {
+            Store data = connected(store);
+            data.initializeSettings(session.memberId(), Instant.now());
+            locked = data.findSettingsForUpdate(session.memberId());
+        }
         if (locked == null) throw unavailable();
         List<String> selected = presentFields.contains("interestAreaIds") ? values.interestAreaIds()
                 : selectedAreaIds(session.memberId()).stream().map(UUID::toString).toList();
